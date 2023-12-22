@@ -1,0 +1,9 @@
+config BR2_PACKAGE_ROCKCHIP_CANFD_KERNEL_MODULE
+	bool "rockchip_canfd"
+	depends on BR2_LINUX_KERNEL
+	help
+	  Kernel module for rk3568 CANFD controller.
+	  Ported from kernel 4.19 to 6.1.
+
+comment "rockchip_canfd needs a Linux kernel to be built"
+	depends on !BR2_LINUX_KERNEL

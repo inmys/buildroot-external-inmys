@@ -1,0 +1,1 @@
+source "$BR2_EXTERNAL_INMYS_PATH/package/rockchip_canfd/Config.in"
