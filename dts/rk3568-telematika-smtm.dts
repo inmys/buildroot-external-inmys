@@ -1,0 +1,381 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+
+/dts-v1/;
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/leds/common.h>
+#include <dt-bindings/pinctrl/rockchip.h>
+#include <dt-bindings/soc/rockchip,vop2.h>
+#include "rk3568-inmys-smarc-som_v2.dtsi"
+
+/ {
+	model = "SM_TM Motherboard with NMS-SM-RK3568";
+	compatible = "telematika,rk3568-sm-tm", "inmys,rk3568-smarc-som", "rockchip,rk3568";
+
+	leds {
+		compatible = "gpio-leds";
+	
+		/* i2c mux on Mother board ( D15_i2cmux@74 )*/
+		i2cmux_reset {
+			gpios = <&gpio3 RK_PD5 GPIO_ACTIVE_HIGH>;
+			default-state = "off"; //on - mux in reset, off - no reset on mux
+		};
+		
+	};
+
+	watchdog: watchdog {
+		/* on stm8 MCU, by gpio */
+		compatible = "linux,wdt-gpio";
+		gpios = <&gpio1 RK_PD3 GPIO_ACTIVE_HIGH>;
+		hw_algo = "toggle";
+		hw_margin_ms = <1600>;
+	};
+		
+
+	vcc24v_dcin: vcc24v-dcin {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc24v_dcin";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <24000000>;
+		regulator-max-microvolt = <24000000>;
+	};
+
+	vcc5v0_mb: vcc5v0-mb {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc5v0_mb";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		vin-supply = <&vcc12v_dcin>;
+	};
+
+	vcc3v3_mb: vcc3v3-mb {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc3v3_mb";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		vin-supply = <&vcc12v_dcin>;
+	};
+};
+
+&smarc_vdd_in{
+	/* 5V to SOM */
+	vin-supply = <&vcc5v0_mb>;
+};
+
+&gmac0 {
+	status = "okay";
+};
+
+&gmac1 {
+	status = "okay";
+};
+
+
+/* HDMI output */
+/{
+	hdmi-con {
+		compatible = "hdmi-connector";
+		type = "a";
+
+		port {
+			hdmi_con_in: endpoint {
+				remote-endpoint = <&hdmi_out_con>;
+			};
+		};
+	};
+};
+
+&gpu {
+	status = "okay";
+};
+
+&hdmi {
+	status = "okay";
+};
+
+&hdmi_in {
+	hdmi_in_vp0: endpoint {
+		remote-endpoint = <&vp0_out_hdmi>;
+	};
+};
+
+&hdmi_out {
+	hdmi_out_con: endpoint {
+		remote-endpoint = <&hdmi_con_in>;
+	};
+};
+
+&vop {
+	status = "okay";
+};
+
+&vop_mmu {
+	status = "okay";
+};
+
+&vp0 {
+	vp0_out_hdmi: endpoint@ROCKCHIP_VOP2_EP_HDMI0 {
+		reg = <ROCKCHIP_VOP2_EP_HDMI0>;
+		remote-endpoint = <&hdmi_in_vp0>;
+	};
+};
+
+&hdmi_sound {
+	status = "okay";
+};
+
+&i2s0_8ch {
+	status = "okay";
+};
+
+
+/* end HDMI */
+
+
+/* pcie to mini PCIE connector */
+&combphy2 {
+	status = "okay";
+};
+
+&pcie2x1 {
+	status = "okay";
+};
+/* end mini PCIE connector */
+
+
+/* has no sdcard on Motherboard, but has in evm board: rm? */
+&sdmmc0 {
+	status = "okay";
+};
+
+&uart2 {
+	status = "okay";
+};
+
+&uart4 {
+	status = "okay";
+};
+
+&uart5 {
+	status = "okay";
+};
+
+&uart8 {
+	status = "okay";
+};
+
+
+/* usb*/
+&usb2phy0 {
+	status = "okay";
+};
+
+&usb2phy0_host {
+	/*phy-supply = <&vcc5v0_usb_host>;*/
+	status = "okay";
+};
+
+&usb2phy0_otg {
+	/*phy-supply = <&vcc5v0_usb_otg>;*/
+	status = "okay";
+};
+
+&usb_host0_ehci {
+	status = "okay";
+};
+
+&usb_host0_ohci {
+	status = "okay";
+};
+
+&usb_host0_xhci {
+	/*extcon = <&usb2phy0>;*/
+	status = "okay";
+};
+
+
+/* */
+&usb2phy1 {
+	status = "okay";
+};
+
+&usb2phy1_host {
+	/*phy-supply = <&vcc5v0_usb_host>;*/
+	status = "okay";
+};
+
+&usb2phy1_otg {
+	/*phy-supply = <&vcc5v0_usb_host>;*/
+	status = "okay";
+};
+
+&usb_host1_ehci {
+	status = "okay";
+};
+
+&usb_host1_ohci {
+	status = "okay";
+};
+
+&usb_host1_xhci {
+	status = "okay";
+};
+
+
+/* SATA to m.2 connector */
+&combphy1 {
+	status = "okay";
+};
+
+&sata1 {
+        status = "okay";
+};
+/* end SATA to m.2 connector */
+
+/* SMARC: I2C_GP */
+&i2c3{
+	status = "okay";
+	D15_i2cmux@74 {
+		compatible = "nxp,pca9546";
+		reg = <0x74>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		// vcc-supply = <&regulator_i2c_3v3>;
+		// vcc-pullup-supply = <&regulator_i2c_3v3>;
+		i2c-mux-idle-disconnect;
+		I2C_MPCI: ch@0 { /* to mini PCIE connector */
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+		I2C_GP_A: ch@1 { /* to stm8 (watchdog) */
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+		I2C_DSI0: ch@2 { /* not connected */
+			reg = <2>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+		I2C_DSI1: ch@3 { /* not connected */
+			reg = <3>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+	};
+};
+
+/{
+	leds{
+		/* rs485/422 A config pins*/
+		rs_A_fullduplex_mode{
+			gpios = <&gpio3 RK_PD4 GPIO_ACTIVE_HIGH>;
+			default-state = "on"; //on - RS422, off - RS485
+		};
+		rs_A_therm_AB{
+			gpios = <&gpio1 RK_PA7 GPIO_ACTIVE_HIGH>;
+			default-state = "off"; //on - enable 120 Ohm resistor on AB line
+		};
+		rs_A_therm_XY{
+			gpios = <&gpio1 RK_PA5 GPIO_ACTIVE_HIGH>;
+			default-state = "off"; //on - enable 120 Ohm resistor on XY line
+		};
+		
+
+		/* rs485/422 B config pins*/
+		rs_B_fullduplex_mode {
+			gpios = <&gpio3 RK_PD2 GPIO_ACTIVE_HIGH>;
+			default-state = "on"; //on - RS422, off - RS485
+		};
+		rs_B_therm_AB {
+			gpios = <&gpio4 RK_PC0 GPIO_ACTIVE_HIGH>;
+			default-state = "on"; //on - enable 120 Ohm resistor on AB line
+		};
+		rs_B_therm_XY {
+			gpios = <&gpio1 RK_PA3 GPIO_ACTIVE_HIGH>;
+			default-state = "on"; //on - enable 120 Ohm resistor on XY line
+		};
+	};
+};
+
+&spi0 {
+	status = "okay";
+	spi2uart@0 {
+		/*spi -> two uarts, rs485/422 : sc16is752*/
+		compatible = "nxp,sc16is752";	
+		reg = <0>; /*cs0*/
+		spi-max-frequency = <500000>; /*sc16is752: max 4MHz*/
+		clock-frequency = <14745600>;
+		interrupt-parent = <&gpio4>;
+		interrupts = <RK_PC3 IRQ_TYPE_LEVEL_LOW>; /* 8*2+3 */
+	};
+};
+
+
+/{
+	leds {
+		/*CAN A config pins*/
+		CAN_A_therm {
+			gpios = <&gpio4 RK_PC6 GPIO_ACTIVE_HIGH>;
+			default-state = "on"; //on - enable 120 Ohm resistor
+		};
+
+	};
+};
+
+&can0 { /* SMARC CAN0 -> CAN A */
+	status = "okay";
+};
+
+/{
+	leds {
+		/*CAN B config pins*/
+		CAN_B_therm {
+			gpios = <&gpio4 RK_PC2 GPIO_ACTIVE_HIGH>;
+			default-state = "on"; //on - enable 120 Ohm resistor
+		};
+	};
+};
+
+&can2 { /* SMARC CAN1 -> CAN B */
+	status = "okay";
+};
+
+
+&gpio3 {
+
+	/* rockcip combphy1(multi_phy1) work or in sata mode or in USB3 SS mode */
+	/* gpio ctrl on SMARC module */
+	/* SATA(SMARC SATA1): SMARC pins: P48,P49,P51,P52 */
+	/* USB3(SMARC USB3_HOST1_SS) SMARC pins: S71,S72,S74,S75 */
+	sata_usb3_mux_hog {
+		gpio-hog;
+		gpios = <RK_PB5 GPIO_ACTIVE_HIGH>;
+		output-low; /* SMARC SATA1 */
+		/*output-high;*/ /* SMARC USB3_HOST1_SS */
+
+		/* selected SMARC SATA1 -> go to m.2 connector*/
+	};
+	
+	/* gpio ctrl on SMARC module */
+	/* on SMARC pins  S139/S140: or CAN(SMARC CAN1) or i2c (I2C_LCD) */
+	i2c2_can_mux_hog {
+		gpio-hog;
+		gpios = <RK_PD1 GPIO_ACTIVE_HIGH>;
+		output-low;  /* CAN */
+		/* output-high; */ /* i2c */
+	};
+
+	/* gpio ctrl on Mother board: spi->uart IC(spi2uart@0) reset*/
+	spi2uart_reset_hog {
+		gpio-hog;
+		gpios = <RK_PD3 GPIO_ACTIVE_HIGH>;
+		output-high; /*no reset */
+	};
+};
+
