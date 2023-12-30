@@ -346,30 +346,21 @@
 	status = "okay";
 };
 
+&sata_usb3_mux_hog{
+	output-low; /* SMARC SATA1 */
+	/*output-high;*/ /* SMARC USB3_HOST1_SS */
+
+	/* selected SMARC SATA1 -> go to m.2 connector*/
+};
+
+&can_i2c2_mux_hog{
+	output-low;  /* CAN */
+	/* output-high; */ /* i2c */
+
+	/* selected CAN -> CAN interface on pins S139/S140 */
+};
 
 &gpio3 {
-
-	/* rockcip combphy1(multi_phy1) work or in sata mode or in USB3 SS mode */
-	/* gpio ctrl on SMARC module */
-	/* SATA(SMARC SATA1): SMARC pins: P48,P49,P51,P52 */
-	/* USB3(SMARC USB3_HOST1_SS) SMARC pins: S71,S72,S74,S75 */
-	sata_usb3_mux_hog {
-		gpio-hog;
-		gpios = <RK_PB5 GPIO_ACTIVE_HIGH>;
-		output-low; /* SMARC SATA1 */
-		/*output-high;*/ /* SMARC USB3_HOST1_SS */
-
-		/* selected SMARC SATA1 -> go to m.2 connector*/
-	};
-	
-	/* gpio ctrl on SMARC module */
-	/* on SMARC pins  S139/S140: or CAN(SMARC CAN1) or i2c (I2C_LCD) */
-	i2c2_can_mux_hog {
-		gpio-hog;
-		gpios = <RK_PD1 GPIO_ACTIVE_HIGH>;
-		output-low;  /* CAN */
-		/* output-high; */ /* i2c */
-	};
 
 	/* gpio ctrl on Mother board: spi->uart IC(spi2uart@0) reset*/
 	spi2uart_reset_hog {
