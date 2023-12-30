@@ -159,7 +159,7 @@
 };
 
 
-/* usb*/
+/* USB start */
 &usb2phy0 {
 	status = "okay";
 };
@@ -186,9 +186,11 @@
 	extcon = <&usb2phy0>;
 	status = "okay";
 };
+&combphy0 { /* USB3_OTG SS */
+	status = "okay";
+};
 
 
-/* */
 &usb2phy1 {
 	status = "okay";
 };
@@ -214,10 +216,7 @@
 &usb_host1_xhci {
 	status = "okay";
 };
-
-&combphy0 { /* USB3_OTG SS */
-	status = "okay";
-};
+/* end USB*/
 
 
 /* SATA to m.2 connector */
