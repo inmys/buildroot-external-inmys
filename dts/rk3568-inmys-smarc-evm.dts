@@ -112,11 +112,10 @@
 	status = "okay";
 };
 
-
 /* end HDMI */
 
 
-/* pcie to mini PCIE connector */
+/* mini PCIE connector */
 &combphy2 {
 	status = "okay";
 };
@@ -137,7 +136,6 @@
 /* end PCIE X4 connector */
 
 
-/* has no sdcard on Motherboard, but has in evm board: rm? */
 &sdmmc0 {
 	status = "okay";
 };
@@ -229,6 +227,7 @@
 };
 /* end SATA to m.2 connector */
 
+
 /* SMARC: I2C_GP */
 &i2c3{
 	status = "okay";
@@ -303,7 +302,6 @@
 		};
 		
 	};
-
 };
 
 /*SMARC: I2C_CAM0*/
@@ -347,14 +345,14 @@
 	status = "okay";
 };
 
-&sata_usb3_mux_hog{
+&sata_usb3_mux_hog {
 	output-low; /* SMARC SATA1 */
 	/*output-high;*/ /* SMARC USB3_HOST1_SS */
 
 	/* selected SMARC SATA1 -> go to m.2 connector*/
 };
 
-&can_i2c2_mux_hog{
+&can_i2c2_mux_hog {
 	output-low;  /* CAN */
 	/* output-high; */ /* i2c */
 

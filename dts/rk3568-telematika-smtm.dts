@@ -136,7 +136,7 @@
 /* end HDMI */
 
 
-/* pcie to mini PCIE connector */
+/* mini PCIE connector */
 &combphy2 {
 	status = "okay";
 };
@@ -306,7 +306,7 @@
 &spi0 {
 	status = "okay";
 	spi2uart@0 {
-		/*spi -> two uarts, rs485/422 : sc16is752*/
+		/* spi -> two rs485/422 (A,B) */
 		compatible = "nxp,sc16is752";	
 		reg = <0>; /*cs0*/
 		spi-max-frequency = <500000>; /*sc16is752: max 4MHz*/
@@ -346,14 +346,14 @@
 	status = "okay";
 };
 
-&sata_usb3_mux_hog{
+&sata_usb3_mux_hog {
 	output-low; /* SMARC SATA1 */
 	/*output-high;*/ /* SMARC USB3_HOST1_SS */
 
 	/* selected SMARC SATA1 -> go to m.2 connector*/
 };
 
-&can_i2c2_mux_hog{
+&can_i2c2_mux_hog {
 	output-low;  /* CAN */
 	/* output-high; */ /* i2c */
 
