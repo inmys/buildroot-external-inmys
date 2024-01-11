@@ -1,5 +1,5 @@
-config BR2_PACKAGE_ROCKCHIP_CANFD_KERNEL_MODULE
-	bool "rockchip_canfd"
+config BR2_PACKAGE_ROCKCHIP_CANFD
+	bool "rockchip-canfd"
 	depends on BR2_LINUX_KERNEL
 	help
 	  Kernel module for rk3568 CANFD controller.
