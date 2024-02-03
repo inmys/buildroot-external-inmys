@@ -9,8 +9,8 @@
 //#include "rockchip/rk3568.dtsi"
 
 / {
-	model = "NMS-SM-RK3568";
-	compatible = "inmys,rk3568-smarc-som_v2", "inmys,rk3568-smarc-som", "rockchip,rk3568";
+	model = "NMS-NV-RK3568";
+	compatible = "inmys,rk3568-nv-som", "rockchip,rk3568";
 
 	aliases {
 		ethernet0 = &gmac0; /*SMARC: GBE0*/
