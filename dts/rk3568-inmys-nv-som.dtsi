@@ -6,21 +6,18 @@
 #include <dt-bindings/pinctrl/rockchip.h>
 #include <dt-bindings/soc/rockchip,vop2.h>
 #include "rk3568.dtsi"
-//#include "rockchip/rk3568.dtsi"
 
 / {
 	model = "NMS-NV-RK3568";
 	compatible = "inmys,rk3568-nv-som", "rockchip,rk3568";
 
 	aliases {
-		ethernet0 = &gmac0; /*SMARC: GBE0*/
-		ethernet1 = &gmac1; /*SMARC: GBE1*/
+		ethernet0 = &gmac0;
 		mmc0 = &sdhci; /*emmc*/
 		mmc1 = &sdmmc0; /*sdcard*/
 		rtc0 = &rtc68;
 		rtc1 = &rk809;
-		can0 = &can0; /*SMARC: can0*/
-		can1 = &can2; /*SMARC: can1*/
+		can0 = &can1;
 	};
 
 	chosen: chosen {
@@ -37,10 +34,10 @@
 		
 	};
 
-	smarc_vdd_in: smarc-vdd-in {
+	sodimm_vdd_in: sodimm-vdd-in {
 		/* 3.0...5.25V main power input for som(from mother board) */
 		compatible = "regulator-fixed";
-		regulator-name = "SMARC_VDD_IN";
+		regulator-name = "SODIMM_VDD_IN";
 		regulator-always-on;
 		regulator-boot-on;
 		regulator-min-microvolt = <5000000>;
@@ -56,7 +53,7 @@
 		regulator-boot-on;
 	};
 	vcc_5v_boost: vcc-5v-boost {
-		/* boost from SMARC VDD_IN( 3.0V ... 5.25V) to 5V */
+		/* boost from SODIMM VDD_IN( 3.0V ... 5.25V) to 5V */
 		/* variants: 0R or FAN48623UC50X */
 		compatible = "regulator-fixed";
 		regulator-name = "VCC_5V_BOOST";
@@ -64,7 +61,7 @@
 		regulator-boot-on;
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		vin-supply = <&smarc_vdd_in>;
+		vin-supply = <&sodimm_vdd_in>;
 	};
 	vcc_3v3_in: vcc-3v3-in {
 		/* 3v3 input for pmic (for LDOs)*/
@@ -80,7 +77,7 @@
 
 	vdd_cpu: vdd-cpu {
 		/* FAN53200UC35X */
-		vin-supply = <&smarc_vdd_in>;
+		vin-supply = <&sodimm_vdd_in>;
 		compatible = "regulator-fixed";
 		regulator-name = "vdd_cpu";
 		regulator-min-microvolt = <1150000>;
@@ -112,16 +109,24 @@
 	rgmii_phy0: phy@0 {
 		compatible = "ethernet-phy-ieee802.3-c22";
 		reg = <0x0>;
+#if 0
+		reset-assert-us = <20000>;
+		reset-deassert-us = <100000>;
+		reset-gpios = <&gpio3 RK_PA7 GPIO_ACTIVE_LOW>;
+#endif
+
 	};
 };
 
 &gmac0 {
 	phy-mode = "rgmii-id";
 
+#if 1
 	snps,reset-gpio = <&gpio3 RK_PA7 GPIO_ACTIVE_LOW>;
 	snps,reset-active-low;
 	/* Reset time is 20ms, 100ms for rtl8211f */
 	snps,reset-delays-us = <0 20000 100000>;
+#endif
 
 	clock_in_out = "output";
 	assigned-clocks = <&cru SCLK_GMAC0_RX_TX>, <&cru SCLK_GMAC0>;
@@ -141,43 +146,6 @@
 };
 
 	
-&mdio1 {
-	rgmii_phy1: ethernet-phy@0 {
-		compatible = "ethernet-phy-ieee802.3-c22";
-		reg = <0x0>;
-#if 0
-		reset-assert-us = <20000>;
-		reset-deassert-us = <100000>;
-		reset-gpios = <&gpio3 RK_PB0 GPIO_ACTIVE_LOW>;
-#endif
-	};
-};
-
-&gmac1 {
-	phy-mode = "rgmii-id";
-	
-	snps,reset-gpio = <&gpio3 RK_PB0 GPIO_ACTIVE_LOW>;
-	snps,reset-active-low;
-	/* Reset time is 20ms, 100ms for rtl8211f */
-	snps,reset-delays-us = <0 20000 100000>;
-
-	clock_in_out = "output";
-	assigned-clocks = <&cru SCLK_GMAC1_RX_TX>, <&cru SCLK_GMAC1>;
-	assigned-clock-parents = <&cru SCLK_GMAC1_RGMII_SPEED>, <&cru CLK_MAC1_2TOP>;
-	assigned-clock-rates = <0>, <125000000>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&gmac1m1_miim
-		&gmac1m1_tx_bus2
-		&gmac1m1_rx_bus2
-		&gmac1m1_rgmii_clk
-		&gmac1m1_rgmii_bus>;
-	
-	tx_delay = <0x4f>;
-	rx_delay = <0x26>;
-	
-	phy-handle = <&rgmii_phy1>;
-};
-
 &gpu {
 	mali-supply = <&vdd_gpu>;
 };
@@ -185,7 +153,7 @@
 &hdmi {
 	avdd-0v9-supply = <&vdda0v9_image>;
 	avdd-1v8-supply = <&vcca1v8_image>;
-	pinctrl-0 = <&hdmitx_scl &hdmitx_sda>; // no HDMI CEC pin on SMARC connector (&hdmitxm0_cec)
+	pinctrl-0 = <&hdmitx_scl &hdmitx_sda &hdmitxm1_cec>;
 };
 
 &i2c0 {
@@ -223,10 +191,10 @@
 		pinctrl-0 = <&pmic_int &i2s1m0_mclk>;
 		rockchip,system-power-controller;
 		#sound-dai-cells = <0>;
-		vcc1-supply = <&smarc_vdd_in>;
-		vcc2-supply = <&smarc_vdd_in>;
-		vcc3-supply = <&smarc_vdd_in>;
-		vcc4-supply = <&smarc_vdd_in>;
+		vcc1-supply = <&sodimm_vdd_in>;
+		vcc2-supply = <&sodimm_vdd_in>;
+		vcc3-supply = <&sodimm_vdd_in>;
+		vcc4-supply = <&sodimm_vdd_in>;
 		vcc5-supply = <&vcc_3v3_in>;
 		vcc6-supply = <&vcc_3v3_in>;
 		vcc7-supply = <&vcc_3v3_in>;
@@ -427,21 +395,26 @@
 			mic-in-differential;
 		};
 	};
+	eeprom50: eeprom@50 {
+		compatible = "atmel,24c02";
+		reg = <0x50>;
+	};
+
 };
 
-&i2c5 {
+I2C1_SODIMM_PINS_189_191: &i2c5 {
 	status = "okay";
 
 	rtc68: pcf8523@68 {
 		compatible = "nxp,pcf8523";
 		reg = <0x68>;
 		quartz-load-femtofarads = <12500>;
-		/*rtcint GPIO0_D3*/
+		/*rtcint GPIO0_D4*/
 	};
 };
 
 
-&i2s1_8ch { /* SMARC pins: S39 - S52*/
+&i2s1_8ch { /* SODIMM pins: 220,222,224,226*/
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2s1m0_sclktx &i2s1m0_lrcktx &i2s1m0_sdi0 &i2s1m0_sdo0>;
 	rockchip,trcm-sync-tx-only;
@@ -509,10 +482,10 @@
 &sdmmc0 {
 	bus-width = <4>;
 	cap-sd-highspeed;
-	cd-gpios = <&gpio0 RK_PA4 GPIO_ACTIVE_LOW>;
+	broken-cd;
 	disable-wp;
 	pinctrl-names = "default";
-	pinctrl-0 = <&sdmmc0_bus4 &sdmmc0_clk &sdmmc0_cmd &sdmmc0_det>;
+	pinctrl-0 = <&sdmmc0_bus4 &sdmmc0_clk &sdmmc0_cmd>;
 	sd-uhs-sdr50;
 	vmmc-supply = <&vcc3v3_sd>;
 	vqmmc-supply = <&vccio_sd>;
@@ -525,7 +498,7 @@
 	status = "okay";
 };
 
-/* SMARC: SER1 (console) */
+/* SODIMM pins 236,238 (console) */
 &uart2 {
 	status = "okay";
 };
@@ -547,19 +520,24 @@
 	pinctrl-0 = <&sata1_pins>;
 };
 
-/* SMARC: I2C_GP*/
-&i2c3 {
-	pinctrl-0 = <&i2c3m0_xfer>;
+CAM_I2C_SODIMM_PINS_213_215: &i2c1 {
 	status = "okay";
-	eeprom50: eeprom@50 {
-		compatible = "atmel,24c02";
-		reg = <0x50>;
-	};
+};
+
+I2C0_SODIMM_PINS_185_187: &i2c3 {
+	pinctrl-0 = <&i2c3m1_xfer>;
+	status = "okay";
 };
 
 /* SMARC: I2C_CAM0*/
 &i2c4 {
 	pinctrl-0 = <&i2c4m0_xfer>;
+};
+
+/**/
+&uart1{
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart1m1_xfer>;
 };
 
 /* SMARC: SER2 */
@@ -598,7 +576,7 @@
 		"GPIO1_A0","GPIO1_A1","GPIO1_A2","GPIO1_A3","GPIO1_A4","GPIO1_A5","GPIO1_A6","GPIO1_A7",
 		"GPIO1_B0","GPIO1_B1","GPIO1_B2","GPIO1_B3","GPIO1_B4","GPIO1_B5","GPIO1_B6","GPIO1_B7",
 		"GPIO1_C0","GPIO1_C1","GPIO1_C2","GPIO1_C3","GPIO1_C4","GPIO1_C5","GPIO1_C6","GPIO1_C7",
-		"GPIO1_D0","GPIO1_D1","SMARC_GPIO10","GPIO1_D3","SMARC_GPIO11","GPIO1_D5","GPIO1_D6","GPIO1_D7"; // GPIO10 GPIO11 only on som version v2!
+		"GPIO1_D0","GPIO1_D1","SMARC_GPIO10","GPIO1_D3","SMARC_GPIO11","GPIO1_D5","GPIO1_D6","GPIO1_D7";
 };
 
 &gpio2 {
@@ -626,65 +604,23 @@
 };
 
 
-&gpio3 {
-
-	/* muxes on SOM module */
-
-	/* rockcip combphy1(multi_phy1) work or in sata mode or in USB3 SS mode */
-	/* gpio ctrl on SMARC module: mux combphy1 or to "SMARC SATA1" or to "SMARC USB3_HOST1_SS" */
-	/* SATA(SMARC SATA1): SMARC pins: P48,P49,P51,P52 */
-	/* USB3(SMARC USB3_HOST1_SS) SMARC pins: S71,S72,S74,S75 */
-	sata_usb3_mux_hog: sata_usb3_mux_hog {
-		gpio-hog;
-		gpios = <RK_PB5 GPIO_ACTIVE_HIGH>;
-		/* output-low; */ /* SMARC SATA1 */
-		/* output-high; */ /* SMARC USB3_HOST1_SS */
-	};
-
-	/* gpio ctrl on SMARC module: select SMARC pins S139/S140 func: CAN or I2C */
-	/* on SMARC pins  S139/S140: or CAN(SMARC CAN1) or i2c (I2C_LCD) */
-	can_i2c2_mux_hog: can_i2c2_mux_hog {
-		gpio-hog;
-		gpios = <RK_PD1 GPIO_ACTIVE_HIGH>;
-		/* output-low; */ /* CAN */
-		/* output-high; */ /* i2c */
-	};
-};
-
-
 
 /*2023.06.12: no CAN in mainline kernel now*/
 / {
-	can0: can@fe570000 {
+	can1: can@fe580000 {
 		compatible = "rockchip,canfd-1.0";
-		reg = <0x0 0xfe570000 0x0 0x1000>;
+		reg = <0x0 0xfe580000 0x0 0x1000>;
 		interrupts = <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>;
-		clocks = <&cru CLK_CAN0>, <&cru PCLK_CAN0>;
+		clocks = <&cru CLK_CAN1>, <&cru PCLK_CAN1>;
 		clock-names = "baudclk", "apb_pclk";
-		resets = <&cru SRST_CAN0>, <&cru SRST_P_CAN0>;
+		resets = <&cru SRST_CAN1>, <&cru SRST_P_CAN1>;
 		reset-names = "can", "can-apb";
 		tx-fifo-depth = <1>;
 		rx-fifo-depth = <6>;
 		status = "disabled";
 
 		pinctrl-names = "default";
-		pinctrl-0 = <&can0m0_pins>;
-	};
-
-	can2: can@fe590000 {
-		compatible = "rockchip,canfd-1.0";
-		reg = <0x0 0xfe590000 0x0 0x1000>;
-		interrupts = <GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>;
-		clocks = <&cru CLK_CAN2>, <&cru PCLK_CAN2>;
-		clock-names = "baudclk", "apb_pclk";
-		resets = <&cru SRST_CAN2>, <&cru SRST_P_CAN2>;
-		reset-names = "can", "can-apb";
-		tx-fifo-depth = <1>;
-		rx-fifo-depth = <6>;
-		status = "disabled";
-
-		pinctrl-names = "default";
-		pinctrl-0 = <&can2m0_pins>;
+		pinctrl-0 = <&can1m0_pins>;
 	};
 };
 
