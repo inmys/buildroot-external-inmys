@@ -47,7 +47,7 @@
 		regulator-boot-on;
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		vin-supply = <&vcc12v_dcin>;
+		vin-supply = <&vcc24v_dcin>;
 	};
 
 	vcc3v3_mb: vcc3v3-mb {
@@ -57,7 +57,7 @@
 		regulator-boot-on;
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		vin-supply = <&vcc12v_dcin>;
+		vin-supply = <&vcc24v_dcin>;
 	};
 };
 
