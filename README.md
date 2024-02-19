@@ -5,8 +5,7 @@ Buildroot customizations for Inmys devices
 
 ## Подготовка
 
-<code>
-wget https://buildroot.org/downloads/buildroot-2023.11.1.tar.gz
+<code>wget https://buildroot.org/downloads/buildroot-2023.11.1.tar.gz
 git clone -b nms-sm-rk3568 https://github.com/inmys/buildroot-external-inmys
 tar -xf buildroot-2023.11.1.tar.gz
 make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot-2023.11.1 O=$PWD/output br_defconfig
@@ -14,15 +13,13 @@ make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot-2023.11.1 O=$PWD/ou
 
 ## Сборка 
 
-<code>
-cd output
+<code>cd output
 make
 </code>
 
 Результаты сборки:
 
-<code>
-output/images/Image
+<code>output/images/Image
 output/images/rk3568-inmys-smarc-evm.dtb
 output/images/rootfs.cpio.gz
 output/images/u-boot-rockchip.bin
