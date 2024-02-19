@@ -14,15 +14,13 @@ make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot-2023.11.1 O=$PWD/ou
 
 ## Сборка 
 
-<code>
-cd output
+<code>cd output
 make
 </code>
 
 Результаты сборки: 
 
-<code>
-output/images/Image
+<code>output/images/Image
 output/images/rk3568-inmys-smarc-evm.dtb
 output/images/rootfs.cpio.gz
 output/images/u-boot-rockchip.bin
@@ -34,8 +32,7 @@ output/images/u-boot-rockchip.bin
 
 Также необходим файл extlinux.conf следующего содержения:
 
-<code>
-TIMEOUT 3
+<code>TIMEOUT 3
 DEFAULT main
 #MENU TITLE Boot menu
 
