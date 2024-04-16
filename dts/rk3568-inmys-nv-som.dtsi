@@ -125,6 +125,7 @@
 	snps,reset-gpio = <&gpio3 RK_PA7 GPIO_ACTIVE_LOW>;
 	snps,reset-active-low;
 	/* Reset time is 20ms, 100ms for rtl8211f */
+	/* Reset time is 10ms for DAP8211R(I) */
 	snps,reset-delays-us = <0 20000 100000>;
 #endif
 
@@ -209,7 +210,7 @@
 				regulator-boot-on;
 				regulator-init-microvolt = <900000>;
 				regulator-initial-mode = <0x2>;
-				regulator-min-microvolt = <500000>;
+				regulator-min-microvolt =  <810000>;
 				regulator-max-microvolt = <1350000>;
 				regulator-ramp-delay = <6001>;
 
@@ -223,7 +224,7 @@
 				regulator-always-on;
 				regulator-init-microvolt = <900000>;
 				regulator-initial-mode = <0x2>;
-				regulator-min-microvolt = <500000>;
+				regulator-min-microvolt =  <810000>;
 				regulator-max-microvolt = <1350000>;
 				regulator-ramp-delay = <6001>;
 
@@ -244,10 +245,13 @@
 			};
 
 			vdd_npu: DCDC_REG4 {
+				regulator-always-on;
+				/*regulator-boot-on;*/
+
 				regulator-name = "vdd_npu";
 				regulator-init-microvolt = <900000>;
 				regulator-initial-mode = <0x2>;
-				regulator-min-microvolt = <500000>;
+				regulator-min-microvolt =  <500000>;
 				regulator-max-microvolt = <1350000>;
 				regulator-ramp-delay = <6001>;
 
@@ -624,4 +628,124 @@ I2C0_SODIMM_PINS_185_187: &i2c3 {
 	};
 };
 
+/* 2024.04.14 no rknpu in mainline kernel now */
+
+&power{
+	/* These power domains are grouped by VD_NPU */
+	power-domain@RK3568_PD_NPU {
+		reg = <RK3568_PD_NPU>;
+		clocks = <&cru ACLK_NPU_PRE>,
+			<&cru HCLK_NPU_PRE>,
+			<&cru PCLK_NPU_PRE>;
+		pm_qos = <&qos_npu>;
+	};
+};
+/{
+	rknpu_mmu: iommu@fde4b000 {
+		compatible = "rockchip,rk3568-iommu";
+		reg = <0x0 0xfde4b000 0x0 0x40>;
+		interrupts = <GIC_SPI 151 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "rknpu_mmu";
+		clocks = <&cru ACLK_NPU>, <&cru HCLK_NPU>;
+		clock-names = "aclk", "iface";
+		power-domains = <&power RK3568_PD_NPU>;
+		#iommu-cells = <0>;
+		//status = "disabled";
+		status = "okay";
+	};
+
+	rknpu: npu@fde40000 {
+		compatible = "rockchip,rk3568-rknpu", "rockchip,rknpu";
+		reg = <0x0 0xfde40000 0x0 0xb000>;
+		interrupts = <GIC_SPI 151 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "npu_irq";
+		clocks = <&scmi_clk 2>, <&cru CLK_NPU>, <&cru ACLK_NPU>, <&cru HCLK_NPU>;
+		clock-names = "scmi_clk", "clk", "aclk", "hclk";
+		assigned-clocks = <&cru CLK_NPU>;
+		assigned-clock-rates = <600000000>;
+		resets = <&cru SRST_A_NPU>, <&cru SRST_H_NPU>;
+		reset-names = "srst_a", "srst_h";
+		power-domains = <&power RK3568_PD_NPU>;
+		operating-points-v2 = <&npu_opp_table>;
+		iommus = <&rknpu_mmu>;
+		//status = "disabled";
+		status = "okay";
+
+		rknpu-supply = <&vdd_npu>;
+		//mem-supply = <&>;
+	};
+
+	npu_opp_table: npu-opp-table {
+		compatible = "operating-points-v2";
+
+		mbist-vmin = <825000 900000 950000>;
+#if 0
+		nvmem-cells = <&npu_leakage>, <&core_pvtm>, <&mbist_vmin>, <&npu_opp_info>;
+		nvmem-cell-names = "leakage", "pvtm", "mbist-vmin", "opp-info";
+#endif
+		rockchip,max-volt = <1000000>;
+		rockchip,temp-hysteresis = <5000>;
+		rockchip,low-temp = <0>;
+		rockchip,low-temp-adjust-volt = <
+			/* MHz    MHz    uV */
+			   0      1000    50000
+		>;
+		rockchip,pvtm-voltage-sel = <
+			0        84000   0
+			84001    87000   1
+			87001    91000   2
+			91001    100000  3
+		>;
+		rockchip,pvtm-ch = <0 5>;
+		opp-200000000 {
+			opp-hz = /bits/ 64 <200000000>;
+			opp-microvolt = <850000 850000 1000000>;
+		};
+		opp-300000000 {
+			opp-hz = /bits/ 64 <297000000>;
+			opp-microvolt = <850000 850000 1000000>;
+		};
+		opp-400000000 {
+			opp-hz = /bits/ 64 <400000000>;
+			opp-microvolt = <850000 850000 1000000>;
+		};
+		opp-600000000 {
+			opp-hz = /bits/ 64 <600000000>;
+			opp-microvolt = <850000 850000 1000000>;
+		};
+		opp-700000000 {
+			opp-hz = /bits/ 64 <700000000>;
+			opp-microvolt = <875000 875000 1000000>;
+			opp-microvolt-L0 = <875000 875000 1000000>;
+			opp-microvolt-L1 = <850000 850000 1000000>;
+			opp-microvolt-L2 = <850000 850000 1000000>;
+			opp-microvolt-L3 = <850000 850000 1000000>;
+		};
+		opp-800000000 {
+			opp-hz = /bits/ 64 <800000000>;
+			opp-microvolt = <925000 925000 1000000>;
+			opp-microvolt-L0 = <925000 925000 1000000>;
+			opp-microvolt-L1 = <900000 900000 1000000>;
+			opp-microvolt-L2 = <875000 875000 1000000>;
+			opp-microvolt-L3 = <875000 875000 1000000>;
+		};
+		opp-900000000 {
+			opp-hz = /bits/ 64 <900000000>;
+			opp-microvolt = <975000 975000 1000000>;
+			opp-microvolt-L0 = <975000 975000 1000000>;
+			opp-microvolt-L1 = <950000 950000 1000000>;
+			opp-microvolt-L2 = <925000 925000 1000000>;
+			opp-microvolt-L3 = <900000 900000 1000000>;
+		};
+		opp-1000000000 {
+			opp-hz = /bits/ 64 <1000000000>;
+			opp-microvolt = <1000000 1000000 1000000>;
+			opp-microvolt-L0 = <1000000 1000000 1000000>;
+			opp-microvolt-L1 = <975000 975000 1000000>;
+			opp-microvolt-L2 = <950000 950000 1000000>;
+			opp-microvolt-L3 = <925000 925000 1000000>;
+			status = "disabled";
+		};
+	};
+};
 
