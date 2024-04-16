@@ -1,0 +1,265 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+
+/dts-v1/;
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/leds/common.h>
+#include <dt-bindings/pinctrl/rockchip.h>
+#include <dt-bindings/soc/rockchip,vop2.h>
+#include "rk3568-inmys-nv-som.dtsi"
+
+/ {
+	model = "P3518 with NMS-NV-RK3568";
+	compatible = "inmys,rk3568-nv-som", "rockchip,rk3568";
+
+	vcc5v0_mb: vcc5v0-mb {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc5v0_mb";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+	};
+#if 0
+	vcc3v3_mb: vcc3v3-mb {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc3v3_mb";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		vin-supply = <&vcc5v0_mb>;
+	};
+#endif
+};
+
+#if 0
+&sodimm_vdd_in{
+	/* 5V to SOM */
+	vin-supply = <&vcc5v0_mb>;
+};
+#endif
+
+&gmac0 {
+	status = "okay";
+};
+
+
+
+/* HDMI output */
+/{
+	hdmi-con {
+		compatible = "hdmi-connector";
+		type = "a";
+
+		port {
+			hdmi_con_in: endpoint {
+				remote-endpoint = <&hdmi_out_con>;
+			};
+		};
+	};
+};
+
+&gpu {
+	status = "okay";
+};
+
+&hdmi {
+	status = "okay";
+};
+
+&hdmi_in {
+	hdmi_in_vp0: endpoint {
+		remote-endpoint = <&vp0_out_hdmi>;
+	};
+};
+
+&hdmi_out {
+	hdmi_out_con: endpoint {
+		remote-endpoint = <&hdmi_con_in>;
+	};
+};
+
+&vop {
+	status = "okay";
+};
+
+&vop_mmu {
+	status = "okay";
+};
+
+&vp0 {
+	vp0_out_hdmi: endpoint@ROCKCHIP_VOP2_EP_HDMI0 {
+		reg = <ROCKCHIP_VOP2_EP_HDMI0>;
+		remote-endpoint = <&hdmi_in_vp0>;
+	};
+};
+
+&hdmi_sound {
+	status = "okay";
+};
+
+&i2s0_8ch {
+	status = "okay";
+};
+
+/* end HDMI */
+
+
+/* mini PCIE connector */
+&combphy2 {
+	status = "okay";
+};
+
+&pcie2x1 {
+	status = "okay";
+};
+/* end mini PCIE connector */
+
+/* PCIE X4 connector */
+&pcie30phy {
+	status = "okay";
+};
+
+&pcie3x2 {
+	status = "okay";
+};
+/* end PCIE X4 connector */
+
+
+&sdmmc0 {
+	status = "okay";
+};
+
+&uart2 {
+	status = "okay";
+};
+
+&uart4 {
+	status = "okay";
+};
+
+&uart5 {
+	status = "okay";
+};
+
+&uart8 {
+	status = "okay";
+};
+
+
+/* USB start */
+&usb2phy0 {
+	status = "okay";
+};
+
+&usb2phy0_host {
+	/*phy-supply = <&vcc5v0_usb_host>;*/
+	status = "okay";
+};
+
+&usb2phy0_otg {
+	/*phy-supply = <&vcc5v0_usb_otg>;*/
+	status = "okay";
+};
+
+&usb_host0_ehci {
+	status = "okay";
+};
+
+&usb_host0_ohci {
+	status = "okay";
+};
+
+&usb_host0_xhci {
+	extcon = <&usb2phy0>;
+	status = "okay";
+};
+&combphy0 { /* USB3_OTG SS */
+	status = "okay";
+};
+
+
+&usb2phy1 {
+	status = "okay";
+};
+
+&usb2phy1_host {
+	/*phy-supply = <&vcc5v0_usb_host>;*/
+	status = "okay";
+};
+
+&usb2phy1_otg {
+	/*phy-supply = <&vcc5v0_usb_host>;*/
+	status = "okay";
+};
+
+&usb_host1_ehci {
+	status = "okay";
+};
+
+&usb_host1_ohci {
+	status = "okay";
+};
+
+&usb_host1_xhci {
+	status = "okay";
+};
+/* end USB*/
+
+&combphy1 {
+	status = "okay";
+};
+
+#if 0
+&sata1 {
+	status = "okay";
+};
+#endif
+
+
+
+#if 0
+/* SMARC: I2C_GP */
+&i2c3{
+	status = "okay";
+};
+
+/*SMARC: I2C_CAM0*/
+&i2c4{
+	status = "okay";
+#if 0
+	camera0: imx219@10 {
+		compatible = "sony,imx219";
+		reg = <0x10>;
+		clocks = <&ext_cam_clk>;
+		status = "okay";
+		rockchip,camera-module-index = <0>;
+		rockchip,camera-module-facing = "back";
+		rockchip,camera-module-name = "NC";
+		rockchip,camera-module-lens-name = "NC";
+		port {
+			ucam_out0: endpoint {
+				remote-endpoint = <&mipi_in_ucam0>;
+				data-lanes = <1 2>;
+			};
+		};
+	};
+#endif
+};
+#endif
+
+&spi0 {
+	status = "okay";
+	spidev@0{
+		compatible = "rohm,dh2228fv"; //linux,spidev
+		reg = <0>;
+	};
+};
+
+#if 0
+&can1 {
+	status = "okay";
+};
+#endif
+
+
