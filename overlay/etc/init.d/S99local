@@ -7,8 +7,8 @@ if [ -e /dev/mmcblk1p3 ]; then
 	# mount sdcard partition 3 to /opt
 	mount /dev/mmcblk1p3 /opt
 else
-	# mount emmp partition 3 to /opt
-	mount /dev/mmcblk0p3 /opt
+	# mount emmc partition 3 to /opt
+	mount /dev/mmcblk2p3 /opt
 fi
 
 if [ -e /opt/postup.sh ]; then
