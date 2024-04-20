@@ -23,6 +23,10 @@
 		ethernet0 = &gmac;
 		rtc0 = &spirtc;
 		rtc1 = &rk817;
+
+		mmc0 = &sdmmc; // sdcard
+		mmc1 = &sdio;  // wifi
+		mmc2 = &emmc;
 	};
 
 	
@@ -83,19 +87,26 @@
 
 	snd {
 		compatible = "simple-audio-card";
-		simple-audio-card,format = "i2s";
-		simple-audio-card,name = "sndcardname";
-		simple-audio-card,mclk-fs = <256>;
+		simple-audio-card,name = "px30-and-rk817-codec";
+
+		simple-audio-card,widgets =
+			"Speaker", "Internal Speakers";
+		simple-audio-card,routing =
+			"Internal Speakers", "SPKO";
 
 		#address-cells = <1>;
 		#size-cells = <0>;
 		simple-audio-card,dai-link@0 {
 			reg = <0>;
-			cpu {
+			format = "i2s";
+			bitclock-master = <&link0_cpu>;
+			frame-master = <&link0_cpu>;
+			mclk-fs = <256>;
+			link0_cpu: cpu {
 				sound-dai = <&i2s1_2ch>;
 			};
-			codec {
-				sound-dai = <&rk817_codec>;
+			link0_codec: codec {
+				sound-dai = <&rk817>;
 			};
 		};
 	};
@@ -117,33 +128,6 @@
 		post-power-on-delay-ms = <10>;
 	};
 
-	wireless-wlan {
-		status = "okay";
-		compatible = "wlan-platdata";
-		/*wifi_chip_type = "ap6212a";*/
-		/*wifi_chip_type = "ap6212";*/
-		wifi_chip_type = "ap6236";
-		pinctrl-names = "default";
-		pinctrl-0 = <&wifi_host_wake>;
-		WIFI,host_wake_irq = <&gpio0 RK_PB2 GPIO_ACTIVE_HIGH>;
-		/*bcmdhd-gpios = <&gpio0 RK_PB2 GPIO_ACTIVE_HIGH>;*/
-	};
-
-#if 0
-	wireless-bluetooth {
-		compatible = "bluetooth-platdata";
-		clocks = <&rk817 1>;
-		clock-names = "ext_clock";
-		uart_rts_gpios = <&gpio1 RK_PC3 GPIO_ACTIVE_LOW>;
-		pinctrl-names = "default","rts_gpio";
-		pinctrl-0 = <&uart1_rts>;
-		pinctrl-1 = <&uart1_rts_gpio>;
-		BT,reset_gpio = <&gpio2 RK_PB0 GPIO_ACTIVE_HIGH>;
-		BT,wake_gpio = <&gpio0 RK_PA1 GPIO_ACTIVE_HIGH>;
-		BT,wake_host_irq = <&gpio0 RK_PB3 GPIO_ACTIVE_HIGH>;
-		status = "okay";
-	};
-#endif
 	fiq-debugger {
 		// ToDo: conflict with uart3
 		status = "disabled";
@@ -152,16 +136,30 @@
 	leds{
 		compatible = "gpio-leds";
 		pinctrl-names = "default";
-		pinctrl-0 = <&led_gpio>;
+		pinctrl-0 = <&led_gpio &zgb_reset_pin>;
 		cpu_led {
 			label = "cpu_led";
 			gpios = <&gpio1 RK_PB0 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";
 		};
-		ch342f_reset {
+		RS485_RESET { // ch342f_reset in sch
 			gpios = <&gpio3 RK_PC2 GPIO_ACTIVE_LOW>;
 			default-state = "off";
 		};
+
+		ZGB_BOOTMODE { // CPU_BOOTMODE in sch
+			gpios = <&gpio3 RK_PA6 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+#if 0
+		/* disabled, confict with openocd(use gpio) */
+		ZGB_RESET {
+			gpios = <&gpio3 RK_PD3 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+#endif
+
+
 		RELAY_1 {
 			gpios = <&gpio3 RK_PC3 GPIO_ACTIVE_LOW>;
 			default-state = "keep";
@@ -246,6 +244,9 @@
 	snps,reset-active-low;
 	snps,reset-delays-us = <0 50000 50000>;
 	status = "okay";
+
+	tx_delay = <0x30>;
+	rx_delay = <0x10>;
 #if 0
 	phy-handle = <&yt8512>;
 	yt8512: ethernet-phy@0{
@@ -273,12 +274,17 @@
 		reg = <0x20>;
 		interrupt-parent = <&gpio0>;
 		interrupts = <7 IRQ_TYPE_LEVEL_LOW>;
+#if 0
 		pinctrl-names = "default", "pmic-sleep",
 			"pmic-power-off", "pmic-reset";
-		pinctrl-0 = <&pmic_int>;
+		pinctrl-0 = <&pmic_int>, <&i2s1_2ch_mclk>;
 		pinctrl-1 = <&soc_slppin_slp>, <&rk817_slppin_slp>;
 		pinctrl-2 = <&soc_slppin_gpio>, <&rk817_slppin_pwrdn>;
 		pinctrl-3 = <&soc_slppin_gpio>, <&rk817_slppin_rst>;
+#else
+		pinctrl-names = "default";
+		pinctrl-0 = <&pmic_int>;
+#endif
 		rockchip,system-power-controller;
 		wakeup-source;
 		#clock-cells = <1>;
@@ -299,6 +305,10 @@
 		vcc8-supply = <&vccsys>;
 		vcc9-supply = <&dcdc_boost>;
 #endif
+
+		clocks = <&cru SCLK_I2S1_OUT>;
+		clock-names = "mclk";
+		#sound-dai-cells = <0>;
 
 		pwrkey {
 			status = "okay";
@@ -507,27 +517,6 @@
 			};
 #endif
 		};
-#if 0
-		battery {
-			compatible = "rk817,battery";
-			ocv_table = <3400 3513 3578 3687 3734 3752 3763
-				     3766 3771 3784 3804 3836 3885 3925
-				     3962 4005 4063 4114 4169 4227 4303>;
-			design_capacity = <5000>;
-			design_qmax = <5500>;
-			bat_res = <100>;
-			sleep_enter_current = <150>;
-			sleep_exit_current = <180>;
-			sleep_filter_current = <100>;
-			power_off_thresd = <3350>;
-			zero_algorithm_vol = <3850>;
-			max_soc_offset = <60>;
-			monitor_sec = <5>;
-			sample_res = <10>;
-			virtual_power = <0>;
-		};
-#endif
-#if 1
 		charger {
 			compatible = "rk817,charger";
 			min_input_voltage = <4500>;
@@ -558,20 +547,11 @@
 				charge-term-current-microamp = <128000>;
 			};
 		};
-#endif
 		rk817_codec: codec {
 			#sound-dai-cells = <0>;
-			compatible = "rockchip,rk817-codec";
-			clocks = <&cru SCLK_I2S1_OUT>;
-			clock-names = "mclk";
-			pinctrl-names = "default";
-			pinctrl-0 = <&i2s1_2ch_mclk>;
-			hp-volume = <20>;
-			spk-volume = <3>; /* 3 db oslablenie - menshe nelzya */
-			capture-volume = <20>;
-			status = "okay";
 			mic-in-differential;
-			hp-ctl-gpios = <&gpio3 RK_PC4 GPIO_ACTIVE_HIGH>;
+			//clocks = <&cru SCLK_I2S1_OUT>;
+			//clock-names = "mclk";
 		};
 	};
 };
@@ -589,7 +569,7 @@
 &io_domains {
 	status = "okay";
 
-	vccio1-supply = <&vcc1v8_soc>;	// wifi io pins
+	vccio1-supply = <&vccio_sdio>;	// wifi io pins
 	vccio2-supply = <&vcc_3v0>;	// externeal sd card io pins
 	vccio3-supply = <&vcc_3v0>;	// gpio pins
 	vccio4-supply = <&vcc_3v0>;	// MIPI dsi io pind -> LDO2
@@ -647,6 +627,7 @@
 
 /* wifi */
 &sdio {
+#if 0
 	bus-width = <4>;
 	cap-sd-highspeed;
 	supports-sdio;
@@ -656,12 +637,38 @@
 	mmc-pwrseq = <&sdio_pwrseq>;
 	/*sd-uhs-sdr104;*/
 	vmmc-supply = <&vcc_3v0>;
-	vqmmc-supply = <&vcc1v8_soc>;
+	vqmmc-supply = <&vccio_sdio>;
 #if 1
 	/*max-frequency= <4000000>;*/
 	/*no-1-8-v;*/
 #endif
 	status = "okay";
+#else
+	#address-cells = <1>;
+	#size-cells = <0>;
+	bus-width = <4>;
+	disable-wp;
+	cap-sd-highspeed;
+	cap-sdio-irq;
+	keep-power-in-suspend;
+	mmc-pwrseq = <&sdio_pwrseq>;
+	non-removable;
+	//pinctrl-names = "default";
+	//pinctrl-0 = <&sdio_bus4 &sdio_cmd &sdio_clk>;
+	sd-uhs-sdr104;
+	vmmc-supply = <&vcc_3v0>;
+	vqmmc-supply = <&vccio_sdio>;
+	status = "okay";
+#endif
+	wifi@1 {
+		compatible = "brcm,bcm43455-fmac";
+		reg = <1>;
+		interrupt-parent = <&gpio0>;
+		interrupts = <RK_PB2 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "host-wake";
+		//pinctrl-names = "default";
+		//pinctrl-0 = <&wifi_host_wake_h>;
+	};
 };
 
 #if 0
@@ -692,8 +699,21 @@
 &uart1 {
 	/*bluetooth*/
 	pinctrl-names = "default";
-	pinctrl-0 = <&uart1_xfer &uart1_cts>;
+	pinctrl-0 = <&uart1_xfer &uart1_cts &uart1_rts>;
 	status = "okay";
+
+	bluetooth {
+		compatible = "brcm,bcm4345c5";
+		clocks = <&rk817 1>;
+		clock-names = "lpo";
+		device-wakeup-gpios = <&gpio0 RK_PA1 GPIO_ACTIVE_HIGH>; //HOST_WAKE_BT_H
+		host-wakeup-gpios = <&gpio0 RK_PB3 GPIO_ACTIVE_HIGH>; //BT_WAKE_HOST_H
+		//reset-gpios = <&gpio2 RK_PB0 GPIO_ACTIVE_HIGH>; //BT_REG_ON_H
+		shutdown-gpios = <&gpio2 RK_PB0 GPIO_ACTIVE_HIGH>; //BT_REG_ON_H
+		vbat-supply = <&vcc_3v0>;
+		vddio-supply = <&vccio_sdio>;
+		/*max-speed = <115200>;*/
+	};
 };
 
 &uart2 {
@@ -703,7 +723,6 @@
 	status = "okay";
 };
 
-// conflict with nandc0
 &uart3{
 	/*tmp console*/
         pinctrl-names = "default";
@@ -887,6 +906,11 @@
 		led_gpio: led_gpio{
 			rockchip,pins =
 				<1 RK_PB0 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+		zgb_reset_pin: zgb-reset-pin{
+			rockchip,pins =
+				<3 RK_PD3 RK_FUNC_GPIO &pcfg_pull_up>; // pull_up => no reset on zgb
+
 		};
 	};
 };
