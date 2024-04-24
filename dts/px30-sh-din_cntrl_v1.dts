@@ -131,27 +131,9 @@
 	status = "okay";
 };
 
-&pwm2 {
-	status = "okay";
-};
-
-
 /* sdcard */
 &sdmmc {
-	bus-width = <4>;
-	cap-mmc-highspeed;
-	cap-sd-highspeed;
-	supports-sd;
-	card-detect-delay = <800>;
-	ignore-pm-notify;
-	/*cd-gpios = <&gpio2 4 GPIO_ACTIVE_HIGH>; [> CD GPIO <]*/
-	sd-uhs-sdr12;
-	sd-uhs-sdr25;
-	sd-uhs-sdr50;
-	sd-uhs-sdr104;
-	vmmc-supply = <&vcc_sd>;
-	vqmmc-supply = <&vcc_3v0>;
-	status = "okay";
+	status = "disabled";
 };
 
 /* wifi */
@@ -227,7 +209,7 @@
 };
 
 &uart5 {
-	/*zigbee*/
+	/* zigbee */
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart5_xfer>;
@@ -265,47 +247,25 @@
 };
 #endif
 
+&gpu {
+	status = "disabled";
+};
+
 &vopb {
-	status = "okay";
+	status = "disabled";
 };
 
 &vopb_mmu {
-	status = "okay";
+	status = "disabled";
 };
 
 &vopl {
-	status = "okay";
+	status = "disabled";
 };
 
 &vopl_mmu {
-	status = "okay";
+	status = "disabled";
 };
-
-#if 0
-&mpp_srv {
-	status = "okay";
-};
-
-&vdpu {
-	status = "okay";
-};
-
-&vepu {
-	status = "okay";
-};
-
-&vpu_mmu {
-	status = "okay";
-};
-
-&hevc {
-	status = "okay";
-};
-
-&hevc_mmu {
-	status = "okay";
-};
-#endif
 
 &gpio0 {
 	gpio-line-names = 
@@ -331,7 +291,7 @@
 		"JTAG_TDO","TCK","TMS","ZGB_RST","","","","";
 };
 
-&spi1{
+&spi1 {
 	status = "okay";
 	pinctrl-names = "default", "high_speed";
 	//pinctrl-0 = <&spi1_clk &spi1_csn0 &spi1_miso &spi1_mosi>;
