@@ -11,7 +11,7 @@ make
 #make menuconfig
 make
 # result: output/images/Image,output/images/px30-sh-din_cntrl_v1.dtb,rootfs.cpio.gz,rootfs.ext2.gz
-# подготовить toolchain c помощью которого можно собирать Qt программы
+# подготовить toolchain:
 make sdk
 
 
