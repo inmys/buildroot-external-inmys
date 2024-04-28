@@ -24,11 +24,13 @@ case "$1" in
 				sleep .1
 			done
 			export WAYLAND_DISPLAY=wayland-1
-			/root/hellowindow &
+			weston-terminal &
+			#/root/hellowindow &
 		}&
 	;;
   stop)
 		killall hellowindow
+		killall weston-terminal
 		killall weston
 		printf "stop finished"
         ;;
