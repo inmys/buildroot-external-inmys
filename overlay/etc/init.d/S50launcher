@@ -17,7 +17,7 @@ case "$1" in
 		export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/var/run}
 		export QT_QPA_PLATFORM=${QT_QPA_PLATFORM:-wayland}
 
-		weston --tty=2 --idle-time=0&
+		weston --idle-time=0&
 		{
 			# Wait for weston ready
 			while [ ! -e ${XDG_RUNTIME_DIR}/wayland-1 ]; do
