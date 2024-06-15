@@ -1,0 +1,10 @@
+--- qt5wayland-36659e6130ed3fc2b3f0c91423408ef5ecb7b991/src/hardwareintegration/compositor/wayland-egl/wayland-egl.pri.orig	2023-06-07 20:13:21.233739971 +0300
++++ qt5wayland-36659e6130ed3fc2b3f0c91423408ef5ecb7b991/src/hardwareintegration/compositor/wayland-egl/wayland-egl.pri	2023-06-07 20:15:56.884014436 +0300
+@@ -3,6 +3,7 @@
+ QMAKE_USE_PRIVATE += egl wayland-server wayland-egl
+ 
+ QT += egl_support-private
++DEFINES += QT_EGL_NO_X11
+ 
+ SOURCES += \
+     $$PWD/waylandeglclientbufferintegration.cpp

@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# Load CAN driver and configure can0/can1 to bitrate 100000
+#
+
+case "$1" in
+  start)
+	  	#insmod /root/rockchip_canfd.ko
+		modprobe rockchip_canfd
+		ifconfig can0 down
+		ifconfig can1 down
+		canbitrate=100000
+		ip link set can0 up type can bitrate ${canbitrate} dbitrate ${canbitrate} fd on
+		ip link set can1 up type can bitrate ${canbitrate} dbitrate ${canbitrate} fd on
+	;;
+  stop)
+	  	ifconfig can0 down
+		ifconfig can1 down
+		rmmod rockchip_canfd
+        ;;
+  *)
+        echo "Usage: $0 {start|stop}"
+        exit 1
+        ;;
+esac
+exit 0
