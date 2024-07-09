@@ -140,6 +140,11 @@
 		gpio-line-names =
 			"DSI0_TP_RST_N","DSI1_TP_RST_N","DSI0_RST_N","DSI1_RST_N","CAM0_PWDN","I2C_GPIO05","I2C_GPIO06","I2C_GPIO07",
 			"I2C_GPIO10","I2C_GPIO11","I2C_GPIO12","I2C_GPIO13","I2C_GPIO14","I2C_GPIO15","I2C_GPIO16","I2C_GPIO17";
+		cam_pwd {
+		        gpio-hog;
+		        gpios = <4 GPIO_ACTIVE_HIGH>;
+		        output-high;
+		};
 	};
 	eeprom: 24aa025e48@50{
 		compatible = "atmel,24c256";
