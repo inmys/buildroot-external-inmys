@@ -1,29 +1,19 @@
 # buildroot-external-inmys
 Buildroot customizations for Inmys devices
 
-######### build in ubuntu 20/22
-wget http://buildroot.org/downloads/buildroot-2023.11.1.tar.gz
-tar -xf buildroot-2023.11.1.tar.gz
+######### build in ubuntu 20/22 with rockchip kernel/packages
 git clone https://github.com/inmys/buildroot-external-inmys.git -b nms-sm-rk3588
-make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot-2023.11.1 O=$PWD/output br_defconfig
+git clone https://github.com/JeffyCN/rockchip_mirrors.git --depth=1 -b buildroot-2024 buildroot-2024 
+git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b kernel-6.1 kernel
+git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b gstreamer-rockchip external/gstreamer-rockchip
+git clone https://github.com/airockchip/rknn-toolkit2.git --depth=1 external/rknn-toolkit2
+ln -s rknn-toolkit2/rknpu2 external/rknpu2
+git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b libmali external/libmali
+git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b mpp-dev external/mpp
+git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b linux-rga-multi external/linux-rga
+git clone https://gitlab.com/rk3588_linux/linux/external/camera_engine_rkaiq  --depth=1 external/camera_engine_rkaiq
+ln -s . external/camera_engine_rkaiq/rkaiq
+make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot-2024 O=$PWD/output br-rk_defconfig
 cd output
 make
-# result: output/images/Image,output/images/rk3588-inmys-smarc-evm.dtb,output/images/rootfs.ext2
-# подготовить toolchain c помощью которого можно собирать Qt программы
-make sdk
-
-
-######### build in docker
-wget http://buildroot.org/downloads/buildroot-2023.11.1.tar.gz
-tar -xf buildroot-2023.11.1.tar.gz
-git clone https://github.com/inmys/buildroot-external-inmys.git -b nms-sm-rk3588
-# build docker image
-docker build -t buildroot-2023.11.1 buildroot-2023.11.1/support/docker
-# build toolcahin and rootfs in docker
-docker run --mount type=bind,source="$(pwd)",target=/workdir --user "$(id -u):$(id -g)" -it buildroot-2023.11.1 make BR2_EXTERNAL=/workdir/buildroot-external-inmys -C /workdir/buildroot-2023.11.1 O=/workdir/output br_defconfig
-docker run --mount type=bind,source="$(pwd)",target=/workdir --user "$(id -u):$(id -g)" -it buildroot-2023.11.1 make -C /workdir/output
-# result: result: output/images/Image,output/images/rk3588-inmys-smarc-evm.dtb,output/images/rootfs.ext2
-docker run --mount type=bind,source="$(pwd)",target=/workdir --user "$(id -u):$(id -g)" -it buildroot-2023.1.1 make -C /workdir/output menuconfig
-
-make linux-rebuild # build Image and dtb
-#
+#result: output/images/Image, output/images/rk3588-inmys-smarc-evm.dtb, output/images/rootfs.ext2 output/images/u-boot-rockchip.bin

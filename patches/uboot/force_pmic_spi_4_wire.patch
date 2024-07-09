@@ -1,0 +1,18 @@
+--- uboot-2024.07-rc1/drivers/power/pmic/rk8xx.c.orig	2024-04-23 00:10:21.000000000 +0300
++++ uboot-2024.07-rc1/drivers/power/pmic/rk8xx.c	2024-06-15 18:49:15.339047168 +0300
+@@ -263,8 +263,15 @@
+ 		id_msb = RK817_ID_MSB;
+ 		id_lsb = RK817_ID_LSB;
+ 	} else if (device_is_compatible(dev, "rockchip,rk806")) {
++		uint8_t b;
+ 		id_msb = RK806_ID_MSB;
+ 		id_lsb = RK806_ID_LSB;
++
++		printf("!Force 4-wire spi!\n");
++		b = 0x4;
++		ret = rk8xx_write(dev, 0xe8, &b, 1);
++		b = 0x20;
++		ret = rk8xx_write(dev, 0xe9, &b, 1);
+ 	} else {
+ 		id_msb = ID_MSB;
+ 		id_lsb = ID_LSB;
