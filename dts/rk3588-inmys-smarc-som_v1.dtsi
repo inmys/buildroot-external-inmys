@@ -643,9 +643,22 @@ SMARC_PCIE_D is LN1 on controller1
 	mmc-hs400-1_8v;
 	mmc-hs400-enhanced-strobe;
 	status = "okay";
+	vmmc-supply = <&vcc_3v3_s3>;
 };
 
 #if SDIO
+/{
+	sd_pwren: sd_pwren-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "sd_pwren";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		vin-supply = <&vcc_3v3_s3>;
+		gpio = <&gpio0 RK_PA0 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+};
+
 /* SMARC: SDIO */
 &sdmmc {
 	max-frequency = <200000000>;
@@ -656,7 +669,7 @@ SMARC_PCIE_D is LN1 on controller1
 	cap-sd-highspeed;
 	disable-wp;
 	sd-uhs-sdr104;
-	vmmc-supply = <&vcc_3v3_s3>;
+	vmmc-supply = <&sd_pwren>;
 	vqmmc-supply = <&vccio_sd_s0>;
 	status = "okay";
 };
