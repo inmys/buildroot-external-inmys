@@ -756,6 +756,8 @@ SMARC_PCIE_D is LN1 on controller1
 
 &rkvenc0 {
 	status = "okay";
+	venc-supply = <&vdd_vdenc_s0>;
+	mem-supply = <&vdd_vdenc_mem_s0>;
 };
 
 &rkvenc0_mmu {
@@ -764,6 +766,8 @@ SMARC_PCIE_D is LN1 on controller1
 
 &rkvenc1 {
 	status = "okay";
+	venc-supply = <&vdd_vdenc_s0>;
+	mem-supply = <&vdd_vdenc_mem_s0>;
 };
 
 &rkvenc1_mmu {
