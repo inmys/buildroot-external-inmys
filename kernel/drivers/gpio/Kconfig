@@ -1,0 +1,10 @@
+if GPIOLIB
+
+
+config GPIO_AW9523
+        tristate "AW9523 Driver"
+        help
+          16-bit i2c gpio extender
+
+endif
+

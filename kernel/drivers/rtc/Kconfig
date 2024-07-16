@@ -1,0 +1,9 @@
+if RTC_CLASS
+
+config RTC_BL5372
+        tristate "RTC BL5372"
+        default m
+        help
+         Driver for BL5372 RTC module
+
+endif
