@@ -1,0 +1,7 @@
+#include "px30-u-boot.dtsi"
+
+&uart3 {
+	clock-frequency = <24000000>;
+	u-boot,dm-pre-reloc;
+};
+

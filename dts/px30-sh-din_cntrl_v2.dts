@@ -1,0 +1,407 @@
+/*
+ * Copyright (c) 2024 InMys
+ */
+ 
+/*
+ SH_PX30_DIN_CNTRL_V1.pdf + SOM_PX30_V1.pdf
+*/
+
+/dts-v1/;
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pinctrl/rockchip.h>
+#include <dt-bindings/input/input.h>
+#include "px30-inmys-som-hh.dtsi"
+
+/ {
+	model = "Smart Home DIN Controller v1";
+	compatible = "inmys,px30-sh-din_cntrl_v1", "rockchip,px30";
+
+	chosen {
+		stdout-path = "serial3:115200n8";
+	};
+	aliases {
+		ethernet0 = &gmac;
+		rtc0 = &spirtc;
+		rtc1 = &rk817;
+
+		mmc0 = &sdmmc; // sdcard
+		mmc1 = &sdio;  // wifi
+		mmc2 = &emmc;
+	};
+
+	/* SH_PX30_DIN_CNTRL pwr */
+	vbus: vbusv {
+		compatible = "regulator-fixed";
+		regulator-name = "vbus";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+	};
+
+	sdio_pwrseq: sdio-pwrseq {
+		compatible = "mmc-pwrseq-simple";
+		clocks = <&rk817 1>;
+		clock-names = "ext_clock";
+		pinctrl-names = "default";
+		pinctrl-0 = <&wifi_enable_h>;
+
+		/*
+		 * On the module itself this is one of these (depending
+		 * on the actual card populated):
+		 * - SDIO_RESET_L_WL_REG_ON
+		 * - PDN (power down when low)
+		 */
+		reset-gpios = <&gpio0 RK_PA2 GPIO_ACTIVE_LOW>;
+		post-power-on-delay-ms = <10>;
+	};
+
+	leds{
+		compatible = "gpio-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&led_gpio &zgb_reset_pin>;
+		cpu_led {
+			label = "cpu_led";
+			gpios = <&gpio1 RK_PB0 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "heartbeat";
+		};
+		ZGB_BOOTMODE { // CPU_BOOTMODE in sch
+			gpios = <&gpio3 RK_PA6 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+#if 0
+		/* disabled, confict with openocd(use gpio) */
+		ZGB_RESET {
+			gpios = <&gpio3 RK_PD3 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+#endif
+
+
+		RELAY_1 {
+			gpios = <&gpio3 RK_PC3 GPIO_ACTIVE_LOW>;
+			default-state = "keep";
+		};
+		RELAY_2 {
+			gpios = <&gpio3 RK_PC4 GPIO_ACTIVE_LOW>;
+			default-state = "keep";
+		};
+		RELAY_3 {
+			gpios = <&gpio3 RK_PC5 GPIO_ACTIVE_LOW>;
+			default-state = "keep";
+		};
+	};
+
+	gpio_keys: gpio-keys {
+                compatible = "gpio-keys";
+                pinctrl-names = "default";
+                pinctrl-0 = <&btn_gpio>;
+                autorepeat;
+
+                pair_btn {
+                        debounce-interval = <100>;
+                        gpios = <&gpio3 RK_PC0 GPIO_ACTIVE_LOW>;
+                        label = "pair_btn";
+                        linux,code = <KEY_UP>;
+                        wakeup-source;
+                };
+
+        };
+
+};
+
+
+&gmac {
+	status = "okay";
+	
+	phy-supply = <&vcc_3v0>;
+	clock_in_out = "output";
+	snps,reset-gpio = <&gpio2 RK_PB7 GPIO_ACTIVE_LOW>;
+	snps,reset-active-low;
+	snps,reset-delays-us = <0 50000 50000>;
+	status = "okay";
+
+	tx_delay = <0x30>;
+	rx_delay = <0x10>;
+#if 0
+	phy-handle = <&yt8512>;
+	yt8512: ethernet-phy@0{
+		reg = <0>;
+		reset-assert-us = <50000>;
+		reset-deassert-us = <50000>;
+		reset-gpios = <&gpio2 RK_PB7 GPIO_ACTIVE_LOW>;
+		compatible = "ethernet-phy-ieee802.3-c22";
+	};
+#endif
+};
+
+&i2c0 {
+	status = "okay";
+};
+
+&i2c1 {
+	status = "okay";
+
+        i2cgpio: pca9535@20 {
+                compatible = "nxp,pca9535";
+                vcc-supply = <&vcc_3v0>;
+                reg = <0x20>;
+
+                /* I2C_INT -> GPIO3_C1 */
+                interrupt-parent = <&gpio3>;
+                interrupts = <RK_PC1 IRQ_TYPE_LEVEL_LOW>;
+                interrupt-controller;
+                #interrupt-cells = <2>;
+
+                gpio-controller;
+                #gpio-cells = <2>;
+                gpio-line-names =
+			"LED_PAIR_RED", "LED_PAIR_GREEN", "LED_WIFI_RED", "LED_WIFI_GREEN", "LED_POWER_RED", "LED_POWER_GREEN", "LED_BOOT_RED", "LED_BOOT_GREEN",
+			"", "", "", "", "", "", "", "";
+	};
+};
+
+/* sdcard */
+&sdmmc {
+	status = "disabled";
+};
+
+/* wifi */
+&sdio {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	bus-width = <4>;
+	disable-wp;
+	cap-sd-highspeed;
+	cap-sdio-irq;
+	keep-power-in-suspend;
+	mmc-pwrseq = <&sdio_pwrseq>;
+	non-removable;
+	//pinctrl-names = "default";
+	//pinctrl-0 = <&sdio_bus4 &sdio_cmd &sdio_clk>;
+	sd-uhs-sdr104;
+	vmmc-supply = <&vcc_3v0>;
+	vqmmc-supply = <&vccio_sdio>;
+	status = "okay";
+	wifi@1 {
+		compatible = "brcm,bcm43455-fmac";
+		reg = <1>;
+		interrupt-parent = <&gpio3>;
+		interrupts = <RK_PA0 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "host-wake";
+		//pinctrl-names = "default";
+		//pinctrl-0 = <&wifi_host_wake_h>;
+	};
+};
+
+
+&uart0 {
+	/* RS485 */
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_xfer>;
+	status = "okay";
+	rts-gpios = <&gpio3 RK_PA7 GPIO_ACTIVE_HIGH>; // rts used for txen in rs485 mode
+        //rs485-rts-delay = <0 200>;
+        linux,rs485-enabled-at-boot-time;
+
+};
+
+&uart1 {
+	/*bluetooth*/
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart1_xfer &uart1_cts &uart1_rts>;
+	status = "okay";
+
+	bluetooth {
+		compatible = "brcm,bcm4345c5";
+		clocks = <&rk817 1>;
+		clock-names = "lpo";
+		device-wakeup-gpios = <&gpio0 RK_PA1 GPIO_ACTIVE_HIGH>; //HOST_WAKE_BT_H
+		host-wakeup-gpios = <&gpio3 RK_PA3 GPIO_ACTIVE_HIGH>; //BT_WAKE_HOST_H
+		//reset-gpios = <&gpio2 RK_PB0 GPIO_ACTIVE_HIGH>; //BT_REG_ON_H
+		shutdown-gpios = <&gpio2 RK_PB0 GPIO_ACTIVE_HIGH>; //BT_REG_ON_H
+		vbat-supply = <&vcc_3v0>;
+		vddio-supply = <&vccio_sdio>;
+		/*max-speed = <115200>;*/
+	};
+};
+
+&uart2 {
+	/* RS232 */
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart2m1_xfer>;
+	status = "okay";
+};
+
+&uart3{
+	/* console */
+        pinctrl-names = "default";
+        pinctrl-0 = <&uart3m1_xfer>;
+        status = "okay";
+};
+
+&uart4 {
+        /* RS485 */
+        pinctrl-names = "default";
+        pinctrl-0 = <&uart4_xfer>;
+        status = "okay";
+        rts-gpios = <&gpio3 RK_PB0 GPIO_ACTIVE_HIGH>; // rts used for txen in rs485 mode
+        //rs485-rts-delay = <0 200>;
+        linux,rs485-enabled-at-boot-time;
+};
+
+&uart5 {
+	/* zigbee */
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart5_xfer>;
+};
+
+
+#define USB_CONNECTOR_IS_HOST 1
+&u2phy {
+	status = "okay";
+#if USB_CONNECTOR_IS_HOST
+	u2phy_host: host-port {
+		status = "okay";
+	};
+#else
+	u2phy_otg: otg-port {
+		status = "okay";
+	};
+#endif
+};
+
+&usb20_otg {
+	status = "okay";
+#if USB_CONNECTOR_IS_HOST
+	dr_mode = "host";
+#endif
+};
+
+#if 1
+&usb_host0_ehci {
+	status = "okay";
+};
+
+&usb_host0_ohci {
+	status = "okay";
+};
+#endif
+
+&gpu {
+	status = "disabled";
+};
+
+&vopb {
+	status = "disabled";
+};
+
+&vopb_mmu {
+	status = "disabled";
+};
+
+&vopl {
+	status = "disabled";
+};
+
+&vopl_mmu {
+	status = "disabled";
+};
+
+&gpio0 {
+	gpio-line-names = 
+		"","HOST_WAKE_BT","WIFI_REG_ON","","SDMMC0_DET","","","",
+		"","","","","","DIG_IN4","","DIG_IN3",
+		"DIG_IN2","DIG_IN1","","","","","","",
+		"","","","","","","","";
+};
+
+&gpio2 {
+	gpio-line-names =
+		"","","","","","","","",
+		"BT_REG_ON","","","","","","","",
+		"","","","","","","","",
+		"","","","","","","","";
+};
+
+&gpio3 {
+	gpio-line-names = 
+		"WIFI_WAKE_HOST","","","BT_WAKE_HOST","EXT_SIGNAL","","CPU_BOOTMODE","",
+		"","","","","","","","",
+		"","","","RELAY_1","RELAY_2","RELAY_3","","JTAG_TDI",
+		"JTAG_TDO","TCK","TMS","ZGB_RST","","","","";
+};
+
+&spi1 {
+	status = "okay";
+	pinctrl-names = "default", "high_speed";
+	//pinctrl-0 = <&spi1_clk &spi1_csn0 &spi1_miso &spi1_mosi>;
+	//pinctrl-1 = <&spi1_clk_hs &spi1_csn0 &spi1_miso_hs &spi1_mosi_hs>;
+	pinctrl-0 = <&spi1_clk &spi1_miso &spi1_mosi>;
+	pinctrl-1 = <&spi1_clk_hs &spi1_miso_hs &spi1_mosi_hs>;
+	num-cs = <1>;
+	cs-gpios = <&gpio3 RK_PB1 GPIO_ACTIVE_HIGH>;
+#if 1
+	spirtc: spirtc@0 {
+		compatible = "maxim,ds1302";
+		reg = <0>;
+		spi-max-frequency = <700000>;
+		/*spi-3wire;*/
+		spi-lsb-first;
+		spi-cs-high;
+	};
+#else
+	spidev@0{
+		/* compatible = "linux,spidev"; */
+		compatible = "rohm,dh2228fv";
+		reg = <0>;
+		spi-max-frequency = <700000>;
+		/*spi-3wire;*/
+		spi-lsb-first;
+		spi-cs-high;
+	};
+#endif
+};
+
+
+&pinctrl {
+	sdio-pwrseq {
+		wifi_enable_h: wifi-enable-h {
+			rockchip,pins = 
+				<0 RK_PA2 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+	wlan {
+		wifi_host_wake: wifi-host-wake{
+			rockchip,pins =
+				<3 RK_PA0 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+	led{
+		zgb_reset_pin: zgb-reset-pin{
+			rockchip,pins =
+				<3 RK_PD3 RK_FUNC_GPIO &pcfg_pull_up>; // pull_up => no reset on zgb
+
+		};
+	};
+	led{
+		zgb_reset_pin: zgb-reset-pin{
+			rockchip,pins =
+				<3 RK_PD3 RK_FUNC_GPIO &pcfg_pull_up>; // pull_up => no reset on zgb
+
+		};
+	};
+
+        buttons{
+                btn_gpio: btn_gpio{
+                        rockchip,pins =
+                                <3 RK_PC0 RK_FUNC_GPIO &pcfg_pull_up>; // pair button
+                };
+        };
+
+};
+
+/* DON'T PUT ANYTHING BELOW HERE.  PUT IT ABOVE PINCTRL */
+/* DON'T PUT ANYTHING BELOW HERE.  PUT IT ABOVE PINCTRL */
+/* DON'T PUT ANYTHING BELOW HERE.  PUT IT ABOVE PINCTRL */
