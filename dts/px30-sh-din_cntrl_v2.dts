@@ -3,7 +3,7 @@
  */
  
 /*
- SH_PX30_DIN_CNTRL_V1.pdf + SOM_PX30_V1.pdf
+ SH_PX30_DIN_CNTRL_V2.pdf + SOM_PX30_V1.pdf
 */
 
 /dts-v1/;
@@ -13,8 +13,8 @@
 #include "px30-inmys-som-hh.dtsi"
 
 / {
-	model = "Smart Home DIN Controller v1";
-	compatible = "inmys,px30-sh-din_cntrl_v1", "rockchip,px30";
+	model = "Smart Home DIN Controller v2";
+	compatible = "inmys,px30-sh-din_cntrl_v2", "rockchip,px30";
 
 	chosen {
 		stdout-path = "serial3:115200n8";
@@ -79,17 +79,59 @@
 
 
 		RELAY_1 {
-			gpios = <&gpio3 RK_PC3 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio3 RK_PC3 GPIO_ACTIVE_HIGH>;
 			default-state = "keep";
 		};
 		RELAY_2 {
-			gpios = <&gpio3 RK_PC4 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio3 RK_PC4 GPIO_ACTIVE_HIGH>;
 			default-state = "keep";
 		};
 		RELAY_3 {
-			gpios = <&gpio3 RK_PC5 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio3 RK_PC5 GPIO_ACTIVE_HIGH>;
 			default-state = "keep";
 		};
+
+		
+		LED_PAIR_RED {
+			gpios = <&i2cgpio 0 GPIO_ACTIVE_HIGH>;
+			default-state = "off";	
+		};  
+
+		LED_PAIR_GREEN {
+			gpios = <&i2cgpio 1 GPIO_ACTIVE_HIGH>;
+			default-state = "off";	
+		};  
+
+		LED_WIFI_RED {
+			gpios = <&i2cgpio 2 GPIO_ACTIVE_HIGH>;
+			default-state = "off";	
+		};  
+
+		LED_WIFI_GREEN {
+			gpios = <&i2cgpio 3 GPIO_ACTIVE_HIGH>;
+			default-state = "off";	
+		};  
+
+		LED_POWER_RED {
+			gpios = <&i2cgpio 4 GPIO_ACTIVE_HIGH>;
+			default-state = "off";	
+		};  
+
+		LED_POWER_GREEN {
+			gpios = <&i2cgpio 5 GPIO_ACTIVE_HIGH>;
+			default-state = "on";	
+		};  
+
+		LED_BOOT_RED {
+			gpios = <&i2cgpio 6 GPIO_ACTIVE_HIGH>;
+			default-state = "off";	
+		};  
+
+		LED_BOOT_GREEN {
+			gpios = <&i2cgpio 7 GPIO_ACTIVE_HIGH>;
+			default-state = "off";	
+		};  
+		
 	};
 
 	gpio_keys: gpio-keys {
@@ -109,6 +151,18 @@
         };
 
 };
+
+#if 1
+        &cpu0_opp_table {
+                opp-1200000000 {
+                        status="disabled";
+                };
+                opp-1296000000 {
+                        status="disabled";
+                };
+        };
+
+#endif
 
 
 &gmac {
