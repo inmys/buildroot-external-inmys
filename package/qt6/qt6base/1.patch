@@ -1,0 +1,19 @@
+--- qt6base-6.4.2/cmake/3rdparty/extra-cmake-modules/find-modules/FindEGL.cmake.orig	2022-11-16 10:54:24.000000000 +0300
++++ qt6base-6.4.2/cmake/3rdparty/extra-cmake-modules/find-modules/FindEGL.cmake	2023-12-09 18:54:07.279986547 +0300
+@@ -116,7 +116,7 @@
+ endif()
+ 
+ cmake_push_check_state(RESET)
+-list(APPEND CMAKE_REQUIRED_LIBRARIES "${EGL_LIBRARY}")
++list(APPEND CMAKE_REQUIRED_LIBRARIES "mali;${EGL_LIBRARY}")
+ list(APPEND CMAKE_REQUIRED_INCLUDES "${EGL_INCLUDE_DIR}")
+ list(APPEND CMAKE_REQUIRED_DEFINITIONS "${EGL_DEFINITIONS}")
+ 
+@@ -155,6 +155,7 @@
+         # Nothing further to be done, system include paths have headers and linkage is implicit.
+     else()
+         add_library(EGL::EGL UNKNOWN IMPORTED)
++	target_link_libraries(EGL::EGL INTERFACE "mali")
+         set_target_properties(EGL::EGL PROPERTIES
+             IMPORTED_LOCATION "${EGL_LIBRARY}"
+             INTERFACE_COMPILE_OPTIONS "${EGL_DEFINITIONS}"

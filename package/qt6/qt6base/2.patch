@@ -1,0 +1,20 @@
+--- qt6base-6.4.2/cmake/FindGLESv2.cmake.orig	2023-12-09 18:57:51.095032727 +0300
++++ qt6base-6.4.2/cmake/FindGLESv2.cmake	2023-12-09 18:59:14.692170664 +0300
+@@ -13,7 +13,7 @@
+         list(APPEND CMAKE_REQUIRED_LIBRARIES "${GLESv2_LIBRARY}")
+     endif ()
+     if(EGL_LIBRARY)
+-        list(APPEND CMAKE_REQUIRED_LIBRARIES "${EGL_LIBRARY}")
++        list(APPEND CMAKE_REQUIRED_LIBRARIES "mali;${EGL_LIBRARY}")
+     endif()
+     if(_qt_igy_gui_libs)
+         list(APPEND CMAKE_REQUIRED_LIBRARIES "${_qt_igy_gui_libs}")
+@@ -78,7 +78,7 @@
+             INTERFACE_INCLUDE_DIRECTORIES "${GLESv2_INCLUDE_DIR}")
+ 
+         if(EGL_LIBRARY)
+-            target_link_libraries(GLESv2::GLESv2 INTERFACE "${EGL_LIBRARY}")
++            target_link_libraries(GLESv2::GLESv2 INTERFACE "mali;${EGL_LIBRARY}")
+         endif()
+     endif()
+ endif()
