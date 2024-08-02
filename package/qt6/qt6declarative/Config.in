@@ -1,0 +1,5 @@
+config BR2_PACKAGE_QT6DECLARATIVE
+	bool "qt6declarative"
+	help
+	  https://doc.qt.io/qt-6/qtquick-index.html
+

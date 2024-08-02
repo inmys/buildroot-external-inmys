@@ -1,0 +1,5 @@
+config BR2_PACKAGE_QT6MULTIMEDIA
+	bool "qt6multimedia"
+	select BR2_PACKAGE_QT6SHADERTOOLS
+	help
+

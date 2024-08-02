@@ -1,0 +1,4 @@
+config BR2_PACKAGE_QT6SVG
+	bool "qt6svg"
+	help
+
