@@ -6,3 +6,4 @@ Buildroot customizations for Inmys devices
   * [NMS-NV-RK3568](https://wiki.inmys.ru/doku.php?id=boards:nms-nv-rk3568:start)
   * [NMS-HH-PX30](https://wiki.inmys.ru/doku.php?id=boards:nms-hh-px30:start)
   * [NMS-SM-RK3588](https://wiki.inmys.ru/doku.php?id=boards:nms-sm-rk3588:start)
+  * [NMS-CS-RK3588](https://wiki.inmys.ru/doku.php?id=boards:nms-cs-rk3588:start)
