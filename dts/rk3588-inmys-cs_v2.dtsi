@@ -9,7 +9,7 @@
 #define SATA 1
 
 #define GBE0 1
-#define GBE1 0
+#define GBE1 1
 
 #define SDIO 1
 
@@ -54,14 +54,14 @@
 	};
 
 	vcc5v0_sys: vcc4v0_sys: vcc4v0-sys-regulator {
-		/* RT5789AGQUF: input: smarc_vdd_in, output: 4V (rockcip rk806 recomendation) */
+		/* RT5789AGQUF: input: cardsom_vdd_in, output: 4V (rockcip rk806 recomendation) */
 		compatible = "regulator-fixed";
 		regulator-name = "vcc4v0_sys";
 		regulator-always-on;
 		regulator-boot-on;
 		regulator-min-microvolt = <4000000>;
 		regulator-max-microvolt = <4000000>;
-		vin-supply = <&smarc_vdd_in>;
+		vin-supply = <&cardsom_vdd_in>;
 	};
 
 	vcc_1v1_nldo_s3: vcc-1v1-nldo-s3-regulator {
@@ -655,7 +655,7 @@ SMARC_PCIE_D is LN1 on controller1
 		regulator-max-microvolt = <3300000>;
 		vin-supply = <&vcc_3v3_s3>;
 		gpio = <&gpio0 RK_PA0 GPIO_ACTIVE_HIGH>;
-		enable-active-high;
+		enable-active-low;
 	};
 };
 
@@ -689,6 +689,7 @@ SMARC_PCIE_D is LN1 on controller1
 	rgmii_phy0: phy@0 {
 		compatible = "ethernet-phy-ieee802.3-c22";
 		reg = <0x0>;
+		clocks = <&cru REFCLKO25M_ETH0_OUT>;
 #if 0
 		reset-assert-us = <20000>;
 		reset-deassert-us = <100000>;
@@ -700,14 +701,18 @@ SMARC_PCIE_D is LN1 on controller1
 &gmac0 {
 	clock_in_out = "output";
 	phy-handle = <&rgmii_phy0>;
-	//phy-mode = "rgmii-rxid";
-	phy-mode = "rgmii-id";
+	phy-mode = "rmii";
+
+	snps,reset-gpio = <&gpio4 RK_PC6 GPIO_ACTIVE_LOW>;
+	snps,reset-active-low;
+	snps,reset-delays-us = <0 20000 100000>;
 
 	pinctrl-0 = <&gmac0_miim
 		&gmac0_tx_bus2
 		&gmac0_rx_bus2
-		&gmac0_rgmii_clk
-		&gmac0_rgmii_bus>;
+		&gmac0_clkinout /*4 RK_PC3 ETHCLK*/
+		&eth0_pins      /*2 RK_PC3 RMII_ETH.REFCLK*/
+		>;
 	pinctrl-names = "default";
 	rx_delay = <0x00>;
 	tx_delay = <0x43>;
@@ -735,8 +740,11 @@ SMARC_PCIE_D is LN1 on controller1
 &gmac1 {
 	clock_in_out = "output";
 	phy-handle = <&rgmii_phy1>;
-	//phy-mode = "rgmii-rxid";
 	phy-mode = "rgmii-id";
+
+	snps,reset-gpio = <&gpio1 RK_PB3 GPIO_ACTIVE_LOW>;
+	snps,reset-active-low;
+	snps,reset-delays-us = <0 20000 100000>;
 
 	pinctrl-0 = <&gmac1_miim
 		&gmac1_tx_bus2
@@ -744,8 +752,16 @@ SMARC_PCIE_D is LN1 on controller1
 		&gmac1_rgmii_clk
 		&gmac1_rgmii_bus>;
 	pinctrl-names = "default";
+#if 0
 	rx_delay = <0x00>;
 	tx_delay = <0x43>;
+#endif
+
+#if 1
+        tx_delay = <0x41>;
+        rx_delay = <0x3a>;
+#endif
+
 	status = "okay";
 
 	/* MAC address stored in eeprom51 */

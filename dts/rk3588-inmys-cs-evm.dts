@@ -21,7 +21,7 @@
 		regulator-min-microvolt = <12000000>;
 		regulator-max-microvolt = <12000000>;
 	};
-	smarc_vdd_in: smarc-vdd-in {
+	cardsom_vdd_in: smarc-vdd-in {
 		/* 3.0...5.25V main power input for som(from mother board) */
 		compatible = "regulator-fixed";
 		regulator-name = "SMARC_VDD_IN";
