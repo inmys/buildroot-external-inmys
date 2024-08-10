@@ -3,13 +3,9 @@
 # for debug
 mount -t debugfs debugfs /sys/kernel/debug
 
-if [ -e /dev/mmcblk1p3 ]; then
-	# mount sdcard partition 3 to /opt
-	mount /dev/mmcblk1p3 /opt
-else
-	# mount emmp partition 3 to /opt
-	mount /dev/mmcblk0p3 /opt
-fi
+# mount partition3 (mmcblk0p3,mcblk1p3,sda3...) from boot media
+# 31474154 is "TAG1" in MBR
+mount PARTUUID=31474154-03 /opt/
 
 if [ -e /opt/postup.sh ]; then
 	. /opt/postup.sh
