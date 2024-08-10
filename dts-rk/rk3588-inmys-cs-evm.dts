@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
- * Copyright (c) 2021 Rockchip Electronics Co., Ltd.
+ * Copyright (c) 2024 InMys Limited
  *
  */
 
@@ -10,24 +10,9 @@
 
 / {
 	model = "NMS-CS-EVM with NMS-CS-RK3588";
-	compatible = "inmys,rk3588-cs-evm", "rockchip,rk3588";
+	compatible = "inmys,rk3588-cs-evm", "inmys,rk3588-cs-som", "rockchip,rk3588";
 
-	aliases {
-		mmc0 = &sdhci;
-		serial2 = &uart2;
-	};
-
-	chosen {
-		stdout-path = "serial2:1500000n8";
-	};
-
-	backlight: backlight {
-		compatible = "pwm-backlight";
-		power-supply = <&vcc12v_dcin>;
-		pwms = <&pwm2 0 25000 0>;
-	};
-
-	vcc12v_dcin: vcc12v-dcin-regulator {
+	vcc12v_dcin: vcc12v-dcin {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc12v_dcin";
 		regulator-always-on;
@@ -35,203 +20,386 @@
 		regulator-min-microvolt = <12000000>;
 		regulator-max-microvolt = <12000000>;
 	};
-
-	vcc5v0_host: vcc5v0-host-regulator {
+	cardsom_vdd_in: cardsom-vdd-in {
+		/* 3.0...5.25V main power input for som(from mother board) */
 		compatible = "regulator-fixed";
-		regulator-name = "vcc5v0_host";
-		regulator-boot-on;
-		regulator-always-on;
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		enable-active-high;
-		gpio = <&gpio4 RK_PB0 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&vcc5v0_host_en>;
-		vin-supply = <&vcc5v0_usb>;
-	};
-
-	vcc5v0_usbdcin: vcc5v0-usbdcin-regulator {
-		compatible = "regulator-fixed";
-		regulator-name = "vcc5v0_usbdcin";
+		regulator-name = "CARDSOM_VDD_IN";
 		regulator-always-on;
 		regulator-boot-on;
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
 		vin-supply = <&vcc12v_dcin>;
 	};
+};
 
-	vcc5v0_usb: vcc5v0-usb-regulator {
+
+#if ETH_1G
+&mdio1 {
+	rgmii_phy1: phy@0 {
+		compatible = "ethernet-phy-ieee802.3-c22";
+		reg = <0x0>;
+	};
+};
+&gmac1 {
+	status = "okay";
+	phy-mode = "rgmii-id";
+	//phy-mode = "rgmii-rxid";
+	clock_in_out = "output";
+
+	snps,reset-gpio = <&gpio1 RK_PB3 GPIO_ACTIVE_LOW>;
+	snps,reset-active-low;
+	snps,reset-delays-us = <0 20000 100000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&gmac1_miim
+		&gmac1_tx_bus2
+		&gmac1_rx_bus2
+		&gmac1_rgmii_clk
+		&gmac1_rgmii_bus>;
+	tx_delay = <0x41>;
+	rx_delay = <0x3a>;
+
+	phy-handle = <&rgmii_phy1>;
+};
+#endif // end ETH_1G
+
+#if 1
+/{
+	vbus5v0_typec: vbus5v0-typec {
 		compatible = "regulator-fixed";
-		regulator-name = "vcc5v0_usb";
-		regulator-always-on;
-		regulator-boot-on;
+		regulator-name = "vbus5v0_typec";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		vin-supply = <&vcc5v0_usbdcin>;
+		enable-active-high;
+		gpio = <&gpio4 RK_PB0 GPIO_ACTIVE_HIGH>;
+		//vin-supply = <&vcc5v0_usb>;
+		//pinctrl-names = "default";
+		//pinctrl-0 = <&typec5v_pwren>;
 	};
 };
 
-&combphy0_ps {
+&i2c6 {
+	/*FUSB302MPX*/
+	usbc0: fusb302@22 {
+		compatible = "fcs,fusb302";
+		reg = <0x22>;
+		interrupt-parent = <&gpio0>;
+		interrupts = <RK_PD3 IRQ_TYPE_LEVEL_LOW>;
+		//pinctrl-names = "default";
+		//pinctrl-0 = <&usbc0_int>;
+		vbus-supply = <&vbus5v0_typec>;
+		status = "okay";
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				usbc0_role_sw: endpoint@0 {
+					remote-endpoint = <&dwc3_0_role_switch>;
+				};
+			};
+		};
+
+		usb_con: connector {
+			compatible = "usb-c-connector";
+			label = "USB-C";
+			data-role = "dual";
+			power-role = "dual";
+			try-power-role = "sink";
+			op-sink-microwatt = <1000000>;
+			sink-pdos =
+				<PDO_FIXED(5000, 1000, PDO_FIXED_USB_COMM)>;
+			source-pdos =
+				<PDO_FIXED(5000, 3000, PDO_FIXED_USB_COMM)>;
+
+			altmodes {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				altmode@0 {
+					reg = <0>;
+					svid = <0xff01>;
+					vdo = <0xffffffff>;
+				};
+			};
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					usbc0_orien_sw: endpoint {
+						remote-endpoint = <&usbdp_phy0_orientation_switch>;
+					};
+				};
+
+				port@1 {
+					reg = <1>;
+					dp_altmode_mux: endpoint {
+						remote-endpoint = <&usbdp_phy0_dp_altmode_mux>;
+					};
+				};
+			};
+		};
+	};
+};
+
+&usbdp_phy0 {
+	orientation-switch;
+	svid = <0xff01>;
+	sbu1-dc-gpios = <&gpio4 RK_PA6 GPIO_ACTIVE_HIGH>;
+	sbu2-dc-gpios = <&gpio4 RK_PA7 GPIO_ACTIVE_HIGH>;
+
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		usbdp_phy0_orientation_switch: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&usbc0_orien_sw>;
+		};
+
+		usbdp_phy0_dp_altmode_mux: endpoint@1 {
+			reg = <1>;
+			remote-endpoint = <&dp_altmode_mux>;
+		};
+	};
+};
+
+&usbdrd_dwc3_0 {
+	dr_mode = "otg";
+	usb-role-switch;
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		dwc3_0_role_switch: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&usbc0_role_sw>;
+		};
+	};
+};
+#endif
+
+
+&i2c0{
+	gpio_expander: pca9535@20 {
+		compatible = "nxp,pca9535";
+		reg = <0x20>;
+		/* irq:  gpio0_c6 */
+		interrupt-parent = <&gpio0>;
+		interrupts = <22 IRQ_TYPE_LEVEL_LOW>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-line-names =
+			"RST_LCD", "RST_TP", "LCD_PWR_ON", "LCD_IOVCC_EN", "LTE_PWRON", "CAM_RSTN", "CAM_PWRDWN", "",
+			"","","","", "","","","";
+	};
+};
+
+/* conflict with rgmii eth reset, m.2 wifi, camera gpio */
+&spi0 {
+	status = "disabled";
+};
+
+&pwm12 {
 	status = "okay";
 };
 
-&cpu_b0 {
-	cpu-supply = <&vdd_cpu_big0_s0>;
-};
-
-&cpu_b1 {
-	cpu-supply = <&vdd_cpu_big0_s0>;
-};
-
-&cpu_b2 {
-	cpu-supply = <&vdd_cpu_big1_s0>;
-};
-
-&cpu_b3 {
-	cpu-supply = <&vdd_cpu_big1_s0>;
-};
-
-&cpu_l0 {
-	cpu-supply = <&vdd_cpu_lit_s0>;
-};
-
-&cpu_l1 {
-	cpu-supply = <&vdd_cpu_lit_s0>;
-};
-
-&cpu_l2 {
-	cpu-supply = <&vdd_cpu_lit_s0>;
-};
-
-&cpu_l3 {
-	cpu-supply = <&vdd_cpu_lit_s0>;
-};
-
-&gmac0 {
-	clock_in_out = "output";
-	phy-handle = <&rgmii_phy>;
-	phy-mode = "rgmii-rxid";
-	pinctrl-0 = <&gmac0_miim
-		     &gmac0_tx_bus2
-		     &gmac0_rx_bus2
-		     &gmac0_rgmii_clk
-		     &gmac0_rgmii_bus>;
-	pinctrl-names = "default";
-	rx_delay = <0x00>;
-	tx_delay = <0x43>;
+&pwm13 {
 	status = "okay";
+};
+
+
+
+/*backlight for dsi panel*/
+&pwm0 {
+	status = "okay";
+};
+
+/ {
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm0 0 20000 0>; // 50000 Hz
+		power-supply = <&vcc_lcd_5v>;
+		brightness-levels = <
+			 0   1   2   3   4   5   6   7
+			 8   9  10  11  12  13  14  15
+			16  17  18  19  20  21  22  23
+			24  25  26  27  28  29  30  31
+			32  33  34  35  36  37  38  39
+			40  41  42  43  44  45  46  47
+			48  49  50  51  52  53  54  55
+			56  57  58  59  60  61  62  63
+			64  65  66  67  68  69  70  71
+			72  73  74  75  76  77  78  79
+			80  81  82  83  84  85  86  87
+			88  89  90  91  92  93  94  95
+			96  97  98  99 100 101 102 103
+			104 105 106 107 108 109 110 111
+			112 113 114 115 116 117 118 119
+			120 121 122 123 124 125 126 127
+			128 129 130 131 132 133 134 135
+			136 137 138 139 140 141 142 143
+			144 145 146 147 148 149 150 151
+			152 153 154 155 156 157 158 159
+			160 161 162 163 164 165 166 167
+			168 169 170 171 172 173 174 175
+			176 177 178 179 180 181 182 183
+			184 185 186 187 188 189 190 191
+			192 193 194 195 196 197 198 199
+			200 201 202 203 204 205 206 207
+			208 209 210 211 212 213 214 215
+			216 217 218 219 220 221 222 223
+			224 225 226 227 228 229 230 231
+			232 233 234 235 236 237 238 239
+			240 241 242 243 244 245 246 247
+			248 249 250 251 252 253 254 255>;
+		default-brightness-level = <100>;
+	};
+};
+
+/{
+	vcc_lcd_5v: lcd-pwr-on {
+		compatible = "regulator-fixed";
+		regulator-name = "LCD_PWR_ON";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		gpio = <&gpio_expander 2 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+	vcc_lcd_1v8: lcd-iovcc-en {
+		compatible = "regulator-fixed";
+		regulator-name = "LCD_IOVCC_EN";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&gpio_expander 3 GPIO_ACTIVE_HIGH>;
+		//enable-active-low;
+	};
+};
+
+#if DSI
+&dsi0 {
+	panel: panel@0 {
+		compatible = "lincoln,zv070wuv-l50";
+		reg = <0>;
+		backlight = <&backlight>;
+
+		reset-gpios = <&gpio_expander 0 GPIO_ACTIVE_LOW>;
+		lincoln,tp-rstn-gpios = <&gpio_expander 1 GPIO_ACTIVE_LOW>;
+
+		vddi-supply = <&vcc_lcd_1v8>;
+		avdd-supply = <&vcc_lcd_5v>;
+		avee-supply = <&vcc_lcd_5v>;
+
+		//rotation = <270>;
+
+		port {
+			panel_in_dsi: endpoint {
+				remote-endpoint = <&dsi_out_panel>;
+			};
+		};
+	};
+};
+#endif
+
+&i2c8 {
+	status = "okay";
+	touchscreen: touchscreen@38 {
+		compatible = "edt,edt-ft5506";
+		reg = <0x38>;
+
+		//reset-gpios = <&gpio_expander 1 GPIO_ACTIVE_LOW>;
+
+		interrupt-parent = <&gpio2>;
+		interrupts = <RK_PC5 IRQ_TYPE_EDGE_FALLING>;
+
+		touchscreen-size-x = <1200>;
+		touchscreen-size-y = <1920>;
+		touchscreen-swapped-x-y;
+		touchscreen-inverted-x;
+		vcc-supply = <&vcc_lcd_5v>;
+	};
+};
+
+
+#if J4_CSI_CAM
+/{
+	j4_cam_clk: j4-external-camera-clock {
+		compatible = "fixed-clock";
+		clock-frequency = <24000000>;
+		clock-output-names = "J4_CLK_CAMERA_24MHZ";
+		#clock-cells = <0>;
+	};
 };
 
 &i2c2 {
 	status = "okay";
 
-	hym8563: rtc@51 {
-		compatible = "haoyu,hym8563";
-		reg = <0x51>;
+	imx577@1a {
+		status = "okay";
+		compatible = "sony,imx577";
+		reg = <0x1a>;
+
+		power-domains = <&power RK3588_PD_VI>;
+
+		/* CAM_OE  -> J1 pin3 -> GPIO1_B1 */
+		/* CAM_SEL -> J1 pin5 -> GPIO1_B2 */
+
+		clocks = <&j4_cam_clk>;
+		clock-names = "xvclk";
+
+		rockchip,camera-module-index = <0>;
+		rockchip,camera-module-facing = "front";
+		rockchip,camera-module-name = "NC";
+		rockchip,camera-module-lens-name = "NC";
+		port {
+			j4_csi_cam_out: endpoint {
+				remote-endpoint = <&csidcphy0_in>;
+				data-lanes = <1 2 3 4>;
+			};
+		};
+	};
+};
+#endif // J4_CSI_CAM end
+
+
+#if J3_CSI_CAM
+/{
+	j3_cam_clk: j3-external-camera-clock {
+		compatible = "fixed-clock";
+		clock-frequency = <24000000>;
+		clock-output-names = "J3_CLK_CAMERA_24MHZ";
 		#clock-cells = <0>;
-		clock-output-names = "hym8563";
-		pinctrl-names = "default";
-		pinctrl-0 = <&hym8563_int>;
-		interrupt-parent = <&gpio0>;
-		interrupts = <RK_PD4 IRQ_TYPE_LEVEL_LOW>;
-		wakeup-source;
 	};
 };
 
-&mdio0 {
-	rgmii_phy: ethernet-phy@1 {
-		/* RTL8211F */
-		compatible = "ethernet-phy-id001c.c916";
-		reg = <0x1>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&rtl8211f_rst>;
-		reset-assert-us = <20000>;
-		reset-deassert-us = <100000>;
-		reset-gpios = <&gpio4 RK_PB3 GPIO_ACTIVE_LOW>;
-	};
-};
 
-&pinctrl {
-	rtl8211f {
-		rtl8211f_rst: rtl8211f-rst {
-			rockchip,pins = <4 RK_PB3 RK_FUNC_GPIO &pcfg_pull_none>;
-		};
+&i2c4 {
+	status = "okay";
+	ov2718@36 {
+		status = "okay";
+		compatible = "ovti,ov2718";
+		reg = <0x36>;
+		power-domains = <&power RK3588_PD_VI>;
+		clocks = <&j3_cam_clk>;
+		clock-names = "xvclk";
 
-	};
+		reset-gpios = <&gpio_expander 5 GPIO_ACTIVE_LOW>; // CAM_RSTN
+		pwd-gpios = <&gpio_expander 6 GPIO_ACTIVE_HIGH>; // CAM_PWRDWN
 
-	hym8563 {
-		hym8563_int: hym8563-int {
-			rockchip,pins = <0 RK_PD4 RK_FUNC_GPIO &pcfg_pull_up>;
-		};
-	};
-
-	usb {
-		vcc5v0_host_en: vcc5v0-host-en {
-			rockchip,pins = <4 RK_PB0 RK_FUNC_GPIO &pcfg_pull_none>;
+		rockchip,camera-module-index = <0>;
+		rockchip,camera-module-facing = "back";
+		rockchip,camera-module-name = "NC";
+		rockchip,camera-module-lens-name = "NC";
+		port {
+			j3_csi_cam_out: endpoint {
+				remote-endpoint = <&csidcphy1_in>;
+				data-lanes = <1 2>;
+			};
 		};
 	};
 };
-
-&pwm2 {
-	status = "okay";
-};
-
-&sdhci {
-	bus-width = <8>;
-	no-sdio;
-	no-sd;
-	non-removable;
-	mmc-hs400-1_8v;
-	mmc-hs400-enhanced-strobe;
-	status = "okay";
-};
-
-&spi2 {
-	status = "okay";
-	assigned-clocks = <&cru CLK_SPI2>;
-	assigned-clock-rates = <200000000>;
-	num-cs = <2>;
-};
-
-&sata0 {
-	status = "okay";
-};
-
-&u2phy2 {
-	status = "okay";
-};
-
-&u2phy2_host {
-	phy-supply = <&vcc5v0_host>;
-	status = "okay";
-};
-
-&u2phy3 {
-	status = "okay";
-};
-
-&u2phy3_host {
-	phy-supply = <&vcc5v0_host>;
-	status = "okay";
-};
-
-&uart2 {
-	pinctrl-0 = <&uart2m0_xfer>;
-	status = "okay";
-};
-
-&usb_host0_ehci {
-	status = "okay";
-};
-
-&usb_host0_ohci {
-	status = "okay";
-};
-
-&usb_host1_ehci {
-	status = "okay";
-};
-
-&usb_host1_ohci {
-	status = "okay";
-};
+#endif // J3_CSI_CAM end
