@@ -1,0 +1,4 @@
+config BR2_PACKAGE_QT6LOCATION
+	bool "qt6location"
+	help
+

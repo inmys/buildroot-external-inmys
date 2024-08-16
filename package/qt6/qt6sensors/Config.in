@@ -1,0 +1,4 @@
+config BR2_PACKAGE_QT6SENSORS
+	bool "qt6sensors"
+	help
+

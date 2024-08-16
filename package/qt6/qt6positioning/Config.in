@@ -1,0 +1,4 @@
+config BR2_PACKAGE_QT6POSITIONING
+	bool "qt6positioning"
+	help
+

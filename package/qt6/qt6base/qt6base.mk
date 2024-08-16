@@ -29,7 +29,7 @@ QT6BASE_LICENSE_FILES = \
 	LICENSES/Qt-GPL-exception-1.0.txt
 
 QT6BASE_DEPENDENCIES = \
-	host-ninja \
+	ninja \
 	host-qt6base \
 	double-conversion \
 	libb2 \

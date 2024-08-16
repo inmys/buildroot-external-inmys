@@ -1,0 +1,4 @@
+config BR2_PACKAGE_QT6TRANSLATIONS
+	bool "qt6translations"
+	help
+
