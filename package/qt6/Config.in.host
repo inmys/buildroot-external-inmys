@@ -1,0 +1,5 @@
+if BR2_PACKAGE_QT6
+
+source "$BR2_EXTERNAL_INMYS_PATH/package/qt6/qt6base/Config.in.host"
+
+endif

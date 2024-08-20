@@ -77,7 +77,7 @@
 		};
 #endif
 
-
+#if 0
 		RELAY_1 {
 			gpios = <&gpio3 RK_PC3 GPIO_ACTIVE_HIGH>;
 			default-state = "keep";
@@ -131,7 +131,8 @@
 			gpios = <&i2cgpio 7 GPIO_ACTIVE_HIGH>;
 			default-state = "off";	
 		};  
-		
+
+#endif		
 	};
 
 	gpio_keys: gpio-keys {

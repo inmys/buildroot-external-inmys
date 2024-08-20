@@ -1,5 +1,4 @@
-# Hash from: sha256 sumqtimageformats-everywhere-src-6.7.2.tar.xz
-sha256	e1a1d8785fae67d16ad0a443b01d5f32663a6b68d275f1806ebab257485ce5d6  qtimageformats-everywhere-src-6.7.2.tar.xz
+sha256  653597e2926ddb512f078bab1e5d2a059202ba1bc1f68ff0b4a0e053ab1272b2  qt6opcua-6.7.2-git4.tar.gz
 
 # Hashes for license files:
 sha256  9f0490f18656c6f2435bd14f603ef0c96434d1825615363dce43abb42ed1dcce  LICENSES/BSD-3-Clause.txt

@@ -1,4 +1,5 @@
 config BR2_PACKAGE_QT6NETWORKAUTH
 	bool "qt6networkauth"
+	select BR2_PACKAGE_HOST_QT6BASE_NETWORK
 	help
 

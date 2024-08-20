@@ -1,1 +1,2 @@
 source "$BR2_EXTERNAL_INMYS_PATH/package/qt6/Config.in"
+source "$BR2_EXTERNAL_INMYS_PATH/package/qt6/Config.in.host"
