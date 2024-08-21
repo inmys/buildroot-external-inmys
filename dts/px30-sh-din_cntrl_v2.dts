@@ -384,7 +384,7 @@
 	gpio-line-names = 
 		"WIFI_WAKE_HOST","","","BT_WAKE_HOST","EXT_SIGNAL","","CPU_BOOTMODE","",
 		"","","","","","","","",
-		"","","","RELAY_1","RELAY_2","RELAY_3","","JTAG_TDI",
+		"PAIR_BTN","","","RELAY_1","RELAY_2","RELAY_3","","JTAG_TDI",
 		"JTAG_TDO","TCK","TMS","ZGB_RST","","","","";
 };
 
