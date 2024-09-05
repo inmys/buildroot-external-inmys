@@ -1,0 +1,11 @@
+--- procps-ng-4.0.4/configure.ac.orig	2024-09-02 09:53:18.190817248 +0000
++++ procps-ng-4.0.4/configure.ac	2024-09-02 09:54:34.221767575 +0000
+@@ -170,7 +170,7 @@
+ 		AC_MSG_RESULT(yes),
+ 		AC_MSG_RESULT(no))
+ 
+-AC_CHECK_FUNC([pidfd_open], [enable_pidwait=yes], [
++AC_CHECK_FUNCS([pidfd_open], [enable_pidwait=yes], [
+   AC_MSG_CHECKING([for __NR_pidfd_open])
+   AC_COMPILE_IFELSE([AC_LANG_SOURCE([
+ #include <sys/syscall.h>

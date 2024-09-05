@@ -1,0 +1,31 @@
+#!/bin/sh
+
+start() {
+	printf 'Starting %s: ' "$DAEMON"
+	/opt/clever-soft/A7Scheduler.sh &> /dev/null
+}
+
+stop() {
+	printf 'Stopping %s: ' "$DAEMON"
+	killall A7Scheduler
+	killall setupOverBle
+	killall A7Server
+}
+
+restart() {
+	stop
+	sleep 1
+	start
+}
+
+case "$1" in
+	start|stop|restart)
+		"$1";;
+	reload)
+		# Restart, since there is no true "reload" feature (does not
+		# reconfigure/restart on SIGHUP, just closes all open files).
+		restart;;
+	*)
+		echo "Usage: $0 {start|stop|restart|reload}"
+		exit 1
+esac

@@ -1,0 +1,29 @@
+#!/bin/sh
+DAEMON="setupOverBle"
+start() {
+	printf 'Starting %s: ' "$DAEMON"
+	/opt/clever-system/bin/setupOverBle &> /dev/null
+}
+
+stop() {
+	printf 'Stopping %s: ' "$DAEMON"
+	killall setupOverBle
+}
+
+restart() {
+	stop
+	sleep 1
+	start
+}
+
+case "$1" in
+	start|stop|restart)
+		"$1";;
+	reload)
+		# Restart, since there is no true "reload" feature (does not
+		# reconfigure/restart on SIGHUP, just closes all open files).
+		restart;;
+	*)
+		echo "Usage: $0 {start|stop|restart|reload}"
+		exit 1
+esac

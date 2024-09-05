@@ -1,5 +1,13 @@
 #!/bin/sh
 
+#resize fs
+size=`df -h | grep /dev/root | awk '{print $2}'`
+if [ "${size::-1}" -lt "800" ]; then
+	resize2fs /dev/mmcblk2p1
+	resize2fs /dev/mmcblk2p2
+	resize2fs /dev/mmcblk2p3
+fi
+
 # for debug
 mount -t debugfs debugfs /sys/kernel/debug
 
@@ -14,4 +22,8 @@ fi
 if [ -e /opt/postup.sh ]; then
 	. /opt/postup.sh
 fi
+
+#disable rfkill
+echo 1 > /sys/class/bluetooth/hci0/rfkill0/state
+hciconfig hci0 up &
 
