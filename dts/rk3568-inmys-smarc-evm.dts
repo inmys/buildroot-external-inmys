@@ -246,19 +246,14 @@
 		gpio-line-names =
 			"DSI0_TP_RST_N","DSI1_TP_RST_N","DSI0_RST_N","DSI1_RST_N","CAM0_PWDN","I2C_GPIO05","I2C_GPIO06","I2C_GPIO07",
 			"I2C_GPIO10","I2C_GPIO11","I2C_GPIO12","I2C_GPIO13","I2C_GPIO14","I2C_GPIO15","I2C_GPIO16","I2C_GPIO17";
+		cam_pwd {
+        		gpio-hog;
+        		gpios = <4 GPIO_ACTIVE_HIGH>;
+        		output-high;
+		};
 	};
 	/* one of: 0x2c or 0x2e on board*/
-        /* fan control */
-	u19: adt7473@2c {
-		compatible = "adi,adt7473";
-		reg = <0x2c>;
-		adi,bypass-attenuator-in0 = <1>;
-		adi,bypass-attenuator-in1 = <1>;
-		adi,bypass-attenuator-in2 = <1>;
-		adi,bypass-attenuator-in3 = <1>;
-		adi,pwm-active-state = <1 1 1>;
-	};
-        /* fan control2*/
+        /* fan control*/
 	u19a: adt7473@2e {
 		compatible = "adi,adt7473";
 		reg = <0x2e>;
