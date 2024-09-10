@@ -20,10 +20,7 @@ make
 
 
 <code>make linux-rebuild # build Image and dtb
-
 make linux-menuconfig
-
 make uboot-rebuild
-
 make uboot-menuconfig
 </code>
