@@ -1,9 +1,29 @@
 # buildroot-external-inmys
 Buildroot customizations for Inmys devices
+## Подготовка
 
-Репозиторий в соответвующих ветках содержит buildroot external для модулей: 
-  * [NMS-SM-RK3568](https://wiki.inmys.ru/doku.php?id=boards:nms-sm-rk3568:start)
-  * [NMS-NV-RK3568](https://wiki.inmys.ru/doku.php?id=boards:nms-nv-rk3568:start)
-  * [NMS-HH-PX30](https://wiki.inmys.ru/doku.php?id=boards:nms-hh-px30:start)
-  * [NMS-SM-RK3588](https://wiki.inmys.ru/doku.php?id=boards:nms-sm-rk3588:start)
-  * [NMS-CS-RK3588](https://wiki.inmys.ru/doku.php?id=boards:nms-cs-rk3588:start)
+<code>wget http://buildroot.org/downloads/buildroot-2023.02.1.tar.gz
+tar -xf buildroot-2023.02.1.tar.gz
+git clone -b nms-cm3-rk3328 https://github.com/inmys/buildroot-external-inmys
+make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot-2023.02.1 O=$PWD/output br_defconfig
+</code>
+
+
+## Сборка 
+
+<code>cd output
+make
+</code>
+
+
+## Другие полезные цели:
+
+
+<code>make linux-rebuild # build Image and dtb
+
+make linux-menuconfig
+
+make uboot-rebuild
+
+make uboot-menuconfig
+</code>
