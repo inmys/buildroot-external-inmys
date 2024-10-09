@@ -15,6 +15,9 @@
 #include <dt-bindings/pinctrl/rockchip.h>
 #include "rk3568.dtsi"
 
+#define RK_FUNC_1 1
+#define RK_FUNC_2 2
+
 / {
 	model = "NMS-SM-RK3568";
 	compatible = "inmys,rk3568-smarc-som", "rockchip,rk3568";
@@ -810,12 +813,12 @@
 
 		soc_slppin_slp: soc_slppin_slp {
 			rockchip,pins =
-				<0 RK_PA2 1 &pcfg_pull_up>;
+				<0 RK_PA2 RK_FUNC_1 &pcfg_pull_up>;
 		};
 
 		soc_slppin_rst: soc_slppin_rst {
 			rockchip,pins =
-				<0 RK_PA2 2 &pcfg_pull_none>;
+				<0 RK_PA2 RK_FUNC_2 &pcfg_pull_none>;
 		};
 
 		spk_ctl_gpio: spk_ctl_gpio {
