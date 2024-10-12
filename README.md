@@ -12,8 +12,7 @@ ln -s rknn-toolkit2/rknpu2 external/rknpu2
 git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b libmali external/libmali
 git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b mpp-dev external/mpp
 git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b linux-rga-multi external/linux-rga
-git clone https://gitlab.com/rk3588_linux/linux/external/camera_engine_rkaiq  --depth=1 external/camera_engine_rkaiq
-ln -s . external/camera_engine_rkaiq/rkaiq
+git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b rkaiq-2024_04_08 external/camera_engine_rkaiq
 make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot-2024 O=$PWD/output br-rk_defconfig
 cd output
 make
