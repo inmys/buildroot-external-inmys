@@ -146,10 +146,9 @@
 };
 /* end mini PCIE connector */
 
-
-/* has no sdcard on Motherboard, but has in evm board: rm? */
 &sdmmc0 {
 	status = "okay";
+        max-frequency = <50000000>;
 };
 
 &uart2 {
@@ -221,10 +220,12 @@
 	status = "okay";
 };
 
+/*usb3-phy conflicts with sata in alt, excluded */
 &usb_host1_xhci {
 	status = "okay";
+	phys = <&usb2phy0_host>; 
+        phy-names = "usb2-phy";
 };
-
 
 /* SATA to m.2 connector */
 &combphy1 {
