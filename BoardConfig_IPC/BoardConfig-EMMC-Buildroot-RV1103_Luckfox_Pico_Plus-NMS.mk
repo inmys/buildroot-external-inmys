@@ -15,9 +15,9 @@ export RK_BOOTARGS_CMA_SIZE="24M"
 
 # Kernel dts
 
-export RK_KERNEL_DTS=rv1103g-inmys.dts
+export RK_KERNEL_DTS=nms-sdb-mb_v2.dts
 
-export RK_KERNEL_DEFCONFIG_FRAGMENT=inmys-fragment.config
+export RK_KERNEL_DEFCONFIG_FRAGMENT=nms-sdb-mb_v2-fragment.config
 
 #################################################
 #	BOOT_MEDIUM
@@ -68,8 +68,8 @@ export LF_TARGET_ROOTFS=buildroot
 export LF_SUBMODULES_BY=github
 
 # Buildroot defconfig
-#export RK_BUILDROOT_DEFCONFIG=nms-sdb-mb_v2_defconfig
-export RK_BUILDROOT_DEFCONFIG=luckfox_pico_defconfig
+export RK_BUILDROOT_DEFCONFIG=nms-sdb-mb_v2_defconfig
+
 #################################################
 # 	Defconfig
 #################################################
@@ -104,15 +104,8 @@ export RK_KERNEL_DEFCONFIG=luckfox_rv1106_linux_defconfig
 # export RK_APP_IPCWEB_BACKEND=y
 
 # enable install app to oem partition
-export RK_BUILD_APP_TO_OEM_PARTITION=y
+#export RK_BUILD_APP_TO_OEM_PARTITION=y
 
 # enable rockchip test
 #export RK_ENABLE_ROCKCHIP_TEST=n
 
-# enable rockchip wifi
-export RK_ENABLE_WIFI=y
-export RK_ENABLE_WIFI_CHIP=AP6XXX
-
-# config wifi ssid and passwd
-export LF_WIFI_SSID="Your wifi ssid"
-export LF_WIFI_PSK="Your wifi password"

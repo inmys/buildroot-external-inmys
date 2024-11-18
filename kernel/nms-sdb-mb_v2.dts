@@ -424,7 +424,7 @@ status = "okay";
                 reg = <0x3c>;
                 clock-names = "xclk";
 		clocks = <&cru MCLK_REF_MIPI0>;
-		status = "okay";
+		status = "disabled";
 
                 powerdown-gpios = <&gpio3 RK_PC6 GPIO_ACTIVE_HIGH>; // GPIO_0
                 powerdown = <&gpio3 RK_PC6 GPIO_ACTIVE_HIGH>; // GPIO_0
@@ -444,7 +444,7 @@ status = "okay";
                 };
         };
         ov5647: ov5647@36 {
-                status = "disabled";
+                status = "okay";
                 compatible = "ovti,ov5647";
                 reg = <0x36>;
 
