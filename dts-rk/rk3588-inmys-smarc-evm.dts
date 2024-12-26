@@ -207,3 +207,11 @@
 	};
 };
 
+&spi0 {
+	status = "okay";
+	mydev@0 {
+		reg = <0>;
+		compatible = "rohm,dh2228fv";
+	};
+};
+
