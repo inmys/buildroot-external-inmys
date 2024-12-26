@@ -1122,6 +1122,17 @@ I2C_LCD: &i2c8 {
 		     &i2s0_sdo0>;
 };
 
+/* SMARC SPI0 */
+&spi0 {
+	status = "okay";
+	pinctrl-0 = <&spi0m2_cs0 &spi0m2_cs1 &spi0m2_pins>;
+};
+
+/* SMARC SPI1 */
+&spi4 {
+	status = "okay";
+	pinctrl-0 = <&spi4m2_cs0 &spi4m2_pins>;
+};
 
 
 &u2phy0 {
