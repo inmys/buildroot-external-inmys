@@ -192,7 +192,10 @@
 };
 
 &usb_host0_xhci {
-	/*extcon = <&usb2phy0>;*/
+	dr_mode = "host";
+	status = "okay";
+};
+&combphy0 { /* USB3_OTG SS */
 	status = "okay";
 };
 
