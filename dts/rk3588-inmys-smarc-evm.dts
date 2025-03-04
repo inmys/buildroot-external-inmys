@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * Copyright (c) 2023 Rockchip Electronics Co., Ltd.
- * Copyright (c) 2024 InMys Limited
+ * Copyright (c) 2025 InMys Limited
  *
  */
 
 /dts-v1/;
 
-#include "rk3588-inmys-smarc-som_v1.dtsi"
+#include "rk3588-inmys-smarc-som_v2.dtsi"
 
 / {
 	model = "NMS-SM-EVM with NMS-SM-RK3588";
