@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+//
+// Copyright (C) 2016 Freescale Semiconductor, Inc.
+
+/dts-v1/;
+
+#include "imx6ull-nms-hh-som.dtsi"
+
+/ {
+	model = "Inmys i.MX6ULL MB";
+	compatible = "inmys,imx6ull-hh-evm", "inmys,imx6ull-hh-som", "fsl,imx6ull";
+};
+

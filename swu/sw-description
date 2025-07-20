@@ -1,0 +1,65 @@
+software =
+{
+	version = "0.1.0";
+	description = "imx6ull firmware update";
+	/*reboot = false;*/
+
+	stable = {
+		now-B: {
+			partitions: ( /* UBI Volumes */
+				{
+					device = "nandrootfs";
+					name = "rootfsA";
+					size = 50331648; /* in bytes (=48Mbytes) */
+				}
+			);
+			images: (
+				{
+					type = "ubivol";
+					filename = "rootfs.ubifs";
+					volume = "rootfsA";
+					sha256 = "sha256_rootfs.ubifs";
+					encrypted = true;
+					ivt = "9F70FCEC206603D2AAD7B318CC2259EA";
+					properties: {
+						decrypted-size = "size_orig_rootfs.ubifs";
+					}
+				}
+			);
+			bootenv: (
+				{
+					name = "bootslot";
+					value = "A";
+				}
+			);
+		}
+		now-A: {
+			partitions: ( /* UBI Volumes */
+				{
+					device = "nandrootfs";
+					name = "rootfsB";
+					size = 50331648; /* in bytes (=48Mbytes) */
+				}
+			);
+			images: (		
+				{
+					type = "ubivol";
+					filename = "rootfs.ubifs";
+					volume = "rootfsB";
+					sha256 = "sha256_rootfs.ubifs";
+					encrypted = true;
+					ivt = "9F70FCEC206603D2AAD7B318CC2259EA";
+					properties: {
+						decrypted-size = "size_orig_rootfs.ubifs";
+					}
+				}
+			);
+			bootenv: (
+				{
+					name = "bootslot";
+					value = "B";
+				}
+			);
+		}
+	}
+}

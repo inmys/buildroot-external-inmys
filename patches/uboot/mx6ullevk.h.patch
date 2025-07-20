@@ -1,0 +1,31 @@
+--- uboot-custom/include/configs/mx6ullevk.h.orig	2025-06-04 12:48:20.000000000 +0300
++++ uboot-custom/include/configs/mx6ullevk.h	2025-07-20 17:05:37.796206468 +0300
+@@ -62,20 +62,14 @@
+ 	"fdt_high=0xffffffff\0"	  \
+ 	"tee_addr=0x84000000\0" \
+ 	"console=ttymxc0\0" \
+-	"bootargs=console=ttymxc0,115200 ubi.mtd=nandrootfs "  \
+-		"root=ubi0:rootfs rootfstype=ubifs "		     \
+-		BOOTARGS_CMA_SIZE \
+-		MFG_NAND_PARTITION \
+-		"\0" \
+-	"bootcmd=nand read ${loadaddr} 0x4000000 0xc00000;"\
+-		"nand read ${fdt_addr} 0x5000000 0x100000;"\
+-		"if test ${tee} = yes; then " \
+-			"nand read ${tee_addr} 0x6000000 0x400000;"\
+-			"bootm ${tee_addr} - ${fdt_addr};" \
+-		"else " \
+-			"bootz ${loadaddr} - ${fdt_addr};" \
+-		"fi\0"
+-
++	"bootargs_common=earlycon=ec_imx6q,0x2020000,115200 debug earlyprintk console=ttymxc0,115200n8\0" \
++	"dtbname=imx6ull-nms-hh-evm.dtb\0" \
++	"mmcdev=0\0" \
++	"mmcpart=1\0" \
++	"mmcboot=setenv bootargs ${bootargs_common} root=/dev/mmcblk${mmcdev}p${mmcpart} rootwait; load mmc ${mmcdev}:${mmcpart} ${loadaddr} /boot/zImage;load mmc ${mmcdev}:${mmcpart} ${fdt_addr} /boot/${dtbname};bootz ${loadaddr} - ${fdt_addr}\0" \
++	"get_bootslot=if test \"${bootslot}\" = \"\"; then setenv bootslot A; saveenv; fi\0" \
++	"nandboot=run get_bootslot;ubi part nandrootfs 2048;ubifsmount ubi0:rootfs${bootslot};ubifsload ${loadaddr} /boot/zImage;ubifsload ${fdt_addr} /boot/${dtbname}; ubifsumount; setenv bootargs ${bootargs_common} root=ubi0:rootfs${bootslot} rw ubi.mtd=nandrootfs,2048 rootfstype=ubifs rootwait; bootz ${loadaddr} - ${fdt_addr}\0" \
++	"bootcmd=if mmc dev ${mmcdev}; then echo 'run from sdcard'; run mmcboot; else run nandboot; fi;\0"
+ #else
+ #define CFG_EXTRA_ENV_SETTINGS \
+ 	CFG_MFG_ENV_SETTINGS \

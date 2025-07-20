@@ -1,0 +1,25 @@
+--- uboot-custom/board/freescale/mx6ullevk/mx6ullevk.c.orig	2025-07-16 13:55:59.975481428 +0300
++++ uboot-custom/board/freescale/mx6ullevk/mx6ullevk.c	2025-07-16 19:49:25.222999564 +0300
+@@ -202,6 +202,7 @@
+ #ifdef CONFIG_FEC_MXC
+ static int setup_fec(void)
+ {
++#if 0
+ 	struct iomuxc *const iomuxc_regs = (struct iomuxc *)IOMUXC_BASE_ADDR;
+ 	int ret;
+ 
+@@ -231,6 +232,14 @@
+ 	}
+ 
+ 	enable_enet_clk(1);
++#else
++	struct iomuxc *const iomuxc_regs = (struct iomuxc *)IOMUXC_BASE_ADDR;
++	int ret;
++	/* clk from phy, set gpr1[13], clear gpr1[17]*/
++	clrsetbits_le32(&iomuxc_regs->gpr[1], IOMUX_GPR1_FEC_MASK | IOMUX_GPR1_FEC1_MASK,
++			IOMUX_GPR1_FEC_CLOCK_MUX2_SEL_MASK | IOMUX_GPR1_FEC1_CLOCK_MUX2_SEL_MASK);
++	enable_enet_clk(1);
++#endif
+ 
+ 	return 0;
+ }
