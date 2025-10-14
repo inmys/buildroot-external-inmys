@@ -1,8 +1,8 @@
 # buildroot-external-inmys
 Buildroot customizations for Inmys devices
 
-######### build in ubuntu 20/22 with rockchip kernel/packages
-<code>
+## Подготовка
+<code># build in ubuntu 20/22 with rockchip kernel/packages
 git clone https://github.com/inmys/buildroot-external-inmys.git -b nms-sm-rk3588
 export GIT_SSL_NO_VERIFY=1 #needs only for gitlab.inmys
 git clone https://gitlab.inmys.online/rk3588/buildroot-2024.git
@@ -15,7 +15,18 @@ git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b mpp-dev external/m
 git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b linux-rga-multi external/linux-rga
 git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b rkaiq-2024_04_08 external/camera_engine_rkaiq
 make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot-2024 O=$PWD/output br-rk_defconfig
-cd output
+</code>
+
+
+## Сборка
+<code>cd output
 make
-#result: output/images/Image, output/images/rk3588-inmys-smarc-evm.dtb, output/images/rootfs.ext2 output/images/u-boot-rockchip.bin
+</code>
+
+## Результаты сборки
+<code>#result:
+output/images/Image
+output/images/rk3588-inmys-smarc-evm.dtb
+output/images/rootfs.ext2
+output/images/u-boot-rockchip.bin
 </code>
