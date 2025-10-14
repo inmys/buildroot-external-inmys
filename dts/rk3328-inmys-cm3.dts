@@ -22,6 +22,13 @@
 		};
 	};
 
+	ir-receiver {
+		compatible = "gpio-ir-receiver";
+		gpios = <&gpio2 RK_PA2 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&ir_int>;
+		pinctrl-names = "default";
+	};
+
 	/* for gmac*/
 	gmac_clkin: external-gmac-clock {
 		compatible = "fixed-clock";
@@ -109,7 +116,6 @@
 	rockchip,default-sample-phase = <90>;
 };
 
-#if 0
 &gmac2io {
 	assigned-clocks = <&cru SCLK_MAC2IO>, <&cru SCLK_MAC2IO_EXT>;
 	assigned-clock-parents = <&gmac_clkin>, <&gmac_clkin>;
@@ -125,7 +131,6 @@
 	rx_delay = <0x18>;
 	status = "okay";
 };
-#endif
 
 &io_domains {
 	status = "okay";
@@ -454,3 +459,10 @@
 	};
 };
 
+ &pinctrl {
+	ir {
+		ir_int: ir-int {
+			rockchip,pins = <2 RK_PA2 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+};
