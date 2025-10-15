@@ -117,19 +117,22 @@
 };
 
 &gmac2io {
-	assigned-clocks = <&cru SCLK_MAC2IO>, <&cru SCLK_MAC2IO_EXT>;
-	assigned-clock-parents = <&gmac_clkin>, <&gmac_clkin>;
-	clock_in_out = "input";
-	phy-supply = <&vcc_phy>;
-	phy-mode = "rgmii";
-	pinctrl-names = "default";
-	pinctrl-0 = <&rgmiim1_pins>;
-	snps,reset-gpio = <&gpio1 RK_PC2 GPIO_ACTIVE_LOW>;
-	snps,reset-active-low;
-	snps,reset-delays-us = <0 10000 50000>;
-	tx_delay = <0x24>;
-	rx_delay = <0x18>;
-	status = "okay";
+        assigned-clocks = <&cru SCLK_MAC2IO>, <&cru SCLK_MAC2IO_EXT>;
+        assigned-clock-parents = <&gmac_clkin>, <&gmac_clkin>;
+        clock_in_out = "input";
+        phy-supply = <&vcc_phy>;
+        phy-mode = "rgmii";
+        pinctrl-names = "default";
+        pinctrl-0 = <&rgmiim1_pins>;
+        snps,aal;
+        snps,reset-gpio = <&gpio1 RK_PC2 GPIO_ACTIVE_LOW>;
+        snps,reset-active-low;
+        snps,reset-delays-us = <0 10000 50000>;
+        snps,rxpbl = <0x4>;
+        snps,txpbl = <0x4>;
+        tx_delay = <0x24>;
+        rx_delay = <0x18>;
+        status = "okay";
 };
 
 &io_domains {
@@ -314,7 +317,7 @@
 };
 
 &uart0 {
-	status = "okay";
+	status = "disabled";
 };
 
 &uart1 {
@@ -365,8 +368,6 @@
 };
 #endif
 
-
-
 #if 0
 &gmac2phy {
 	phy-supply = <&vcc_phy>;
@@ -378,7 +379,6 @@
 	status = "okay";
 };
 #endif
-
 
 &gpu {
 	status = "okay";
