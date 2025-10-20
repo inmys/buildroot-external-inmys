@@ -95,6 +95,33 @@
 		regulator-max-microvolt = <5000000>;
 		enable-active-high;
 	};
+
+	es8388-sound {                                                                                                                                                                                      
+		compatible = "simple-audio-card";                                                                                                                                                           
+		pinctrl-names = "default";                                                                                                                                                                  
+		simple-audio-card,name = "rockchip,es8388-codec";                                                                                                                                           
+		simple-audio-card,format = "i2s";                                                                                                                                                           
+		simple-audio-card,mclk-fs = <256>;                                                                                                                                                          
+		simple-audio-card,widgets =                                                                                                                                                                 
+		        "Microphone", "Mic Jack",                                                                                                                                                           
+		        "Headphone", "Headphones";                                                                                                                                                          
+		simple-audio-card,routing =                                                                                                                                                                 
+		        "LINPUT1", "Mic Jack",                                                                                                                                                              
+		        "Headphone Amp INL", "LOUT2",                                                                                                                                                       
+		        "Headphone Amp INR", "ROUT2",                                                                                                                                                       
+		        "Headphones", "Headphone Amp OUTL",                                                                                                                                                 
+		        "Headphones", "Headphone Amp OUTR";                                                                                                                                                 
+		simple-audio-card,pin-switches = "Headphones";                                                                                                                                              
+		                                                                                                                                                                                            
+		simple-audio-card,codec {                                                                                                                                                                   
+		        sound-dai = <&es8388>;                                                                                                                                                              
+		};                                                                                                                                                                                          
+		                                                                                                                                                                                            
+		simple-audio-card,cpu {                                                                                                                                                                     
+		        sound-dai = <&i2s1>;                                                                                                                                                                
+		};                                                                                                                                                                                          
+	};
+
 };
 
 &cpu0 {
@@ -134,6 +161,7 @@
         rx_delay = <0x18>;
         status = "okay";
 };
+
 
 &io_domains {
 	status = "okay";
@@ -255,7 +283,17 @@
 			};
 		};
 	};
+	rtc: rtc8564@51 {
+                compatible = "nxp,pcf8563";
+                reg = <0x51>;
+        };
+        es8388: es8388@11 {
+                compatible = "everest,es8388";
+                reg = <0x11>;
+                #sound-dai-cells = <0>;
+        };
 };
+
 
 &pinctrl {
 	pmic {
@@ -362,13 +400,7 @@
 	status = "okay";
 };
 
-#if 0
-&usbdrd_dwc3 {
-	status = "okay";
-};
-#endif
 
-#if 0
 &gmac2phy {
 	phy-supply = <&vcc_phy>;
 	clock_in_out = "output";
@@ -378,7 +410,6 @@
 	assigned-clock-parents = <&cru SCLK_MAC2PHY_SRC>;
 	status = "okay";
 };
-#endif
 
 &gpu {
 	status = "okay";
@@ -386,11 +417,9 @@
 };
 
 &hdmi {
-#if 0
 	#sound-dai-cells = <0>;
 	ddc-i2c-scl-high-time-ns = <9625>;
 	ddc-i2c-scl-low-time-ns = <10000>;
-#endif
 	status = "okay";
 };
 
@@ -465,4 +494,8 @@
 			rockchip,pins = <2 RK_PA2 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
+};
+
+&i2s1 {
+        status = "okay";
 };
