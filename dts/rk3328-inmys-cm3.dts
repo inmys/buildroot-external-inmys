@@ -380,7 +380,6 @@
 };
 
 
-#if 0
 &u3phy {
 	vbus-supply = <&vcc_host_vbus>;
 	status = "okay";
@@ -394,13 +393,10 @@
 &u3phy_pipe {
 	status = "okay";
 };
-#endif
 
 
 &usbdrd3 {
 	status = "okay";
-	dr_mode = "host";
-
 };
 
 
@@ -470,6 +466,7 @@
 };
 
 &saradc {
+	vref-supply = <&vcc_18>;
 	status = "okay";
 };
 
@@ -576,5 +573,11 @@
 
 &rkvdec_mmu {
 	status = "okay";
+};
+
+
+&spdif {
+	status = "okay";
+	pinctrl-0 = <&spdifm2_tx>;
 };
 
