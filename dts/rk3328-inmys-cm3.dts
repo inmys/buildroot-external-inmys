@@ -384,6 +384,7 @@
 &u3phy {
 	vbus-supply = <&vcc_host_vbus>;
 	status = "okay";
+	dr_mode = "host";
 };
 
 &u3phy_utmi {
@@ -398,6 +399,8 @@
 
 &usbdrd3 {
 	status = "okay";
+	dr_mode = "host";
+
 };
 
 
@@ -420,7 +423,7 @@
 	#sound-dai-cells = <0>;
 	ddc-i2c-scl-high-time-ns = <9625>;
 	ddc-i2c-scl-low-time-ns = <10000>;
-	status = "okay";
+	status = "disabled";
 };
 
 &hdmi_sound {
@@ -441,7 +444,6 @@
 	status = "okay";
 };
 
-#if 0
 &vdpu {
 	status = "okay";
 };
@@ -458,14 +460,6 @@
 	status = "okay";
 };
 
-&vepu22 {
-	status = "okay";
-};
-
-&vepu22_mmu {
-	status = "okay";
-};
-#endif
 
 &vop {
 	status = "okay";
@@ -499,3 +493,88 @@
 &i2s1 {
         status = "okay";
 };
+
+/{
+
+
+
+
+};
+
+
+/{
+
+	reserved_memory: reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		drm_logo: drm-logo@0 {
+			compatible = "rockchip,drm-logo";
+			reg = <0x0 0x0>;
+		};
+
+		secure_memory: secure-memory@80000000 {
+			compatible = "rockchip,secure-memory";
+			reg = <0x80000000 0x0>;
+		};
+
+		ramoops: ramoops@62e00000 {
+			compatible = "ramoops";
+			reg = <0x62e00000 0xf0000>;
+			record-size = <0x20000>;
+			console-size = <0x80000>;
+			ftrace-size = <0x00000>;
+			pmsg-size = <0x50000>;
+		};
+	};
+
+
+};
+
+
+&tve{
+	status = "okay";
+};
+
+&display_subsystem {
+	logo-memory-region = <&drm_logo>;
+	secure-memory-region = <&secure_memory>;
+	status = "okay";
+
+	route {
+#if 0
+		route_hdmi: route-hdmi {
+			status = "disabled";
+			logo,uboot = "logo.bmp";
+			logo,kernel = "logo_kernel.bmp";
+			logo,mode = "center";
+			charge_logo,mode = "center";
+			connect = <&vop_out_hdmi>;
+		};
+#endif
+		route_tve: route-tve {
+			status = "okay";
+			logo,uboot = "logo.bmp";
+			logo,kernel = "logo_kernel.bmp";
+			logo,mode = "center";
+			charge_logo,mode = "center";
+			connect = <&vop_out_tve>;
+		};
+	};
+
+};
+
+&rga {
+	status = "okay";
+};
+
+&rkvdec {
+	status = "okay";
+	vcodec-supply = <&vdd_logic>;
+};
+
+&rkvdec_mmu {
+	status = "okay";
+};
+
