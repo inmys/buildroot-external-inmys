@@ -469,18 +469,7 @@
                         charge_logo,mode = "center";
                         connect = <&vop_out_hdmi>;
                 };
-#if 0
-                route_tve: route-tve {
-                        status = "disabled";
-                        logo,uboot = "logo.bmp";
-                        logo,kernel = "logo_kernel.bmp";
-                        logo,mode = "center";
-                        charge_logo,mode = "center";
-                        connect = <&vop_out_tve>;
-                };
-#endif
-        };
-
+	};
 };
 
 
@@ -538,6 +527,7 @@
 	status = "okay";
 };
 
+#if 0
 &vdpu {
 	status = "okay";
 };
@@ -554,6 +544,8 @@
 	status = "okay";
 };
 
+
+#endif
 
 &vop {
 	status = "okay";
