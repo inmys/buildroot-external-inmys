@@ -260,14 +260,15 @@
 		simple-audio-card,format = "i2s";
 		simple-audio-card,mclk-fs = <256>;
 		simple-audio-card,name = "rockchip,rk3328";
-		status = "disabled";
+		status = "okay";
 
 		simple-audio-card,cpu {
 			sound-dai = <&i2s1>;
 		};
 
 		simple-audio-card,codec {
-			sound-dai = <&codec>;
+//			sound-dai = <&codec>;
+			sound-dai = <&es8388>;
 		};
 	};
 
@@ -1125,8 +1126,12 @@
 		vop_out: port {
 			#address-cells = <1>;
 			#size-cells = <0>;
-			vop_out_tve: endpoint@0 {
-				reg = <0>;
+                        vop_out_hdmi: endpoint@0 {
+                                reg = <0>;
+                                remote-endpoint = <&hdmi_in_vop>;
+                        };
+			vop_out_tve: endpoint@1 {
+				reg = <1>;
 				remote-endpoint = <&tve_in_vop>;
 			};
 		};
@@ -1146,27 +1151,33 @@
 		rockchip,dac1level = <0x7>;
 		status = "okay";
 
-		ports {
-			tve_in: port {
-				#address-cells = <1>;
-				#size-cells = <0>;
-				tve_in_vop: endpoint@0 {
-					reg = <0>;
-					remote-endpoint = <&vop_out_tve>;
-				};
-			};
-			port@1 { 
-				tve_out: endpoint@1 { 
-					reg = <1>; 
-					remote-endpoint = <&cvbs_in>;
-				};
-			};
-		};
+
+        ports {
+                #address-cells = <1>;
+                #size-cells = <0>;
+
+                tve_in: port@0 {
+                        reg = <0>;
+                        tve_in_vop: endpoint {
+                                remote-endpoint = <&vop_out_tve>;
+                        };
+                };
+
+                tve_out_port: port@1 {
+                        reg = <1>;
+                        tve_out: endpoint {
+                                remote-endpoint = <&cvbs_in>;
+                        };
+                };
+        };
+
+
+
 	};
 
 	cvbs: connector {
 		compatible = "composite-video-connector";
-		status="okay";
+		status="disabled";
 		sdtv-standards = <SDTV_STD_PAL>;
 		port { 
 			cvbs_in: endpoint { 
@@ -1260,6 +1271,10 @@
 			hdmi_in: port {
 				#address-cells = <1>;
 				#size-cells = <0>;
+				hdmi_in_vop: endpoint@0 {
+					reg = <0>;
+					remote-endpoint = <&vop_out_hdmi>;
+				};
 			};
 		};
 	};

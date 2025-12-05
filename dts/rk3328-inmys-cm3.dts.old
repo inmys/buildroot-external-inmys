@@ -266,22 +266,23 @@
                 compatible = "nxp,pcf8563";
                 reg = <0x51>;
         };
-        
+
 	es8388: es8388@11 {
-        compatible = "everest,es8388";
+	compatible = "everest,es8388", "everest,es8328";
         DVDD-supply = <&vcc_io>;
         AVDD-supply = <&vcc_io>;
         PVDD-supply = <&vcc_io>;
         HPVDD-supply = <&vcc_io>;
-        assigned-clocks = <&cru SCLK_I2S1>, <&cru SCLK_I2S1_OUT>;
-        assigned-clock-rates = <11289600>, <11289600>;
-        clocks = <&cru SCLK_I2S1_OUT>;
-        clock-names = "mclk";
-        reg = <0x11>;
-	status="okay";
+	clocks = <&cru SCLK_I2S1_OUT>;
+	clock-names = "mclk";
+	assigned-clocks = <&cru SCLK_I2S1_OUT>;
+	assigned-clock-rates = <11289600>;
+        
+	reg = <0x11>;
+        status = "okay";
+	
 	#sound-dai-cells = <0>;
 	};
-
 
 };
 
@@ -455,36 +456,6 @@
 };
 
 
-&display_subsystem {
-        logo-memory-region = <&drm_logo>;
-        secure-memory-region = <&secure_memory>;
-        status = "okay";
-
-        route {
-                route_hdmi: route-hdmi {
-                        status = "okay";
-                        logo,uboot = "logo.bmp";
-                        logo,kernel = "logo_kernel.bmp";
-                        logo,mode = "center";
-                        charge_logo,mode = "center";
-                        connect = <&vop_out_hdmi>;
-                };
-#if 0
-                route_tve: route-tve {
-                        status = "disabled";
-                        logo,uboot = "logo.bmp";
-                        logo,kernel = "logo_kernel.bmp";
-                        logo,mode = "center";
-                        charge_logo,mode = "center";
-                        connect = <&vop_out_tve>;
-                };
-#endif
-        };
-
-};
-
-
-
 &gpu {
 	status = "okay";
 	mali-supply = <&vdd_logic>;
@@ -494,7 +465,7 @@
 	#sound-dai-cells = <0>;
 	ddc-i2c-scl-high-time-ns = <9625>;
 	ddc-i2c-scl-low-time-ns = <10000>;
-	status = "okay";
+	status = "disabled";
 };
 
 
@@ -508,21 +479,21 @@
 		<594000000 0x10 0x1a 0x1a 0x1a 0x07 0x15 0x08
 			   0x08 0x08 0x00 0xac 0xcc 0xcc 0xcc>;
 #endif
-	status = "okay";
+	status = "disabled";
 };
 
 &tve{
-        status = "disabled";
+        status = "okay";
 };
 &vop_out_tve{
-        status = "disabled";
+        status = "okay";
 };
 &tve_in_vop{
-        status = "disabled";
+        status = "okay";
 };
 
 &cvbs{
-        status = "disabled";
+        status = "okay";
 };
 
 &rga {
@@ -569,6 +540,8 @@
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2s1_mclk &i2s1_sclk &i2s1_lrckrx &i2s1_lrcktx &i2s1_sdo &i2s1_sdi>;
+	rockchip,playback-channels = <2>;
+	rockchip,capture-channels = <2>;
 	#sound-dai-cells = <0>;
 };
 
@@ -597,9 +570,143 @@
 };
 
 
-&analog_sound {
+////////////////////////////////////////////////////////////////////////////////
+
+
+&hdmi {
+	#sound-dai-cells = <0>;
+	ddc-i2c-scl-high-time-ns = <9625>;
+	ddc-i2c-scl-low-time-ns = <10000>;
+	status = "disabled";
+};
+
+&hdmi_sound {
+        status = "okay";
+};
+
+
+&hdmiphy {
+#if 0
+	rockchip,phy-table =
+		<165000000 0x07 0x0a 0x0a 0x0a 0x00 0x00 0x08
+			   0x08 0x08 0x00 0xac 0xcc 0xcc 0xcc>,
+		<340000000 0x0b 0x0d 0x0d 0x0d 0x07 0x15 0x08
+			   0x08 0x08 0x3f 0xac 0xcc 0xcd 0xdd>,
+		<594000000 0x10 0x1a 0x1a 0x1a 0x07 0x15 0x08
+			   0x08 0x08 0x00 0xac 0xcc 0xcc 0xcc>;
+#endif
+	status = "okay";
+};
+
+&vdpu {
+	status = "okay";
+};
+
+&vpu_mmu {
+	status = "okay";
+};
+
+&vepu {
+	status = "okay";
+};
+
+&vepu_mmu {
+	status = "okay";
+};
+
+
+&vop {
+	status = "okay";
+};
+
+&vop_mmu {
+	status = "okay";
+};
+
+&saradc {
+	status = "okay";
+};
+
+
+/{
+
+	reserved_memory: reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		drm_logo: drm-logo@0 {
+			compatible = "rockchip,drm-logo";
+			reg = <0x0 0x0>;
+		};
+
+		secure_memory: secure-memory@80000000 {
+			compatible = "rockchip,secure-memory";
+			reg = <0x80000000 0x0>;
+		};
+
+		ramoops: ramoops@62e00000 {
+			compatible = "ramoops";
+			reg = <0x62e00000 0xf0000>;
+			record-size = <0x20000>;
+			console-size = <0x80000>;
+			ftrace-size = <0x00000>;
+			pmsg-size = <0x50000>;
+		};
+	};
+
+
+};
+
+
+&tve{
+	status = "disabled";
+};
+
+&display_subsystem {
+	logo-memory-region = <&drm_logo>;
+	secure-memory-region = <&secure_memory>;
 	status = "okay";
 
+	route {
+		route_hdmi: route-hdmi {
+			status = "disabled";
+			logo,uboot = "logo.bmp";
+			logo,kernel = "logo_kernel.bmp";
+			logo,mode = "center";
+			charge_logo,mode = "center";
+			connect = <&vop_out_hdmi>;
+		};
+#if 0
+		route_tve: route-tve {
+			status = "disabled";
+			logo,uboot = "logo.bmp";
+			logo,kernel = "logo_kernel.bmp";
+			logo,mode = "center";
+			charge_logo,mode = "center";
+			connect = <&vop_out_tve>;
+		};
+#endif
+	};
+
+};
+
+
+&rga {
+	status = "okay";
+};
+
+&rkvdec {
+	status = "okay";
+	vcodec-supply = <&vdd_logic>;
+};
+
+&rkvdec_mmu {
+	status = "okay";
+};
+
+
+&analog_sound {
         simple-audio-card,codec {
                 sound-dai = <&es8388>;
         };
