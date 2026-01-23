@@ -101,7 +101,8 @@
 		pinctrl-names = "default";                                                                                                                                                                  
 		simple-audio-card,name = "rockchip,es8388-codec";                                                                                                                                           
 		simple-audio-card,format = "i2s";                                                                                                                                                           
-		simple-audio-card,mclk-fs = <256>;                                                                                                                                                          
+		simple-audio-card,mclk-fs = <256>;
+		status = "okay";      
 		simple-audio-card,widgets =                                                                                                                                                                 
 		        "Microphone", "Mic Jack",                                                                                                                                                           
 		        "Headphone", "Headphones";                                                                                                                                                          
@@ -112,7 +113,6 @@
 		        "Headphones", "Headphone Amp OUTL",                                                                                                                                                 
 		        "Headphones", "Headphone Amp OUTR";                                                                                                                                                 
 		simple-audio-card,pin-switches = "Headphones";                                                                                                                                              
-		                                                                                                                                                                                            
 		simple-audio-card,codec {                                                                                                                                                                   
 		        sound-dai = <&es8388>;                                                                                                                                                              
 		};                                                                                                                                                                                          
@@ -135,7 +135,8 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&emmc_clk &emmc_cmd &emmc_bus8>;
 	status = "okay";
-
+	vmmc-supply = <&vcc18_emmc>;
+	vqmmc-supply = <&vcc18_emmc>;
 	mmc-hs200-1_8v;
 	supports-emmc;
 	disable-wp;
@@ -286,10 +287,13 @@
 	rtc: rtc8564@51 {
                 compatible = "nxp,pcf8563";
                 reg = <0x51>;
+		status="okay";
         };
         es8388: es8388@11 {
                 compatible = "everest,es8388";
                 reg = <0x11>;
+		status="disabled";
+
                 #sound-dai-cells = <0>;
         };
 };
@@ -330,7 +334,8 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&sdmmc0_clk &sdmmc0_cmd &sdmmc0_dectn &sdmmc0_bus4>;
 	vmmc-supply = <&vcc_sd>;
-	status = "okay";
+	vqmmc-supply = <&vcc_sd>;
+	status = "disabled";
 
 	supports-sd;
 	num-slots = <1>;
@@ -498,4 +503,69 @@
 
 &i2s1 {
         status = "okay";
+};
+
+/{
+#if 0
+
+reserved-memory {
+        #address-cells = <2>;
+        #size-cells = <2>;
+        ranges;
+
+        ramoops: ramoops@110000 {
+                compatible = "ramoops";
+                reg = <0x0 0x110000 0x0 0xf0000>;
+                record-size = <0x20000>;
+                console-size = <0x80000>;
+                ftrace-size = <0x00000>;
+                pmsg-size = <0x50000>;
+        };
+};
+
+hdmi-con {
+    compatible = "hdmi-connector";
+    type = "a";
+    status = "okay";
+
+    port@0 {
+        reg = <0>;
+
+        hdmi_con_in: endpoint {
+            remote-endpoint = <&hdmi_out_con>;
+        };
+    };
+};
+#endif
+
+};
+
+
+
+&display_subsystem {
+        status = "okay";
+
+        route {
+                route_hdmi: route-hdmi {
+				video,vrefresh = < 0x3d >;
+				video,vdisplay = < 0x438 >;
+				video,hdisplay = < 0x780 >;
+				logo,ymirror = < 0x00 >;
+				logo,bpp = < 0x10 >;
+				logo,height = < 0x102 >;
+				logo,width = < 0x28e >;
+				logo,offset = < 0x53000 >;
+				status = "okay";
+				logo,uboot = "logo.bmp";
+				logo,kernel = "logo_kernel.bmp";
+				logo,mode = "center";
+				charge_logo,mode = "center";
+                        connect = <&vop_out_hdmi>;
+                };
+        };
+};
+
+&dmc{
+	status = "okay";
+
 };

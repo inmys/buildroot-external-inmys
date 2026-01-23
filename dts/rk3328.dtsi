@@ -601,6 +601,7 @@
 		status = "disabled";
 	};
 
+#if 1
 	gpu: gpu@ff300000 {
 		compatible = "rockchip,rk3328-mali", "arm,mali-450";
 		reg = <0x0 0xff300000 0x0 0x30000>;
@@ -620,8 +621,48 @@
 				  "ppmmu1";
 		clocks = <&cru ACLK_GPU>, <&cru ACLK_GPU>;
 		clock-names = "bus", "core";
+                operating-points-v2 = <&gpu_opp_table>;
 		resets = <&cru SRST_GPU_A>;
 	};
+#else
+		        gpu: gpu@ff300000 {
+                compatible = "arm,mali-450";
+                reg = <0x0 0xff300000 0x0 0x30000>;
+                interrupts = <GIC_SPI 90 IRQ_TYPE_LEVEL_HIGH>,
+                             <GIC_SPI 87 IRQ_TYPE_LEVEL_HIGH>,
+                             <GIC_SPI 93 IRQ_TYPE_LEVEL_HIGH>,
+                             <GIC_SPI 88 IRQ_TYPE_LEVEL_HIGH>,
+                             <GIC_SPI 89 IRQ_TYPE_LEVEL_HIGH>,
+                             <GIC_SPI 91 IRQ_TYPE_LEVEL_HIGH>,
+                             <GIC_SPI 92 IRQ_TYPE_LEVEL_HIGH>;
+                interrupt-names = "Mali_GP_IRQ",
+                                  "Mali_GP_MMU_IRQ",
+                                  "IRQPP",
+                                  "Mali_PP0_IRQ",
+                                  "Mali_PP0_MMU_IRQ",
+                                  "Mali_PP1_IRQ",
+                                  "Mali_PP1_MMU_IRQ";
+                clocks = <&cru ACLK_GPU>;
+                clock-names = "clk_mali";
+                #cooling-cells = <2>; /* min followed by max */
+                resets = <&cru SRST_GPU_A>;
+                status = "disabled";
+
+                gpu_power_model: power_model {
+                        compatible = "arm,mali-simple-power-model";
+                        voltage = <900>;
+                        frequency = <500>;
+                        static-power = <300>;
+                        dynamic-power = <396>;
+                        ts = <32000 4700 (-80) 2>;
+                        thermal-zone = "soc-thermal";
+                };
+        };
+
+
+#endif
+
+
 
 	h265e_mmu: iommu@ff330200 {
 		compatible = "rockchip,iommu";
@@ -691,6 +732,7 @@
 	vop: vop@ff370000 {
 		compatible = "rockchip,rk3328-vop";
 		reg = <0x0 0xff370000 0x0 0x3efc>;
+		reg-names = "regs";
 		interrupts = <GIC_SPI 32 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&cru ACLK_VOP>, <&cru DCLK_LCDC>, <&cru HCLK_VOP>;
 		clock-names = "aclk_vop", "dclk_vop", "hclk_vop";
@@ -742,10 +784,20 @@
 
 		ports {
 			hdmi_in: port {
+				reg = <0>;
 				hdmi_in_vop: endpoint {
 					remote-endpoint = <&vop_out_hdmi>;
 				};
 			};
+#if 0
+hdmi_out: port@1 {
+    reg = <1>;
+
+    hdmi_out_con: endpoint {
+        remote-endpoint = <&hdmi_con_in>;
+    };
+};
+#endif	
 		};
 	};
 
@@ -766,6 +818,7 @@
 		clocks = <&cru PCLK_HDMIPHY>, <&xin24m>, <&cru DCLK_HDMIPHY>;
 		clock-names = "sysclk", "refclk", "refpclk";
 		clock-output-names = "hdmi_phy";
+		phy-supply = <&vcc_18>;
 		#clock-cells = <0>;
 		nvmem-cells = <&efuse_cpu_version>;
 		nvmem-cell-names = "cpu-version";
@@ -1922,4 +1975,140 @@
 			};
 		};
 	};
+};
+
+
+
+/{
+
+
+dmc_opp_table: dmc-opp-table {
+		compatible = "operating-points-v2";
+		rockchip,leakage-voltage-sel = <
+				1   10    0
+				11  254   1
+		>;
+		nvmem-cells = <&logic_leakage>;
+		nvmem-cell-names = "leakage";
+
+		opp-400000000 {
+				opp-hz = /bits/ 64 <400000000>;
+				opp-microvolt = <950000>;
+				opp-microvolt-L0 = <950000>;
+				opp-microvolt-L1 = <950000>;
+				status = "disabled";
+		};
+		opp-600000000 {
+				opp-hz = /bits/ 64 <600000000>;
+				opp-microvolt = <1025000>;
+				opp-microvolt-L0 = <1025000>;
+				opp-microvolt-L1 = <1000000>;
+				status = "disabled";
+		};
+		opp-786000000 {
+				opp-hz = /bits/ 64 <786000000>;
+				opp-microvolt = <1075000>;
+				opp-microvolt-L0 = <1075000>;
+				opp-microvolt-L1 = <1050000>;
+		};
+		opp-798000000 {
+				opp-hz = /bits/ 64 <798000000>;
+				opp-microvolt = <1075000>;
+				opp-microvolt-L0 = <1075000>;
+				opp-microvolt-L1 = <1050000>;
+		};
+		opp-840000000 {
+				opp-hz = /bits/ 64 <840000000>;
+				opp-microvolt = <1075000>;
+				opp-microvolt-L0 = <1075000>;
+				opp-microvolt-L1 = <1050000>;
+		};
+		opp-924000000 {
+				opp-hz = /bits/ 64 <924000000>;
+				opp-microvolt = <1125000>;
+				opp-microvolt-L0 = <1125000>;
+				opp-microvolt-L1 = <1100000>;
+		};
+		/* 1056M is only for ddr4 */
+		opp-1056000000 {
+				opp-hz = /bits/ 64 <1056000000>;
+				opp-microvolt = <1175000>;
+				opp-microvolt-L0 = <1175000>;
+				opp-microvolt-L1 = <1150000>;
+				status = "okay";
+		};
+};
+
+
+        dfi: dfi@ff790000 {
+                compatible = "rockchip,rk3328-dfi";
+                reg = <0x00 0xff790000 0x00 0x400>;
+                rockchip,grf = <&grf>;
+                status = "okay";
+        };
+
+gpu_opp_table: gpu-opp-table {
+                compatible = "operating-points-v2";
+
+                rockchip,leakage-voltage-sel = <
+                        1   10    0
+                        11  254   1
+                >;
+                nvmem-cells = <&logic_leakage>;
+                nvmem-cell-names = "leakage";
+	status = "okay";
+
+                opp-200000000 {
+                        opp-hz = /bits/ 64 <200000000>;
+                        opp-microvolt = <950000>;
+                        opp-microvolt-L0 = <950000>;
+                        opp-microvolt-L1 = <950000>;
+                };
+                opp-300000000 {
+                        opp-hz = /bits/ 64 <300000000>;
+                        opp-microvolt = <975000>;
+                        opp-microvolt-L0 = <975000>;
+                        opp-microvolt-L1 = <950000>;
+                };
+                opp-400000000 {
+                        opp-hz = /bits/ 64 <400000000>;
+                        opp-microvolt = <1050000>;
+                        opp-microvolt-L0 = <1050000>;
+                        opp-microvolt-L1 = <1025000>;
+                };
+                opp-500000000 {
+                        opp-hz = /bits/ 64 <500000000>;
+                        opp-microvolt = <1150000>;
+                        opp-microvolt-L0 = <1150000>;
+                        opp-microvolt-L1 = <1100000>;
+                };
+        };
+
+dmc: dmc {
+		compatible = "rockchip,rk3328-dmc";
+		devfreq-events = <&dfi>;
+		clocks = <&cru SCLK_DDRCLK>;
+		clock-names = "dmc_clk";
+		operating-points-v2 = <&dmc_opp_table>;
+		ddr_timing = <&ddr_timing>;
+		upthreshold = <40>;
+		downdifferential = <20>;
+		system-status-freq = <
+			/*system status         freq(KHz)*/
+			SYS_STATUS_NORMAL       786000
+			SYS_STATUS_REBOOT       786000
+			SYS_STATUS_SUSPEND      786000
+			SYS_STATUS_VIDEO_1080P  786000
+			SYS_STATUS_VIDEO_4K     786000
+			SYS_STATUS_VIDEO_4K_10B 924000
+			SYS_STATUS_PERFORMANCE  924000
+			SYS_STATUS_BOOST        924000
+		>;
+		auto-min-freq = <786000>;
+		auto-freq-en = <0>;
+		#cooling-cells = <2>;
+		status = "disabled";
+	};
+
+
 };
