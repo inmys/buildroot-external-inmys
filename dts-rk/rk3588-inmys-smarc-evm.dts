@@ -174,6 +174,35 @@
 		clock-output-names = "CLK_CAMERA_25MHZ";
 		#clock-cells = <0>;
 	};
+
+	imx477_vdig: regulator-imx477-vdig {
+		compatible = "regulator-fixed";
+		regulator-name = "imx477_vdig";
+		regulator-min-microvolt = <1050000>;
+		regulator-max-microvolt = <1050000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	imx477_vddl: regulator-imx477-vddl {
+		compatible = "regulator-fixed";
+		regulator-name = "imx477_vddl";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	imx477_vana: regulator-imx477-vana {
+		compatible = "regulator-fixed";
+		regulator-name = "imx477_vana";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+
 };
 
 /* SMARC: I2C_CAM0 */
@@ -182,6 +211,41 @@
 
 #if CAM0
 #if 0
+	imx477: imx477@1a {
+		compatible = "sony,imx477";
+		reg = <0x1a>;
+
+		clocks = <&cru CLK_MIPI_CAMARAOUT_M1>;
+		clock-names = "xclk";
+		VDIG-supply = <&imx477_vdig>;
+		VDDL-supply = <&imx477_vddl>;
+		VANA-supply = <&imx477_vana>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&mipim1_camera1_clk>;
+		pwdn-gpios = <&i2cgpio 4 GPIO_ACTIVE_HIGH>; // I2C_GPIO04
+		power-domains = <&power RK3588_PD_VI>;
+		rockchip,grf = <&sys_grf>;
+
+
+		status = "okay";
+		rockchip,camera-module-index = <0>;
+		rockchip,camera-module-facing = "back";
+		rockchip,camera-module-name = "NC";
+		rockchip,camera-module-lens-name = "NC";
+
+		port {
+			imx219_out: endpoint {
+				remote-endpoint = <&mipi_in_ucam1>;
+				clock-lanes = <0>;
+				data-lanes = <1 2>;    /* match your wiring */
+				bus-width = <2>;        /* number of data lanes */
+				link-frequencies = /bits/ 64 <450000000>;
+			};
+		};
+	};
+#endif
+#if 1
 	imx219: imx219@10 {
 		compatible = "sony,imx219";
 		reg = <0x10>;
@@ -192,7 +256,8 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&mipim1_camera1_clk>;
 		power-domains = <&power RK3588_PD_VI>;
-		
+		rockchip,grf = <&sys_grf>;
+
 
 		status = "okay";
 		rockchip,camera-module-index = <0>;
@@ -208,7 +273,7 @@
 		};
 	};
 #endif
-#if 1
+#if 0
 	ov5647: ov5647@36 {
 		compatible = "ovti,ov5647";
 		reg = <0x36>;

@@ -7,6 +7,7 @@ git clone https://github.com/inmys/buildroot-external-inmys.git -b nms-sm-rk3588
 export GIT_SSL_NO_VERIFY=1 #needs only for gitlab.inmys
 git clone https://gitlab.inmys.online/rk3588/buildroot-2024.git
 git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b kernel-6.1 kernel
+./buildroot-external-inmys/apply-kernel-patches.sh
 git clone https://github.com/JeffyCN/mirrors.git --depth=1 -b gstreamer-rockchip external/gstreamer-rockchip
 git clone https://github.com/airockchip/rknn-toolkit2.git --depth=1 external/rknn-toolkit2
 ln -s rknn-toolkit2/rknpu2 external/rknpu2
