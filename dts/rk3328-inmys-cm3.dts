@@ -6,6 +6,8 @@
 /dts-v1/;
 #include "rk3328.dtsi"
 
+#define VIDEO_OUT 0 // 0-hdmi, 1-cvbs
+
 / {
 	model = "NMS-CM3-RK3328_V1";
 	compatible = "inmys,rk3328-cm3", "rockchip,rk3328";
@@ -421,6 +423,9 @@
 	mali-supply = <&vdd_logic>;
 };
 
+#if VIDEO_OUT == 0
+
+
 &hdmi {
 	#sound-dai-cells = <0>;
 	ddc-i2c-scl-high-time-ns = <9625>;
@@ -445,6 +450,17 @@
 #endif
 	status = "okay";
 };
+
+
+#else
+
+&tve {
+status = "okay";
+};
+
+
+#endif
+
 
 #if 0
 &vdpu {
@@ -505,47 +521,13 @@
         status = "okay";
 };
 
-/{
-#if 0
-
-reserved-memory {
-        #address-cells = <2>;
-        #size-cells = <2>;
-        ranges;
-
-        ramoops: ramoops@110000 {
-                compatible = "ramoops";
-                reg = <0x0 0x110000 0x0 0xf0000>;
-                record-size = <0x20000>;
-                console-size = <0x80000>;
-                ftrace-size = <0x00000>;
-                pmsg-size = <0x50000>;
-        };
-};
-
-hdmi-con {
-    compatible = "hdmi-connector";
-    type = "a";
-    status = "okay";
-
-    port@0 {
-        reg = <0>;
-
-        hdmi_con_in: endpoint {
-            remote-endpoint = <&hdmi_out_con>;
-        };
-    };
-};
-#endif
-
-};
-
 
 
 &display_subsystem {
         status = "okay";
 
         route {
+#if VIDEO_OUT == 0
                 route_hdmi: route-hdmi {
 				video,vrefresh = < 0x3d >;
 				video,vdisplay = < 0x438 >;
@@ -555,17 +537,31 @@ hdmi-con {
 				logo,height = < 0x102 >;
 				logo,width = < 0x28e >;
 				logo,offset = < 0x53000 >;
-				status = "okay";
 				logo,uboot = "logo.bmp";
 				logo,kernel = "logo_kernel.bmp";
 				logo,mode = "center";
 				charge_logo,mode = "center";
-                        connect = <&vop_out_hdmi>;
+	                        connect = <&vop_out_hdmi>;
+				status = "okay";
                 };
-        };
+
+#else
+                route_tve: route-tve {
+                        status = "okay";
+                        logo,uboot = "logo.bmp";
+                        logo,kernel = "logo_kernel.bmp";
+                        logo,mode = "center";
+                        charge_logo,mode = "center";
+                        connect = <&vop_out_tve>;
+                };
+#endif
+    
+    };
+
+
 };
 
 &dmc{
-	status = "okay";
+	status = "disabled";
 
 };
