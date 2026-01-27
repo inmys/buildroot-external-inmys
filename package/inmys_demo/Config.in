@@ -1,5 +1,0 @@
-config BR2_PACKAGE_INMYS_DEMO_LIRC
-	bool "lirc demo"
-	depends on BR2_LINUX_KERNEL
-	help
-		to be filled

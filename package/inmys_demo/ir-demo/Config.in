@@ -1,0 +1,4 @@
+config BR2_PACKAGE_IR_DEMO
+	bool "ir-demo"
+	help
+	  Small IR demo utility built from ir-demo.cpp.
