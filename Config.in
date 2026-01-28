@@ -1,2 +1,3 @@
 source "$BR2_EXTERNAL_INMYS_PATH/package/rockchip_canfd/Config.in"
 source "$BR2_EXTERNAL_INMYS_PATH/package/inmys_demo/ir-demo/Config.in"
+source "$BR2_EXTERNAL_INMYS_PATH/package/inmys_demo/distance-demo/Config.in"

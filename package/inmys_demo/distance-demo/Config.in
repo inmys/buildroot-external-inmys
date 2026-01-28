@@ -1,0 +1,4 @@
+config BR2_PACKAGE_DISTANCE_DEMO
+	bool "distance-demo"
+	help
+	  Small i2c-bus demo which captures data from distance sensor.
