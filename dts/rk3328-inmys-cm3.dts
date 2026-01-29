@@ -7,6 +7,7 @@
 #include "rk3328.dtsi"
 
 #define VIDEO_OUT 0 // 0-hdmi, 1-cvbs
+#define AUDIO_OUT 1 // 0-internal audio, 1-external es8388
 
 / {
 	model = "NMS-CM3-RK3328_V1";
@@ -98,23 +99,12 @@
 		enable-active-high;
 	};
 
-	es8388-sound {                                                                                                                                                                                      
-		compatible = "simple-audio-card";                                                                                                                                                           
-		pinctrl-names = "default";                                                                                                                                                                  
-		simple-audio-card,name = "rockchip,es8388-codec";                                                                                                                                           
-		simple-audio-card,format = "i2s";                                                                                                                                                           
+	es8388_sound: es8388-sound {                                                                                                                                                                                      
+		compatible = "simple-audio-card";
+		simple-audio-card,format = "i2s";
 		simple-audio-card,mclk-fs = <256>;
-		status = "okay";      
-		simple-audio-card,widgets =                                                                                                                                                                 
-		        "Microphone", "Mic Jack",                                                                                                                                                           
-		        "Headphone", "Headphones";                                                                                                                                                          
-		simple-audio-card,routing =                                                                                                                                                                 
-		        "LINPUT1", "Mic Jack",                                                                                                                                                              
-		        "Headphone Amp INL", "LOUT2",                                                                                                                                                       
-		        "Headphone Amp INR", "ROUT2",                                                                                                                                                       
-		        "Headphones", "Headphone Amp OUTL",                                                                                                                                                 
-		        "Headphones", "Headphone Amp OUTR";                                                                                                                                                 
-		simple-audio-card,pin-switches = "Headphones";                                                                                                                                              
+		simple-audio-card,name = "es8388";
+		status = "disabled";
 		simple-audio-card,codec {                                                                                                                                                                   
 		        sound-dai = <&es8388>;                                                                                                                                                              
 		};                                                                                                                                                                                          
@@ -145,26 +135,6 @@
 	num-slots = <1>;
 	rockchip,default-sample-phase = <90>;
 };
-
-&gmac2io {
-        assigned-clocks = <&cru SCLK_MAC2IO>, <&cru SCLK_MAC2IO_EXT>;
-        assigned-clock-parents = <&gmac_clkin>, <&gmac_clkin>;
-        clock_in_out = "input";
-        phy-supply = <&vcc_phy>;
-        phy-mode = "rgmii";
-        pinctrl-names = "default";
-        pinctrl-0 = <&rgmiim1_pins>;
-        snps,aal;
-        snps,reset-gpio = <&gpio1 RK_PC2 GPIO_ACTIVE_LOW>;
-        snps,reset-active-low;
-        snps,reset-delays-us = <0 10000 50000>;
-        snps,rxpbl = <0x4>;
-        snps,txpbl = <0x4>;
-        tx_delay = <0x24>;
-        rx_delay = <0x18>;
-        status = "okay";
-};
-
 
 &io_domains {
 	status = "okay";
@@ -292,10 +262,17 @@
 		status="okay";
         };
         es8388: es8388@11 {
-                compatible = "everest,es8388";
+		compatible = "everest,es8388", "everest,es8328";
                 reg = <0x11>;
+		DVDD-supply = <&vcc_io>;
+		AVDD-supply = <&vcc_io>;
+		PVDD-supply = <&vcc_io>;
+		HPVDD-supply = <&vcc_io>;
+		assigned-clocks = <&cru SCLK_I2S1>, <&cru SCLK_I2S1_OUT>;
+		assigned-clock-rates = <11289600>, <11289600>;
+		clocks = <&cru SCLK_I2S1_OUT>;
+		clock-names = "mclk";
 		status="disabled";
-
                 #sound-dai-cells = <0>;
         };
 };
@@ -354,10 +331,13 @@
 
 &u2phy_host {
 	status = "okay";
+	phy-supply = <&vcc_phy>;
+
 };
 
 &u2phy_otg {
 	vbus-supply = <&vcc_otg_vbus>;
+	phy-supply = <&vcc_phy>;
 	status = "okay";
 };
 
@@ -423,6 +403,41 @@
 	mali-supply = <&vdd_logic>;
 };
 
+
+&i2s1 {
+        status = "okay";
+};
+
+
+#if AUDIO_OUT == 0
+
+&analog_sound {
+        status = "okay";
+};
+
+&codec{
+	status = "okay";
+	mute-gpios = <&grf_gpio 0 GPIO_ACTIVE_LOW>;
+};
+#else
+
+&es8388{
+        status = "okay";
+};
+
+&es8388_sound{
+        status = "okay";
+};
+
+
+&i2s1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2s1_mclk &i2s1_sclk &i2s1_lrckrx &i2s1_lrcktx &i2s1_sdo &i2s1_sdi>;
+	#sound-dai-cells = <0>;
+};
+
+#endif
+
 #if VIDEO_OUT == 0
 
 
@@ -434,6 +449,10 @@
 };
 
 &hdmi_sound {
+        status = "okay";
+};
+
+&i2s0 {
         status = "okay";
 };
 
@@ -497,6 +516,7 @@ status = "okay";
 };
 
 &saradc {
+	vref-supply = <&vcc_18>;
 	status = "okay";
 };
 
@@ -516,12 +536,6 @@ status = "okay";
 		};
 	};
 };
-
-&i2s1 {
-        status = "okay";
-};
-
-
 
 &display_subsystem {
         status = "okay";
@@ -564,4 +578,9 @@ status = "okay";
 &dmc{
 	status = "disabled";
 
+};
+
+&spdif {
+	status = "okay";
+	pinctrl-0 = <&spdifm2_tx>;
 };
