@@ -1,0 +1,35 @@
+#!/bin/sh
+
+start() {
+
+	# for debug
+	mount -t debugfs debugfs /sys/kernel/debug
+
+	sleep 5
+	if ! mount "LABEL=BOOT" /boot; then
+		echo "mount LABEL=BOOT ret $?"
+		mount /dev/sda1 /boot
+		echo "mount /dev/sda1 ret $?"
+	fi
+
+	if [ -e /boot/postup.sh ]; then
+		. /boot/postup.sh
+	fi
+}
+
+stop() {
+	echo "stop"
+}
+
+restart() {
+	echo "restart"
+}
+
+case "$1" in
+	start|stop|restart)
+		"$1";;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac
+

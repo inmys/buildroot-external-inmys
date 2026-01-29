@@ -1,9 +1,25 @@
 # buildroot-external-inmys
-Buildroot customizations for Inmys devices
+Tiny rootfs for nms-sm-el (INTEL-ATOM x6425E,x6413E)
 
-Репозиторий в соответвующих ветках содержит buildroot external для модулей: 
-  * [NMS-SM-RK3568](https://wiki.inmys.ru/doku.php?id=boards:nms-sm-rk3568:start)
-  * [NMS-NV-RK3568](https://wiki.inmys.ru/doku.php?id=boards:nms-nv-rk3568:start)
-  * [NMS-HH-PX30](https://wiki.inmys.ru/doku.php?id=boards:nms-hh-px30:start)
-  * [NMS-SM-RK3588](https://wiki.inmys.ru/doku.php?id=boards:nms-sm-rk3588:start)
-  * [NMS-CS-RK3588](https://wiki.inmys.ru/doku.php?id=boards:nms-cs-rk3588:start)
+######### build in ubuntu 20/22
+git clone https://gitlab.com/buildroot.org/buildroot.git -b 2025.05.x
+#git clone https://github.com/inmys/buildroot-external-inmys.git -b nms-sm-el
+tar -xf buildroot-external-inmys.tar.gz
+make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot O=$PWD/output br_defconfig
+cd output
+make
+#make menuconfig
+make
+# result: images/bzImage,images/rootfs.cpio.gz,images/usbdisk.img[,images/rootfs.iso9660]
+
+#
+dd if=usbdisk.img of=/dev/sdX 
+
+# другие полезные цели:
+make menuconfig # config buildroot
+make savedefconfig # save buildroot defconfig (buildroot-external-inmys/configs/br_defconfig)
+make linux-rebuild # rebuild bzImage 
+make linux-menuconfig # config linux kernel
+make linux-savedefconfig #save linux defconfig
+
+
