@@ -327,6 +327,7 @@
 
 &u2phy {
 	status = "okay";
+
 };
 
 &u2phy_host {
@@ -367,20 +368,19 @@
 };
 
 
-#if 0
 &u3phy {
-	vbus-supply = <&vcc_host_vbus>;
 	status = "okay";
 };
 
 &u3phy_utmi {
 	status = "okay";
+	phy-supply = <&vcc_phy>;
 };
 
 &u3phy_pipe {
 	status = "okay";
+	phy-supply = <&vcc_phy>;
 };
-#endif
 
 
 &usbdrd3 {
