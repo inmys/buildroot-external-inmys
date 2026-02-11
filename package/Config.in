@@ -1,0 +1,6 @@
+menu "Inmys packages"
+
+source "$BR2_EXTERNAL_INMYS_PATH/package/libwt/Config.in"
+source "$BR2_EXTERNAL_INMYS_PATH/package/localgui/Config.in"
+
+endmenu

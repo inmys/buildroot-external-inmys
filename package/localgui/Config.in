@@ -1,0 +1,5 @@
+config BR2_PACKAGE_LOCALGUI
+	bool "localgui"
+	depends on BR2_PACKAGE_LIBWT
+	help
+	  Local web gui
