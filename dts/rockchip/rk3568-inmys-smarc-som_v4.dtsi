@@ -6,11 +6,10 @@
 #include <dt-bindings/pinctrl/rockchip.h>
 #include <dt-bindings/soc/rockchip,vop2.h>
 #include "rk3568.dtsi"
-//#include "rockchip/rk3568.dtsi"
 
 / {
 	model = "NMS-SM-RK3568";
-	compatible = "inmys,rk3568-smarc-som_v2", "inmys,rk3568-smarc-som", "rockchip,rk3568";
+	compatible = "inmys,rk3568-smarc-som_v3", "inmys,rk3568-smarc-som", "rockchip,rk3568";
 
 	aliases {
 		ethernet0 = &gmac0; /*SMARC: GBE0*/
@@ -19,8 +18,9 @@
 		mmc1 = &sdmmc0; /*sdcard*/
 		rtc0 = &rtc68;
 		rtc1 = &rk809;
-		can0 = &can0; /*SMARC: can0*/
-		can1 = &can2; /*SMARC: can1*/
+		//can0 = &can0; /*SMARC: can0*/
+		//can1 = &can2; /*SMARC: can1*/
+
 	};
 
 	chosen: chosen {
@@ -473,6 +473,8 @@
 				<0 RK_PA3 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 	};
+
+
 };
 
 &pmu_io_domains {
@@ -580,32 +582,59 @@
 	pinctrl-0 = <&uart8m0_xfer &uart8m0_ctsn &uart8m0_rtsn>;
 };
 
-&spi0 {
-	pinctrl-0 = <&spi0m0_cs0 &spi0m0_pins>;
-	pinctrl-0 = <&spi0m0_cs0_hs &spi0m0_pins_hs>;
+&pinctrl {
+	spi0_cs0_gpio: spi0-cs0-gpio {
+		rockchip,pins =
+			<1 RK_PB4 RK_FUNC_GPIO &pcfg_pull_up>;
+	};
 };
+
+/* SMARC: SPI0 */
+&spi0 {
+	pinctrl-0 = <&spi0m0_cs1 &spi0m0_pins>;
+	pinctrl-0 = <&spi0m0_cs1_hs &spi0m0_pins_hs>;
+
+	cs-gpios = <&gpio0 RK_PC6 GPIO_ACTIVE_LOW>, <0>;
+	num-cs = <2>;
+        spidev@0{
+                compatible = "rohm,dh2228fv"; //linux,spidev
+                reg = <0>;
+        };
+
+	spidev@1{
+                compatible = "rohm,dh2228fv"; //linux,spidev
+                reg = <1>;
+        };
+};
+
+/* SMARC: SPI1 */
+&spi3 {
+	pinctrl-0 = <&spi3m1_cs0 &spi3m1_cs1 &spi3m1_pins>;
+	pinctrl-0 = <&spi3m1_cs0_hs &spi3m1_cs1_hs &spi3m1_pins>;
+};
+
 
 &gpio0 {
 	gpio-line-names =
 		"GPIO0_A0","GPIO0_A1","GPIO0_A2","GPIO0_A3","GPIO0_A4","GPIO0_A5","GPIO0_A6","GPIO0_A7",
 		"GPIO0_B0","GPIO0_B1","GPIO0_B2","GPIO0_B3","GPIO0_B4","GPIO0_B5","GPIO0_B6","GPIO0_B7",
-		"GPIO0_C0","GPIO0_C1","GPIO0_C2","GPIO0_C3","GPIO0_C4","GPIO0_C5","GPIO0_C6","GPIO0_C7",
-		"GPIO0_D0","GPIO0_D1","GPIO0_D2","GPIO0_D3","GPIO0_D4","GPIO0_D5","GPIO0_D6","GPIO0_D7";
+		"GPIO0_C0","GPIO0_C1","GPIO0_C2","GPIO0_C3","GPIO0_C4","GPIO0_C5","GPIO0_C6","SMARC_GPIO5",
+		"GPIO0_D0","GPIO0_D1","GPIO0_D2","GPIO0_D3","SMARC_GPIO4","LCD0_VDD_EN","GPIO0_D6","GPIO0_D7";
 };
 
 &gpio1 {
 	gpio-line-names =
 		"GPIO1_A0","GPIO1_A1","GPIO1_A2","GPIO1_A3","GPIO1_A4","GPIO1_A5","GPIO1_A6","GPIO1_A7",
-		"GPIO1_B0","GPIO1_B1","GPIO1_B2","GPIO1_B3","GPIO1_B4","GPIO1_B5","GPIO1_B6","GPIO1_B7",
+		"SMARC_GPIO7","SMARC_GPIO13","SMARC_GPIO12","GPIO1_B3","GPIO1_B4","GPIO1_B5","GPIO1_B6","GPIO1_B7",
 		"GPIO1_C0","GPIO1_C1","GPIO1_C2","GPIO1_C3","GPIO1_C4","GPIO1_C5","GPIO1_C6","GPIO1_C7",
-		"GPIO1_D0","GPIO1_D1","SMARC_GPIO10","GPIO1_D3","SMARC_GPIO11","GPIO1_D5","GPIO1_D6","GPIO1_D7"; // GPIO10 GPIO11 only on som version v2!
+		"GPIO1_D0","GPIO1_D1","SMARC_GPIO10","GPIO1_D3","SMARC_GPIO11","GPIO1_D5","GPIO1_D6","GPIO1_D7"; 
 };
 
 &gpio2 {
 	gpio-line-names =
 		"GPIO2_A0","GPIO2_A1","GPIO2_A2","GPIO2_A3","GPIO2_A4","GPIO2_A5","GPIO2_A6","GPIO2_A7",
 		"GPIO2_B0","GPIO2_B1","GPIO2_B2","GPIO2_B3","GPIO2_B4","GPIO2_B5","GPIO2_B6","GPIO2_B7",
-		"GPIO2_C0","GPIO2_C1","GPIO2_C2","GPIO2_C3","GPIO2_C4","GPIO2_C5","GPIO2_C6","GPIO2_C7",
+		"GPIO2_C0","SMARC_GPIO6","GPIO2_C2","GPIO2_C3","GPIO2_C4","GPIO2_C5","GPIO2_C6","GPIO2_C7",
 		"GPIO2_D0","GPIO2_D1","GPIO2_D2","GPIO2_D3","GPIO2_D4","GPIO2_D5","GPIO2_D6","GPIO2_D7";
 };
 
@@ -614,14 +643,14 @@
 		"GPIO3_A0","GPIO3_A1","GPIO3_A2","GPIO3_A3","GPIO3_A4","GPIO3_A5","GPIO3_A6","GPIO3_A7",
 		"GPIO3_B0","GPIO3_B1","GPIO3_B2","GPIO3_B3","GPIO3_B4","GPIO3_B5","GPIO3_B6","GPIO3_B7",
 		"GPIO3_C0","GPIO3_C1","GPIO3_C2","GPIO3_C3","GPIO3_C4","GPIO3_C5","GPIO3_C6","GPIO3_C7",
-		"GPIO3_D0","GPIO3_D1", "SMARC_GPIO3",  "SMARC_GPIO1",  "SMARC_GPIO2",  "SMARC_GPIO0","GPIO3_D6","GPIO3_D7";
+		"SMARC_GPIO9","GPIO3_D1", "SMARC_GPIO3",  "SMARC_GPIO1",  "SMARC_GPIO2",  "SMARC_GPIO0","GPIO3_D6","GPIO3_D7";
 };
 
 &gpio4 {
 	gpio-line-names =
 		"GPIO4_A0","GPIO4_A1","GPIO4_A2","GPIO4_A3","GPIO4_A4","GPIO4_A5","GPIO4_A6","GPIO4_A7",
 		"GPIO4_B0","GPIO4_B1","GPIO4_B2","GPIO4_B3","GPIO4_B4","GPIO4_B5","GPIO4_B6","GPIO4_B7",
-		"GPIO4_C0","GPIO4_C1","GPIO4_C2","GPIO4_C3","GPIO4_C4","GPIO4_C5","GPIO4_C6","GPIO4_C7",
+		"GPIO4_C0","SMARC_GPIO8","GPIO4_C2","GPIO4_C3","GPIO4_C4","GPIO4_C5","GPIO4_C6","GPIO4_C7",
 		"GPIO4_D0","GPIO4_D1","GPIO4_D2","GPIO4_D3","GPIO4_D4","GPIO4_D5","GPIO4_D6","GPIO4_D7";
 };
 
@@ -650,42 +679,3 @@
 		/* output-high; */ /* i2c */
 	};
 };
-
-
-
-/*2023.06.12: no CAN in mainline kernel now*/
-/ {
-	can0: can@fe570000 {
-		compatible = "rockchip,canfd-1.0";
-		reg = <0x0 0xfe570000 0x0 0x1000>;
-		interrupts = <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>;
-		clocks = <&cru CLK_CAN0>, <&cru PCLK_CAN0>;
-		clock-names = "baudclk", "apb_pclk";
-		resets = <&cru SRST_CAN0>, <&cru SRST_P_CAN0>;
-		reset-names = "can", "can-apb";
-		tx-fifo-depth = <1>;
-		rx-fifo-depth = <6>;
-		status = "disabled";
-
-		pinctrl-names = "default";
-		pinctrl-0 = <&can0m0_pins>;
-	};
-
-	can2: can@fe590000 {
-		compatible = "rockchip,canfd-1.0";
-		reg = <0x0 0xfe590000 0x0 0x1000>;
-		interrupts = <GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>;
-		clocks = <&cru CLK_CAN2>, <&cru PCLK_CAN2>;
-		clock-names = "baudclk", "apb_pclk";
-		resets = <&cru SRST_CAN2>, <&cru SRST_P_CAN2>;
-		reset-names = "can", "can-apb";
-		tx-fifo-depth = <1>;
-		rx-fifo-depth = <6>;
-		status = "disabled";
-
-		pinctrl-names = "default";
-		pinctrl-0 = <&can2m0_pins>;
-	};
-};
-
-

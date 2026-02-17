@@ -5,10 +5,10 @@ Buildroot customizations for Inmys devices
 
 ## Подготовка
 
-<code>wget https://buildroot.org/downloads/buildroot-2023.11.1.tar.gz
+<code>wget https://buildroot.org/downloads/buildroot-2025.02.9.tar.gz
 git clone -b nms-sm-rk3568 https://github.com/inmys/buildroot-external-inmys
-tar -xf buildroot-2023.11.1.tar.gz
-make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot-2023.11.1 O=$PWD/output br_defconfig
+tar -xf buildroot-2025.02.9.tar.gz
+make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot-2025.02.9 O=$PWD/output br_defconfig
 </code>
 
 ## Сборка 

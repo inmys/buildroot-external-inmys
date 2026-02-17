@@ -17,7 +17,8 @@ if [ "$dev" = "" ];then
 fi
 
 script_path=$(readlink -f "$0")
-fw=$(dirname "${script_path}")
+#fw=$(dirname "${script_path}")
+fw=../../output/images
 #mount point
 mp=/tmp/mp
 mkdir -p $mp
@@ -40,15 +41,19 @@ done
 #echo 'o n p 1 32768 +1G n p 2 2129920 +1G n p 3 4227072 +1500M a 1 w' | tr ' ' '\n' | fdisk -u ${dev}
 echo 'o n p 1 32768 +1G n p 2 2129920 +1G n p 3 4227072  a 1 w' | tr ' ' '\n' | fdisk -u ${dev}
 exit_on_error "cant write partitions table to ${dev}"
-dd if=${fw}/u-boot-rockchip.bin of=${dev} seek=64
-exit_on_error "cant write ${fw}//u-boot-rockchip.bin to ${dev}"
+
+#use release uboot from https://disk.yandex.ru/d/hmKqKdvUE5smig . Doc: https://wiki.inmys.ru/boards:nms-sm-rk3568:u-boot:start
+if [ -f ${fw}/u-boot-rockchip.bin ]; then
+	dd if=${fw}/u-boot-rockchip.bin of=${dev} seek=64
+	exit_on_error "cant write ${fw}/u-boot-rockchip.bin to ${dev}"
+else
+	echo "use release inmys uboot from https://disk.yandex.ru/d/hmKqKdvUE5smig . Doc: https://wiki.inmys.ru/boards:nms-sm-rk3568:u-boot:start"
+fi
 mkfs.ext4 -F ${dev}1
 mount ${dev}1 ${mp}
 exit_on_error "cant mount ${dev}1 to ${mp}"
-cp -rL Image extlinux rk3568-inmys-smarc-evm.dtb rootfs.cpio.gz ${mp}
+cp -rL ${fw}/Image extlinux ${fw}/rk3568-inmys-smarc-evm.dtb ${fw}/rootfs.cpio.gz ${mp}
 exit_on_error "can't copy files to ${mp}"
-cp rk3568-inmys-smarc-evm.dtb ${mp}/rk-kernel.dtb
-exit_on_error "can't do rk-kernel.dtb link"
 umount ${mp}
 exit_on_error "can't umount"
 mkfs.ext4 -F -L STORE ${dev}3
