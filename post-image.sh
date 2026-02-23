@@ -16,6 +16,8 @@ fi
 
 # copy syslinux.cfg to images/
 cp ${SCRIPT_DIR}/boot/syslinux.cfg ${BINARIES_DIR}/syslinux.cfg
+cp -r ${SCRIPT_DIR}/boot/EFI ${BINARIES_DIR}/
+cp -r ${SCRIPT_DIR}/boot/loader ${BINARIES_DIR}/
 # create ${BINARIES_DIR}/usbdisk.img
 support/scripts/genimage.sh -c "${SCRIPT_DIR}/boot/genimage.cfg"
 # install syslinux/mbr.bin to usbdisk.img

@@ -5,7 +5,7 @@ start() {
 	# for debug
 	mount -t debugfs debugfs /sys/kernel/debug
 
-	sleep 5
+	sleep 7
 	if ! mount "LABEL=BOOT" /boot; then
 		echo "mount LABEL=BOOT ret $?"
 		mount /dev/sda1 /boot
