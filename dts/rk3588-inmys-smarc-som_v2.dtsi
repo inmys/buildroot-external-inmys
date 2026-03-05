@@ -642,6 +642,7 @@ SMARC_PCIE_D is LN1 on controller1
 	non-removable;
 	mmc-hs400-1_8v;
 	mmc-hs400-enhanced-strobe;
+	mmc-hs200-1_8v;
 	status = "okay";
 	vmmc-supply = <&vcc_3v3_s3>;
 };
