@@ -1,0 +1,41 @@
+#!/bin/sh
+
+# for debug
+mount -t debugfs debugfs /sys/kernel/debug
+
+#!/bin/sh
+
+wait_and_mount() {
+    DEV_BASE=$1
+
+    # ждём появления устройства (без блокировки init — функция пойдёт в фоне)
+    while [ ! -e /dev/${DEV_BASE} ]; do
+        sleep 1
+    done
+
+    # выбираем источник (SD или eMMC)
+    if [ -e /dev/mmcblk1p1 ]; then
+        mount /dev/mmcblk1p1 /boot
+    else
+        mount /dev/${DEV_BASE}p1 /boot
+    fi
+
+    if [ -e /dev/mmcblk1p3 ]; then
+        mount /dev/mmcblk1p3 /opt
+    else
+        mount /dev/${DEV_BASE}p3 /opt
+    fi
+
+    # запуск postop-скрипта (тоже после появления /opt)
+    if [ -e /opt/postup.sh ]; then
+        . /opt/postup.sh
+    fi
+}
+
+# запускаем в фоне
+wait_and_mount mmcblk0 &
+
+#set 1V0 for core vcc
+i2cset -y 1 0x18 0x2f 0x17 #1V0 лучше
+
+exit 0
