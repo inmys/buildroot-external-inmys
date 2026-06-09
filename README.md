@@ -2,12 +2,12 @@
 Buildroot customizations for Inmys devices
 
 `build in ubuntu 24.04`
-##Подготовка
+## Подготовка
 ```
 sudo apt update
 sudo apt install -y cpp-mips64el-linux-gnuabi64
 ```
-##Сборка rootfs
+## Сборка rootfs
 ```
 mkdir -p container
 cd container 
@@ -25,7 +25,7 @@ export FORCE_UNSAFE_CONFIGURE=1
 make -j12
 ```
 `Ctrl + D для выхода из контейнера`
-##Сборка ядра
+## Сборка ядра
 ```
 export GIT_SSL_NO_VERIFY=1 #needs only for gitlab.inmys
 git clone https://gitlab.inmys.online/srisa/k5500vk018-linux.git
