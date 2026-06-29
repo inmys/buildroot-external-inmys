@@ -7,7 +7,16 @@ Buildroot customizations for Inmys devices
 sudo apt update
 sudo apt install -y cpp-mips64el-linux-gnuabi64
 ```
-## Сборка rootfs
+
+## Сборка образа системы 
+
+Введите логин и токен к gitlab.inmys.online вместо `XXXXX` и `YYYYY`:
+
+```
+LOGIN="XXXXX"; TOKEN="YYYYY"; printf "machine gitlab.inmys.online\nlogin %s\npassword %s\n" "$LOGIN" "$TOKEN" > .gitlab.netrc
+```
+
+Выполните следующие команды:
 ```
 mkdir -p container
 cd container 
@@ -16,24 +25,30 @@ sudo docker build -t komdiv-sdk .
 cd ..
 wget https://buildroot.org/downloads/buildroot-2025.02.7.tar.gz
 tar -xf buildroot-2025.02.7.tar.gz
-git clone https://github.com/inmys/buildroot-external-inmys.git -b nms-q7-k5500vk018
+git clone https://github.com/inmys/buildroot-external-inmys.git  -b nms-q7-k5500vk018
+sudo docker run -it -e USER=$USER -e USERID=$UID -v $(pwd):/BR -v "$(pwd)/.gitlab.netrc:/root/.netrc:ro" --cpus=12 -t komdiv-sdk bash 
+```
 
-sudo docker run -it -e USER=$USER  -e USERID=$UID -v $(pwd):/BR --cpus=12 -t  komdiv-sdk  bash
+В Docker-контейнере выполнить:
+```
 make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot-2025.02.7 O=$PWD/output br_defconfig
 cd output
 export FORCE_UNSAFE_CONFIGURE=1 
 make -j12
 ```
-`Ctrl + D для выхода из контейнера`
-## Сборка ядра
-```
-export GIT_SSL_NO_VERIFY=1 #needs only for gitlab.inmys
-git clone https://gitlab.inmys.online/srisa/k5500vk018-linux.git
-cd k5500vk018-linux
-make ARCH=mips CROSS_COMPILE=mips64el-linux-gnuabi64- srisa_k64s_defconfig
-make ARCH=mips CROSS_COMPILE=mips64el-linux-gnuabi64- -j20
-```
+
+После завершения сборки необходимо выйти из контейнера сочетанием клавиш `Ctrl + D`
+
 ## Результаты сборки
+
+После успешной сборки ядра основной результат находится по пути:
+
 ```
-k5500vk018-linux/vmlinuz
+output/build/linux-main/vmlinuz
+```
+
+Результаты сборки rootfs находятся в директории:
+
+```
+output/
 ```
