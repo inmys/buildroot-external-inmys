@@ -2,6 +2,7 @@ BR2_mips64el=y
 BR2_MIPS_NABI64=y
 BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_1=y
 BR2_TOOLCHAIN_BUILDROOT_CXX=y
+BR2_WGET="wget -nd -t 5 --dns-timeout=10 --connect-timeout=10 --read-timeout=30 --retry-connrefused"
 BR2_TARGET_GENERIC_HOSTNAME="komdiv-k5500-bmc"
 BR2_TARGET_GENERIC_ROOT_PASSWD="root"
 BR2_TARGET_GENERIC_GETTY_PORT="ttyS0"
