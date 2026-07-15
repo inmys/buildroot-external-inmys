@@ -4,7 +4,7 @@ set -e
 
 ENV_MTD=/dev/mtd2
 ENV_DIR=/tmp/barebox-env
-BAREBOXENV=/opt/bareboxenv-target
+BAREBOXENV=bareboxenv
 
 echo -n "Введите MAC для eth0: "
 read ETH0_MAC
