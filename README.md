@@ -2,9 +2,9 @@
 
 ## build in ubuntu 20/22
 ```sh
-git clone https://gitlab.com/buildroot.org/buildroot.git -b 2025.05.x
+wget https://buildroot.org/downloads/buildroot-2025.05.tar.gz && tar -xf buildroot-2025.05.tar.gz
 git clone https://github.com/inmys/buildroot-external-inmys.git -b nms-sm-el
-make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot O=$PWD/output br_defconfig
+make BR2_EXTERNAL=$PWD/buildroot-external-inmys -C buildroot-2025.05 O=$PWD/output br_defconfig
 cd output
 make
 #make menuconfig
