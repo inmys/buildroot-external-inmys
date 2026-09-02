@@ -25,7 +25,7 @@ sudo docker build -t komdiv-sdk .
 cd ..
 wget https://buildroot.org/downloads/buildroot-2025.02.7.tar.gz
 tar -xf buildroot-2025.02.7.tar.gz
-git clone https://github.com/inmys/buildroot-external-inmys.git  -b nms-q7-k5500vk018
+git clone https://github.com/inmys/buildroot-external-inmys.git  -b nms-sm-k5500vk018
 sudo docker run -it -e USER=$USER -e USERID=$UID -v $(pwd):/BR -v "$(pwd)/.gitlab.netrc:/root/.netrc:ro" --cpus=12 -t komdiv-sdk bash 
 ```
 
