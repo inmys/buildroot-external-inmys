@@ -1,0 +1,39 @@
+From 094becbbefe424e113f161776ae1c815045e43e5 Mon Sep 17 00:00:00 2001
+From: InMys <dev@inmys.ru>
+Date: Mon, 21 Sep 2026 13:41:09 +0300
+Subject: [PATCH 1/4] drm: bridge: ti-sn65dsi83: Disable video burst mode for
+ LVDS stability
+
+The bridge derives its LVDS clock from the DSI clock with a fixed
+divider (sn65dsi83_get_dsi_div()), so it needs the host to run the link
+at exactly mode clock * bpp / lanes. In burst mode the host may run it
+faster: rockchip dw-mipi-dsi2 adds 1/0.9 margin, 198 -> 220 Mbps per
+lane at 800x480@33MHz, and the LVDS clock came out at 36.67MHz.
+
+Backport of patch 2/2 of "drm: bridge: ti-sn65dsi83: Fix DSI mode flags
+for stable LVDS output" v4 (Sudarshan Shetty, applied to drm-misc
+2026-06). Patch 1/2 of that series, which drops NO_HFP and NO_HBP, is
+deliberately not taken: rockchip dw-mipi-dsi2 maps these flags to
+BLK_HFP_HS_EN/BLK_HBP_HS_EN, which per the RK3588 TRM means "fill the
+period with blanking packets" - the opposite of what the flags mean.
+Dropping them puts the link into LP in every HFP/HBP on this host, and
+the LVDS line length then jitters by one clock from line to line.
+
+Link: https://lore.kernel.org/dri-devel/2026/05/17035280
+---
+ drivers/gpu/drm/bridge/ti-sn65dsi83.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/bridge/ti-sn65dsi83.c b/drivers/gpu/drm/bridge/ti-sn65dsi83.c
+index 3f43b44..2db8545 100644
+--- a/drivers/gpu/drm/bridge/ti-sn65dsi83.c
++++ b/drivers/gpu/drm/bridge/ti-sn65dsi83.c
+@@ -655,7 +655,7 @@ static int sn65dsi83_host_attach(struct sn65dsi83 *ctx)
+ 
+ 	dsi->lanes = dsi_lanes;
+ 	dsi->format = MIPI_DSI_FMT_RGB888;
+-	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
++	dsi->mode_flags = MIPI_DSI_MODE_VIDEO |
+ 			  MIPI_DSI_MODE_VIDEO_NO_HFP | MIPI_DSI_MODE_VIDEO_NO_HBP |
+ 			  MIPI_DSI_MODE_VIDEO_NO_HSA | MIPI_DSI_MODE_NO_EOT_PACKET;
+ 

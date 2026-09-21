@@ -7,6 +7,22 @@
 
 /dts-v1/;
 
+/*
+ * LVDS through the DSI -> LVDS bridge on the module (U7, SN65DSI84, fed from
+ * DSI0). Uncomment before the #include below:
+ *
+ *   DSI + DSI_TO_LVDS_BRIDGE      single link on LVDS0 (SMARC LVDS0, channel A)
+ *   + LVDS_SWAP_TO_B              single link on LVDS1 (SMARC LVDS1, channel B)
+ *   + LVDS_DUAL_LINK              one dual link panel on LVDS0 + LVDS1
+ *
+ * The panel node below follows these. Needs the kernel patches
+ * patches/linux/0010..0014 (see apply-kernel-patches.sh).
+ */
+//#define DSI 1
+//#define DSI_TO_LVDS_BRIDGE 1
+//#define LVDS_SWAP_TO_B 1
+//#define LVDS_DUAL_LINK 1
+
 #include "rk3588-inmys-smarc-som_v2.dtsi"
 
 / {
@@ -87,11 +103,39 @@
 #endif
 			};
 		};
+#if !LVDS_DUAL_LINK
 		port {
 			panel_in_lvds: endpoint {
+#if LVDS_SWAP_TO_B
+				remote-endpoint = <&sn65dsi84_out1>;
+#else
 				remote-endpoint = <&sn65dsi84_out>;
+#endif
 			};
 		};
+#else
+		/* dual link: timings are the whole panel's, clock-frequency the
+		 * full pixel clock; each channel carries half of it */
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				dual-lvds-odd-pixels;
+				panel_in_lvds: endpoint {
+					remote-endpoint = <&sn65dsi84_out>;
+				};
+			};
+			port@1 {
+				reg = <1>;
+				dual-lvds-even-pixels;
+				panel_in_lvds1: endpoint {
+					remote-endpoint = <&sn65dsi84_out1>;
+				};
+			};
+		};
+#endif
 	};
 };
 #else // DSI_TO_LVDS_BRIDGE  == 0

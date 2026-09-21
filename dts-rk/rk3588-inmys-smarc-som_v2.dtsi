@@ -21,9 +21,14 @@
 #define HDMI 1
 #define EDP 1
 
+/* A board .dts may define these before including this file. */
+#ifndef DSI
 #define DSI 0
+#endif
 // DSI must be 1 for DSI_TO_LVDS_BRIDGE
+#ifndef DSI_TO_LVDS_BRIDGE
 #define DSI_TO_LVDS_BRIDGE 0
+#endif
 
 #define SATA 1
 
@@ -465,6 +470,23 @@ SMARC_PCIE_D is LN1 on controller1
 	status = "okay";
 };
 
+/* Both lvds channels of the bridge (U7, SN65DSI84) at once, as one dual link:
+ * odd pixels on LVDS0 (channel A), even on LVDS1 (channel B). The panel then has
+ * to declare two input ports, panel_in_lvds and panel_in_lvds1, with
+ * dual-lvds-odd-pixels / dual-lvds-even-pixels. */
+#ifndef LVDS_DUAL_LINK
+#define LVDS_DUAL_LINK 0
+#endif
+
+/* A single link sent out on LVDS1 (channel B) instead of LVDS0 (channel A).
+ * The bridge has one DSI input, fed from DSI0; DSI1 of the SoC is not involved.
+ * The driver decides by the ports present: port@0 and port@3 alone, with port@2
+ * absent, and then sets the chip's channel swap bit. So channel A's port has to
+ * go away entirely - leaving it in place would read as a single link on A. */
+#ifndef LVDS_SWAP_TO_B
+#define LVDS_SWAP_TO_B 0
+#endif
+
 #if DSI_TO_LVDS_BRIDGE
 &i2c1 {
 	dsi_lvds_bridge: sn65dsi84@2d {
@@ -494,12 +516,26 @@ SMARC_PCIE_D is LN1 on controller1
 					data-lanes = <1 2 3 4>;
 				};
 			};
+#if !LVDS_SWAP_TO_B
 			port@2 {
 				reg = <2>;
 				sn65dsi84_out: endpoint {
 					remote-endpoint = <&panel_in_lvds>;
 				};
 			};
+#endif
+#if LVDS_DUAL_LINK || LVDS_SWAP_TO_B
+			port@3 {
+				reg = <3>;
+				sn65dsi84_out1: endpoint {
+#if LVDS_SWAP_TO_B
+					remote-endpoint = <&panel_in_lvds>;
+#else
+					remote-endpoint = <&panel_in_lvds1>;
+#endif
+				};
+			};
+#endif
 		};
 	};
 };

@@ -1,0 +1,71 @@
+From d35210a6f3f1a381830ba3e36a2759fe69b107d2 Mon Sep 17 00:00:00 2001
+From: InMys <dev@inmys.ru>
+Date: Mon, 21 Sep 2026 13:27:15 +0300
+Subject: [PATCH 4/4] drm/bridge: ti-sn65dsi83: Halve horizontal blanking in
+ dual-link mode
+
+In dual-link mode each LVDS channel carries half of every line, so the
+horizontal sync pulse width and both porches have to be programmed per
+channel. CHA_ACTIVE_LINE_LENGTH stays the full width, the bridge splits
+it itself.
+
+Measured on an SN65DSI84 driving 800x480 as a dual link, with an FPGA
+counting what arrives on the LVDS side:
+
+  line length 800, blanking full   CHA_SYNCH_ERR, DE once a frame
+  line length 800, blanking /2     no error, 400 of 464 per channel, 480 lines
+
+Not in mainline yet.
+---
+ drivers/gpu/drm/bridge/ti-sn65dsi83.c | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/bridge/ti-sn65dsi83.c b/drivers/gpu/drm/bridge/ti-sn65dsi83.c
+index a9fac0f..75c3bc6 100644
+--- a/drivers/gpu/drm/bridge/ti-sn65dsi83.c
++++ b/drivers/gpu/drm/bridge/ti-sn65dsi83.c
+@@ -326,6 +326,7 @@ static void sn65dsi83_atomic_pre_enable(struct drm_bridge *bridge,
+ {
+ 	struct sn65dsi83 *ctx = bridge_to_sn65dsi83(bridge);
+ 	struct drm_atomic_state *state = old_bridge_state->base.state;
++	unsigned int dual_factor;
+ 	const struct drm_bridge_state *bridge_state;
+ 	const struct drm_crtc_state *crtc_state;
+ 	const struct drm_display_mode *mode;
+@@ -442,6 +443,14 @@ static void sn65dsi83_atomic_pre_enable(struct drm_bridge *bridge,
+ 		     REG_LVDS_LANE_CHB_LVDS_TERM);
+ 	regmap_write(ctx->regmap, REG_LVDS_CM, 0x00);
+ 
++	/*
++	 * In dual-link mode each LVDS channel carries half of every line, so
++	 * the horizontal sync width and porches are programmed per channel,
++	 * i.e. halved. The active line length is not: the bridge is given the
++	 * full width and splits it itself.
++	 */
++	dual_factor = ctx->lvds_dual_link ? 2 : 1;
++
+ 	le16val = cpu_to_le16(mode->hdisplay);
+ 	regmap_bulk_write(ctx->regmap, REG_VID_CHA_ACTIVE_LINE_LENGTH_LOW,
+ 			  &le16val, 2);
+@@ -451,18 +460,18 @@ static void sn65dsi83_atomic_pre_enable(struct drm_bridge *bridge,
+ 	/* 32 + 1 pixel clock to ensure proper operation */
+ 	le16val = cpu_to_le16(32 + 1);
+ 	regmap_bulk_write(ctx->regmap, REG_VID_CHA_SYNC_DELAY_LOW, &le16val, 2);
+-	le16val = cpu_to_le16(mode->hsync_end - mode->hsync_start);
++	le16val = cpu_to_le16((mode->hsync_end - mode->hsync_start) / dual_factor);
+ 	regmap_bulk_write(ctx->regmap, REG_VID_CHA_HSYNC_PULSE_WIDTH_LOW,
+ 			  &le16val, 2);
+ 	le16val = cpu_to_le16(mode->vsync_end - mode->vsync_start);
+ 	regmap_bulk_write(ctx->regmap, REG_VID_CHA_VSYNC_PULSE_WIDTH_LOW,
+ 			  &le16val, 2);
+ 	regmap_write(ctx->regmap, REG_VID_CHA_HORIZONTAL_BACK_PORCH,
+-		     mode->htotal - mode->hsync_end);
++		     (mode->htotal - mode->hsync_end) / dual_factor);
+ 	regmap_write(ctx->regmap, REG_VID_CHA_VERTICAL_BACK_PORCH,
+ 		     mode->vtotal - mode->vsync_end);
+ 	regmap_write(ctx->regmap, REG_VID_CHA_HORIZONTAL_FRONT_PORCH,
+-		     mode->hsync_start - mode->hdisplay);
++		     (mode->hsync_start - mode->hdisplay) / dual_factor);
+ 	regmap_write(ctx->regmap, REG_VID_CHA_VERTICAL_FRONT_PORCH,
+ 		     mode->vsync_start - mode->vdisplay);
+ 	regmap_write(ctx->regmap, REG_VID_CHA_TEST_PATTERN, 0x00);

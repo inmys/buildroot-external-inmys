@@ -1,0 +1,60 @@
+From 57ed3b7b770714cbef1536debd8c8197b9071cb5 Mon Sep 17 00:00:00 2001
+From: InMys <dev@inmys.ru>
+Date: Mon, 21 Sep 2026 19:49:35 +0300
+Subject: [PATCH] drm/rockchip: dw-mipi-dsi2: fix PHY_SYS_RATIO off by a factor
+ of two
+
+PHY_SYS_RATIO_MAN_CFG is programmed as phy_hstx_clk / sys_clk with
+sys_clk taken from clk_get_rate(), which on RK3588 is CLK_DSIHOST0 at
+351MHz. The controller wants twice that. With the driver's value the
+link never leaves stopstate: OBS_FSM_STATUS sits in state 9 with its
+counter saturated and PHY_STATUS reads 0x001f1e00.
+
+Auto calculation mode lets the controller measure the ratio itself.
+Its SYS_RATIO_AUTO against what this code writes, CLK_DSIHOST0 at
+351MHz, 4 lanes:
+
+  lane rate    driver      SYS_RATIO_AUTO
+  891 Mbps     0x289e      0x513b
+  220 Mbps     0x0a07      0x140f
+  198 Mbps     0x0906      0x120d
+  144 Mbps     0x0690      0x0d21
+
+exactly x2 at every rate, while IPI_RATIO_AUTO matches the driver's
+IPI_RATIO to the last bit or two (0x18002 against 0x18000), so the
+phy_hstx_clk side of the ratio is right and the sys_clk side is not.
+The same factor of two was reported for a DSI panel on RK3588 on
+dri-devel [1].
+
+Doubling only the ratio fixes the link at 198 and 891 Mbps. Doubling
+LP2HS/HS2LP instead, with the original ratio, does not, so it is the
+ratio itself that matters and not merely longer LP/HS transitions.
+
+sys_clk is also used for the escape clock divider; that is left alone,
+so phy_lptx_clk stays within the 20MHz limit whichever way the factor
+of two is explained.
+
+Link: https://www.mail-archive.com/dri-devel@lists.freedesktop.org/msg527842.html [1]
+---
+ drivers/gpu/drm/rockchip/dw-mipi-dsi2-rockchip.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/rockchip/dw-mipi-dsi2-rockchip.c b/drivers/gpu/drm/rockchip/dw-mipi-dsi2-rockchip.c
+index ee38e48..0f81a2f 100644
+--- a/drivers/gpu/drm/rockchip/dw-mipi-dsi2-rockchip.c
++++ b/drivers/gpu/drm/rockchip/dw-mipi-dsi2-rockchip.c
+@@ -636,9 +636,12 @@ static void dw_mipi_dsi2_phy_ratio_cfg(struct dw_mipi_dsi2 *dsi2)
+ 		     PHY_IPI_RATIO(tmp));
+ 
+ 	/*
+-	 * SYS_RATIO_MAN_CFG = MIPI_DCPHY_HSCLK_Freq / MIPI_DCPHY_HSCLK_Freq
++	 * SYS_RATIO_MAN_CFG = MIPI_DCPHY_HSCLK_Freq / SYS_CLK_Freq, where the
++	 * controller counts its sys clock at half the rate of the clock it is
++	 * fed: SYS_RATIO_AUTO, measured by the controller itself, comes out
++	 * at exactly twice this ratio against clk_get_rate(sys_clk).
+ 	 */
+-	tmp = DIV_ROUND_CLOSEST_ULL(phy_hsclk << 16, sys_clk);
++	tmp = DIV_ROUND_CLOSEST_ULL(phy_hsclk << 16, sys_clk / 2);
+ 	regmap_write(dsi2->regmap, DSI2_PHY_SYS_RATIO_MAN_CFG,
+ 		     PHY_SYS_RATIO(tmp));
+ }
