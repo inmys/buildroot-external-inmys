@@ -1,0 +1,418 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2023 Rockchip Electronics Co., Ltd.
+ * Copyright (c) 2025 InMys Limited
+ *
+ */
+
+/dts-v1/;
+
+/* The tester checks the dsi -> lvds bridge (U7, SN65DSI84), so the bridge is
+ * driven by the drm driver here instead of just being hogged enabled. */
+#define DSI 1
+#define DSI_TO_LVDS_BRIDGE 1
+
+/* Drive both lvds channels, so the tester can check the second one. The
+ * bridge then sends odd pixels on channel A and even on B, which halves what
+ * each carries: at 800x480 the fpga should see 400 of 800 per line on each,
+ * and half the word clock - 16.5MHz rather than 33. */
+#define LVDS_DUAL_LINK 1
+
+/* Single link, but out on channel B rather than A - the bridge's channel swap.
+ * Nothing else changes: the fpga should see on B exactly what it sees on A in
+ * an ordinary single link, 800 of 928 at 33MHz, and A should go silent. */
+#define LVDS_SWAP_TO_B 0
+
+/* PCIe lanes on the tester: all four SMARC PCIe ports as x1 (see som_v2.dtsi) */
+#define PCIE30_PHY_MODE 3
+/* CSI0 carries the csi tester here, not the CAM0 camera */
+#define CAM0 0
+
+#include "rk3588-inmys-smarc-som_v2.dtsi"
+
+/ {
+	model = "NMS_SMARC_TESTER with NMS-SM-RK3588";
+	compatible = "inmys,rk3588-smarc-tester", "inmys,rk3588-smarc-som", "rockchip,rk3588";
+
+	/* No panel on the tester: the lvds pairs go to three FIN1032 receivers and
+	 * on to the fpga. This node only exists to give the bridge a sink and a
+	 * mode. 800x480 at 33MHz keeps the lvds bit rate at 7*33 = 231Mbit/s,
+	 * which the fpga can still deserialise. */
+	lvds_panel {
+		compatible = "simple-panel";
+		backlight = <&backlight>;
+		power-supply = <&lcd0_vdd_en>;
+		enable-delay-ms = <20>;
+		prepare-delay-ms = <20>;
+		unprepare-delay-ms = <20>;
+		disable-delay-ms = <20>;
+		bus-format = <0x1012>; /* MEDIA_BUS_FMT_RGB888_1X7X4_JEIDA */
+		width-mm = <231>;
+		height-mm = <139>;
+		display-timings {
+			native-mode = <&timing0>;
+			#if 1
+			timing0: timing0 {
+				clock-frequency = <33000000>;
+				hactive = <800>;
+				vactive = <480>;
+				hback-porch = <40>;
+				hfront-porch = <40>;
+				vback-porch = <29>;
+				vfront-porch = <13>;
+				hsync-len = <48>;
+				vsync-len = <3>;
+				hsync-active = <1>;
+				vsync-active = <1>;
+				de-active = <1>;
+				pixelclk-active = <0>;
+			};
+			#endif
+			#if 0
+			timing0: timing0 {
+				/*
+				 * Bog standard VESA 800x600@60: htotal 1056,
+				 * vtotal 628, 40MHz. Picked over the 800x480@68
+				 * that was here because the manual ipi timing
+				 * path in the dsi driver has the best chance on
+				 * a textbook mode. 7 x 40 = 280Mbit/s on the
+				 * lvds data lanes, comfortably inside what the
+				 * FIN1032 receivers on the tester handle, and
+				 * well short of the 455Mbit/s that 1024x768@60
+				 * would have asked of them.
+				 */
+				clock-frequency = <40000000>;
+				hactive = <800>;
+				vactive = <600>;
+				hback-porch = <88>;
+				hfront-porch = <40>;
+				vback-porch = <23>;
+				vfront-porch = <1>;
+				hsync-len = <128>;
+				vsync-len = <4>;
+				hsync-active = <1>;
+				vsync-active = <1>;
+				de-active = <1>;
+				pixelclk-active = <0>;
+			};
+			#endif
+			#if 0
+                        timing0: timing0 {
+                                clock-frequency = <148500000>;
+                                hactive = <1200>;
+                                vactive = <1920>;
+                                hback-porch = <20>;
+                                hfront-porch = <22>;
+                                vback-porch = <178>;
+                                vfront-porch = <32>;
+                                hsync-len = <8>;
+                                vsync-len = <8>;
+                                hsync-active = <0>;
+                                vsync-active = <0>;
+                                de-active = <0>;
+                                pixelclk-active = <0>;
+                        };
+			#endif
+		};
+		#if !LVDS_DUAL_LINK
+		port {
+			panel_in_lvds: endpoint {
+#if LVDS_SWAP_TO_B
+				remote-endpoint = <&sn65dsi84_out1>;
+#else
+				remote-endpoint = <&sn65dsi84_out>;
+#endif
+			};
+		};
+		#endif
+		#if LVDS_DUAL_LINK
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				dual-lvds-odd-pixels;
+				panel_in_lvds: endpoint {
+					remote-endpoint = <&sn65dsi84_out>;
+				};
+			};
+			port@1 {
+				reg = <1>;
+				dual-lvds-even-pixels;
+				panel_in_lvds1: endpoint {
+					remote-endpoint = <&sn65dsi84_out1>;
+				};
+			};
+		};
+		#endif
+	};
+
+	vcc12v_dcin: vcc12v-dcin {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc12v_dcin";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <12000000>;
+		regulator-max-microvolt = <12000000>;
+	};
+	smarc_vdd_in: smarc-vdd-in {
+		/* 3.0...5.25V main power input for som(from mother board) */
+		compatible = "regulator-fixed";
+		regulator-name = "SMARC_VDD_IN";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		vin-supply = <&vcc12v_dcin>;
+	};
+};
+
+/* video rx (by csi) */
+&rkcif {
+	status = "okay";
+};
+&rkcif_mmu {
+	status = "okay";
+};
+
+/* csitesterBOT: SMARC: I2C_CAM0(I2C7_M0)  + SMARC: CSI0_CK + CSI0_RX (csi2_dcphy0) */
+&rkisp0 {
+	status = "okay";
+};
+
+&isp0_mmu {
+	status = "okay";
+};
+
+&rkcif_mipi_lvds_sditf {
+	status = "okay";
+
+	port {
+		mipi_lvds_sditf: endpoint {
+			remote-endpoint = <&isp0_in>;
+		};
+	};
+};
+
+&rkisp0_vir0 {
+	status = "okay";
+		port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		isp0_in: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&mipi_lvds_sditf>;
+		};
+	};
+};
+
+&rkcif_mipi_lvds {
+	status = "okay";
+	port {
+		cif_mipi_in0: endpoint {
+			remote-endpoint = <&mipi0_csi2_output>;
+		};
+	};
+};
+&mipi0_csi2 {
+	status = "okay";
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			mipi0_csi2_input: endpoint@1 {
+				reg = <1>;
+				remote-endpoint = <&csidcphy0_out>;
+			};
+		};
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			mipi0_csi2_output: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&cif_mipi_in0>;
+			};
+		};
+	};
+};
+
+&csi2_dcphy0 {
+	status = "okay";
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			smarcpins_s11_S12_s14_s15: endpoint@1 {
+				reg = <1>;
+				remote-endpoint = <&csi_tester_bot_out>;
+				data-lanes = <1 2>;
+			};
+		};
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			csidcphy0_out: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&mipi0_csi2_input>;
+			};
+		};
+	};
+};
+
+&I2C_CAM0 {
+	status = "okay";
+	csitester@30 {
+		compatible = "inmys,csi-tester";
+		reg = <0x30>;
+		status = "okay";
+		rockchip,camera-module-index = <1>;
+		rockchip,camera-module-facing = "back";
+		rockchip,camera-module-name = "NC";
+		rockchip,camera-module-lens-name = "NC";
+		port {
+			csi_tester_bot_out: endpoint {
+				remote-endpoint = <&smarcpins_s11_S12_s14_s15>; //dcphy1*/
+				data-lanes = <1 2>;
+			};
+		};
+	};
+};
+
+/* csitesterTOP: SMARC: I2C_CAM1(I2C3_M1)  + SMARC: CSI1_CK + CSI1_RX (csi2_dcphy1) */
+&rkisp1 {
+	status = "okay";
+};
+
+&isp1_mmu {
+	status = "okay";
+};
+
+&rkcif_mipi_lvds1_sditf {
+	status = "okay";
+
+	port {
+		mipi1_lvds_sditf: endpoint {
+			remote-endpoint = <&isp1_in>;
+		};
+	};
+};
+
+&rkisp1_vir0 {
+	status = "okay";
+		port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		isp1_in: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&mipi1_lvds_sditf>;
+		};
+	};
+};
+
+&rkcif_mipi_lvds1 {
+	status = "okay";
+	port {
+		cif_mipi_in1: endpoint {
+			remote-endpoint = <&mipi1_csi2_output>;
+		};
+	};
+};
+&mipi1_csi2 {
+	status = "okay";
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			mipi1_csi2_input: endpoint@1 {
+				reg = <1>;
+				remote-endpoint = <&csidcphy1_out>;
+			};
+		};
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			mipi1_csi2_output: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&cif_mipi_in1>;
+			};
+		};
+	};
+};
+
+&csi2_dcphy1 {
+	status = "okay";
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			smarcpins_p7_p8_p10_p11: endpoint@1 {
+				reg = <1>;
+				remote-endpoint = <&csi_tester_top_out>;
+				/*data-lanes = <1 2 3 4>;*/
+				data-lanes = <1 2>;
+			};
+		};
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			csidcphy1_out: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&mipi1_csi2_input>;
+			};
+		};
+	};
+};
+
+&I2C_CAM1 {
+	status = "okay";
+	csitester@30 {
+		compatible = "inmys,csi-tester";
+		reg = <0x30>;
+		status = "okay";
+		rockchip,camera-module-index = <0>;
+		rockchip,camera-module-facing = "back";
+		rockchip,camera-module-name = "NC";
+		rockchip,camera-module-lens-name = "NC";
+		port {
+			csi_tester_top_out: endpoint {
+				remote-endpoint = <&smarcpins_p7_p8_p10_p11>; //dcphy1*/
+				/*data-lanes = <1 2 3 4>;*/
+				data-lanes = <1 2>;
+			};
+		};
+	};
+};
+
+
+/* SMARC: I2C_GP */
+#if 0
+&I2C_GP {
+};
+#endif
+
+&spi0 {
+	status = "okay";
+	mydev@0 {
+		reg = <0>;
+		compatible = "rohm,dh2228fv";
+	};
+};
+
+

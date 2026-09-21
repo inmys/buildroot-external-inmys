@@ -1,0 +1,8 @@
+config BR2_PACKAGE_CSITPG
+	bool "csitpg"
+	depends on BR2_LINUX_KERNEL
+	help
+	  Kernel module for csi tester (csitpg.ko)
+
+comment "csitpg needs a Linux kernel to be built"
+	depends on !BR2_LINUX_KERNEL

@@ -1,0 +1,11 @@
+config BR2_PACKAGE_LVDSPAT
+	bool "lvdspat"
+	select BR2_PACKAGE_LIBDRM
+	help
+	  Paint a known test pattern on one display output through KMS.
+
+	  The tester reads pixels back out of the FPGA by coordinate, so what
+	  it needs on screen is a picture it already knows: a marker column,
+	  a ramp, a solid fill. fbdev cannot do it - its one framebuffer is
+	  cloned to every output - so this goes through KMS and can paint one
+	  output while the others keep whatever they were showing.

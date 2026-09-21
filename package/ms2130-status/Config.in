@@ -1,0 +1,4 @@
+config BR2_PACKAGE_MS2130_STATUS
+	bool "ms2130-status"
+	help
+	  Read the HDMI input status from an MS2130 USB bridge.

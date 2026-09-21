@@ -1,0 +1,4 @@
+config BR2_LINUX_KERNEL_EXT_CSITPG
+	bool "csitpg linux extension"
+	help
+	  asdasd
