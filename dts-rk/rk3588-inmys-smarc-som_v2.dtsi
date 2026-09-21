@@ -40,11 +40,21 @@
 #define CAN0 1
 #define CAN1 1
 
+#ifndef CAM0
 #define CAM0 1
+#endif
 
 
-//#define PCIE30_PHY_MODE 4 // x4
+/* How the four SMARC PCIe lanes are split, which depends on the carrier:
+ *   4 - x4:          PCIE_A..D on pcie3x4
+ *   0 - x2_x2:       PCIE_A,B on pcie3x4, PCIE_C,D on pcie3x2
+ *   1 - x1_x1_x2:    PCIE_A on pcie3x4, PCIE_B on pcie2x1l0, PCIE_C,D on pcie3x2
+ *   3 - x1_x1_x1_x1: PCIE_A on pcie3x4, PCIE_B on pcie2x1l0, PCIE_C on pcie3x2,
+ *                    PCIE_D on pcie2x1l1
+ * A board .dts may define it before including this file. */
+#ifndef PCIE30_PHY_MODE
 #define PCIE30_PHY_MODE 0 // x2_x2
+#endif
 
 
 / {
@@ -273,7 +283,83 @@ SMARC_PCIE_D is LN1 on controller1
 };
 &pcie3x2 {
 	num-lanes = <2>;
-	reset-gpios = <&gpio4 RK_PA2 GPIO_ACTIVE_HIGH>;
+	/* No reset-gpios: PCIE_A/B/C_RST# (SMARC P75, S76, S77) are one net,
+	 * PCIE_PERST on GPIO4_B6, owned by &pcie3x4. GPIO4_A2, which used to be
+	 * here, is USB0_EN_OC# (SMARC P62, through R122). */
+	vpcie3v3-supply = <&V3P3>;
+	status = "okay";
+};
+#elif PCIE30_PHY_MODE == 1
+/*
+SMARC_PCIE_A is LN0 on controller0 (&pcie3x4)
+SMARC_PCIE_B is LN0 on controller2 (&pcie2x1l0)
+SMARC_PCIE_C is LN0 on controller1 (&pcie3x2)
+SMARC_PCIE_D is LN1 on controller1 (&pcie3x2)
+*/
+&pcie30phy {
+	rockchip,pcie30-phymode = <PHY_MODE_PCIE_NANBBI>;
+	status = "okay";
+};
+
+&pcie3x4 {
+	num-lanes = <1>;
+	/* PCIE_PERST, one net for all of PCIE_A/B/C_RST#: described only here */
+	reset-gpios = <&gpio4 RK_PB6 GPIO_ACTIVE_HIGH>;
+	vpcie3v3-supply = <&V3P3>;
+	status = "okay";
+};
+
+&pcie2x1l0 {
+	phys = <&pcie30phy>;
+	phy-names = "pcie-phy";
+	vpcie3v3-supply = <&V3P3>;
+	status = "okay";
+};
+
+&pcie3x2 {
+	num-lanes = <2>;
+	/* reset: PCIE_PERST, owned by &pcie3x4 */
+	vpcie3v3-supply = <&V3P3>;
+	status = "okay";
+};
+#elif PCIE30_PHY_MODE == 3
+/*
+SMARC_PCIE_A is LN0 on controller0 (&pcie3x4)
+SMARC_PCIE_B is LN1 on controller0 side, as &pcie2x1l0
+SMARC_PCIE_C is LN0 on controller1 (&pcie3x2)
+SMARC_PCIE_D is LN1 on controller1 side, as &pcie2x1l1
+*/
+&pcie30phy {
+	rockchip,pcie30-phymode = <PHY_MODE_PCIE_NABIBI>;
+	status = "okay";
+};
+
+&pcie3x4 {
+	num-lanes = <1>;
+	/* PCIE_PERST, one net for all of PCIE_A/B/C_RST#: described only here */
+	reset-gpios = <&gpio4 RK_PB6 GPIO_ACTIVE_HIGH>;
+	vpcie3v3-supply = <&V3P3>;
+	status = "okay";
+};
+
+&pcie2x1l0 {
+	phys = <&pcie30phy>;
+	phy-names = "pcie-phy";
+	vpcie3v3-supply = <&V3P3>;
+	status = "okay";
+};
+
+&pcie3x2 {
+	num-lanes = <1>;
+	/* reset: PCIE_PERST, owned by &pcie3x4 */
+	vpcie3v3-supply = <&V3P3>;
+	status = "okay";
+};
+
+&pcie2x1l1 {
+	phys = <&pcie30phy>;
+	phy-names = "pcie-phy";
+	/* reset: PCIE_PERST, owned by &pcie3x4 */
 	vpcie3v3-supply = <&V3P3>;
 	status = "okay";
 };
@@ -863,6 +949,14 @@ SMARC_PCIE_D is LN1 on controller1
 #if SATA
 /* SMARC: SATA (P48,P49 P51,P52) */
 &combphy1_ps {
+#if PCIE30_PHY_MODE == 1 || PCIE30_PHY_MODE == 3
+	/*
+	PCIe2x1l0 is connected to PCIe3 PHY lane 1 in
+	PHY_MODE_PCIE_NANBBI and NABIBI. Do not switch it back to Combo PHY1
+	while Combo PHY1 is used by SATA1.
+	*/
+	/delete-property/ rockchip,pcie1ln-sel-bits;
+#endif
 	status = "okay";
 };
 
@@ -1073,6 +1167,14 @@ I2C_CAM0: &i2c7 {
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c7m0_xfer>;
+};
+
+
+/* SMARC: I2C_CAM1 (S1, S2) */
+I2C_CAM1: &i2c3 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c3m1_xfer>;
 };
 
 
