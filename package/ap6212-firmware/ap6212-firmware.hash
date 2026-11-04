@@ -1,0 +1,6 @@
+# linux-firmware tag 20250410; SHA-256 calculated from upstream files.
+sha256  b16056fc91b82a0e3e8de8f86c2dac98201aa9dc3cbd33e8d38f1b087fcec30d  LICENCE.broadcom_bcm43xx
+sha256  ae0db6cc4db33941148df0f67de53e76a77b1b5a46b3165edb7040aa2750015f  LICENCE.cypress
+sha256  fdef0603345dd023ad28c0eff2d5167915c617bee2d6944da9a6da1c4ac87ca5  brcmfmac43430-sdio.AP6212.txt
+sha256  93f3c40c94340c29a40714cb04e3e89974870fcae42a844b8a4544750159f40d  cyfmac43430-sdio.bin
+sha256  3376b9c9b32d16bf762e21c7fafb665365070ae240d092498d0d1987c22022aa  cyfmac43430-sdio.clm_blob

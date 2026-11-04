@@ -1,0 +1,29 @@
+#!/bin/sh
+
+# Persist configuration only when running the A/B system from NAND.
+# SD and recovery initramfs must also boot with an empty/unattached NAND.
+if grep -q 'root=ubi0:rootfs[AB]' /proc/cmdline; then
+    RWDIR=/mnt/nand
+    mkdir -p "$RWDIR"
+    if mount -t ubifs -o sync ubi0:configs "$RWDIR"; then
+        for d in etc var/lib; do
+            mkdir -p "$RWDIR/upper/$d" "$RWDIR/.work/$d"
+            mount -t overlay -o "lowerdir=/$d,upperdir=$RWDIR/upper/$d,workdir=$RWDIR/.work/$d" overlay "/$d" ||
+                echo "Cannot persist /$d" >&2
+        done
+    else
+        echo 'NAND configs unavailable; using rootfs configuration' >&2
+    fi
+fi
+
+for i in /etc/init.d/S??*; do
+    [ -f "$i" ] || continue
+    if [ "$i" = /etc/init.d/S80swupdate ] &&
+       ! grep -q 'root=ubi0:rootfs[AB]' /proc/cmdline; then
+        continue
+    fi
+    case "$i" in
+        *.sh) (trap - INT QUIT TSTP; set start; . "$i") ;;
+        *) "$i" start ;;
+    esac
+done

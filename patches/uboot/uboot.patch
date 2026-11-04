@@ -1,0 +1,408 @@
+diff --git a/arch/arm/dts/am335x-baltos.dts b/arch/arm/dts/am335x-baltos.dts
+--- a/arch/arm/dts/am335x-baltos.dts
++++ b/arch/arm/dts/am335x-baltos.dts
+@@ -91,7 +91,7 @@
+ 
+ 			/* Slave 2 */
+ 			0x40 (PIN_OUTPUT_PULLDOWN | MUX_MODE2)	/* gpmc_a0.rgmii2_tctl */
+-			0x44 (PIN_INPUT_PULLDOWN | MUX_MODE2)	/* gpmc_a1.rgmii2_rctl */
++			0x44 0x32 /*(PIN_INPUT_PULLUP | MUX_MODE2)*/	/* gpmc_a1.rgmii2_rctl */
+ 			0x48 (PIN_OUTPUT_PULLDOWN | MUX_MODE2)	/* gpmc_a2.rgmii2_td3 */
+ 			0x4c (PIN_OUTPUT_PULLDOWN | MUX_MODE2)	/* gpmc_a3.rgmii2_td2 */
+ 			0x50 (PIN_OUTPUT_PULLDOWN | MUX_MODE2)	/* gpmc_a4.rgmii2_td1 */
+@@ -118,7 +118,7 @@
+ 
+ 			/* Slave 2 reset value*/
+ 			0x40 (PIN_INPUT_PULLDOWN | MUX_MODE7)
+-			0x44 (PIN_INPUT_PULLDOWN | MUX_MODE7)
++			0x44 (PIN_INPUT_PULLUP | MUX_MODE7)
+ 			0x48 (PIN_INPUT_PULLDOWN | MUX_MODE7)
+ 			0x4c (PIN_INPUT_PULLDOWN | MUX_MODE7)
+ 			0x50 (PIN_INPUT_PULLDOWN | MUX_MODE7)
+@@ -411,7 +411,7 @@
+ 	status = "okay";
+ 
+ 	phy0: ethernet-phy@0 {
+-		reg = <0>;
++		reg = <1>;
+ 	};
+ 
+ 	phy1: ethernet-phy@7 {
+diff --git a/board/vscom/baltos/board.c b/board/vscom/baltos/board.c
+--- a/board/vscom/baltos/board.c
++++ b/board/vscom/baltos/board.c
+@@ -35,6 +35,7 @@
+ #include <power/tps65910.h>
+ #include <watchdog.h>
+ #include "board.h"
++#include <linux/delay.h>
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+@@ -44,6 +45,7 @@
+ 
+ static struct ctrl_dev *cdev = (struct ctrl_dev *)CTRL_DEVICE_BASE;
+ 
++#if 0
+ static int baltos_set_console(void)
+ {
+ 	int val, i, dips = 0;
+@@ -73,6 +75,7 @@
+ 
+ 	return 0;
+ }
++#endif
+ 
+ static int read_eeprom(BSP_VS_HWPARAM *header)
+ {
+@@ -176,6 +179,29 @@
+ 		303, OSC-1, 1, -1, -1, -1, -1};
+ const struct dpll_params dpll_ddr_baltos = {
+ 		400, OSC-1, 1, -1, -1, -1, -1};
++
++const struct dpll_params *get_dpll_mpu_params(void)
++{
++	int ind = get_sys_clk_index();
++	int freq = am335x_get_efuse_mpu_max_freq(cdev);
++
++	switch (freq) {
++	case MPUPLL_M_1000:
++		return &dpll_mpu_opp[ind][5];
++	case MPUPLL_M_800:
++		return &dpll_mpu_opp[ind][4];
++	case MPUPLL_M_720:
++		return &dpll_mpu_opp[ind][3];
++	case MPUPLL_M_600:
++		return &dpll_mpu_opp[ind][2];
++	case MPUPLL_M_500:
++		return &dpll_mpu_opp100;
++	case MPUPLL_M_300:
++		return &dpll_mpu_opp[ind][0];
++	}
++
++	return &dpll_mpu_opp[ind][0];
++}
+ 
+ void am33xx_spl_board_init(void)
+ {
+@@ -269,6 +295,7 @@
+ 
+ int ft_board_setup(void *blob, struct bd_info *bd)
+ {
++#if 0
+ 	int node, ret;
+ 	unsigned char mac_addr[6];
+ 	BSP_VS_HWPARAM header;
+@@ -318,10 +345,12 @@
+ 	}
+ 
+ 	printf("\nFDT was successfully setup\n");
++#endif
+ 
+ 	return 0;
+ }
+ 
++#if 0
+ static struct module_pin_mux pcie_sw_pin_mux[] = {
+ 	{OFFSET(mii1_rxdv), (MODE(7) | PULLUDEN )},     /* GPIO3_4 */
+ 	{-1},
+@@ -334,10 +363,28 @@
+ 	{OFFSET(gpmc_ad15), (MODE(7)  | RXACTIVE )},	/* GPIO1_15 */
+ 	{-1},
+ };
++#endif
++
++#define GPIO3_10 106
++void rgmii_reset(void)
++{
++	int ret;
++	/* reset RGMII phy */
++	ret = gpio_request(GPIO3_10, "rgmii_rst");
++	if (ret != 0) {
++		printf("failed to export GPIO %d: %d\n", GPIO3_10, ret);
++		return;
++	}
++	gpio_direction_output(GPIO3_10, 0); // do reset
++	udelay(100);
++	gpio_direction_output(GPIO3_10, 1); // no reset
++}
+ 
+ #ifdef CONFIG_BOARD_LATE_INIT
+ int board_late_init(void)
+ {
++	rgmii_reset();
++#if 0
+ #ifdef CONFIG_ENV_VARS_UBOOT_RUNTIME_CONFIG
+ 	BSP_VS_HWPARAM header;
+ 	char model[4];
+@@ -366,6 +413,7 @@
+ 
+ 	env_set("board_name", model);
+ #endif
++#endif
+ 
+ 	return 0;
+ }
+@@ -384,7 +432,7 @@
+ 	{
+ 		.slave_reg_ofs	= 0x208,
+ 		.sliver_reg_ofs	= 0xd80,
+-		.phy_addr	= 0,
++		.phy_addr	= 1,
+ 	},
+ 	{
+ 		.slave_reg_ofs	= 0x308,
+@@ -461,6 +509,7 @@
+ 		n += rv;
+ #endif
+ 
++#if 0
+ 	/*
+ 	 *
+ 	 * CPSW RGMII Internal Delay Mode is not supported in all PVT
+@@ -480,6 +529,7 @@
+ 	miiphy_write(devname, 0x7, AR8051_PHY_DEBUG_DATA_REG,
+ 			AR8051_RGMII_TX_CLK_DLY);
+ #endif
++#endif
+ 	return n;
+ }
+ #endif
+diff --git a/board/vscom/baltos/mux.c b/board/vscom/baltos/mux.c
+--- a/board/vscom/baltos/mux.c
++++ b/board/vscom/baltos/mux.c
+@@ -59,13 +59,13 @@
+ 
+ static struct module_pin_mux rgmii2_pin_mux[] = {
+ 	{OFFSET(gpmc_a0), MODE(2)},			/* RGMII1_TCTL */
+-	{OFFSET(gpmc_a1), MODE(2) | RXACTIVE},	/* RGMII1_RCTL */
++	{OFFSET(gpmc_a1), MODE(2) | RXACTIVE | PULLUP_EN },	/* RGMII1_RCTL */
+ 	{OFFSET(gpmc_a2), MODE(2)},			/* RGMII1_TD3 */
+ 	{OFFSET(gpmc_a3), MODE(2)},			/* RGMII1_TD2 */
+ 	{OFFSET(gpmc_a4), MODE(2)},			/* RGMII1_TD1 */
+ 	{OFFSET(gpmc_a5), MODE(2)},			/* RGMII1_TD0 */
+ 	{OFFSET(gpmc_a6), MODE(2)},			/* RGMII1_TCLK */
+-	{OFFSET(gpmc_a7), MODE(2) | RXACTIVE},	/* RGMII1_RCLK */
++	{OFFSET(gpmc_a7), MODE(2) | RXACTIVE | PULLUP_EN },	/* RGMII1_RCLK */
+ 	{OFFSET(gpmc_a8), MODE(2) | RXACTIVE},	/* RGMII1_RD3 */
+ 	{OFFSET(gpmc_a9), MODE(2) | RXACTIVE},	/* RGMII1_RD2 */
+ 	{OFFSET(gpmc_a10), MODE(2) | RXACTIVE},	/* RGMII1_RD1 */
+diff --git a/drivers/mtd/nand/raw/am335x_spl_bch.c b/drivers/mtd/nand/raw/am335x_spl_bch.c
+--- a/drivers/mtd/nand/raw/am335x_spl_bch.c
++++ b/drivers/mtd/nand/raw/am335x_spl_bch.c
+@@ -218,7 +218,7 @@
+ 
+ unsigned int nand_page_size(void)
+ {
+-	return nand_to_mtd(&nand_chip)->writesize;
++	return CONFIG_SYS_NAND_PAGE_SIZE;
+ }
+ 
+ /* Unselect after operation */
+diff --git a/drivers/power/pmic/pmic_tps65910.c b/drivers/power/pmic/pmic_tps65910.c
+--- a/drivers/power/pmic/pmic_tps65910.c
++++ b/drivers/power/pmic/pmic_tps65910.c
+@@ -66,6 +66,9 @@
+ 
+ 	buf |= TPS65910_DEVCTRL_REG_SR_CTL_I2C_SEL_CTL_I2C;
+ 
++	// 2024.06.07: hack for _v8 som, fix RTC problem
++	buf |= 1<<2; // set DEV_ON=1 in DEVCTRL_REG
++
+ 	return tps65910_write_reg(TPS65910_DEVCTRL_REG, &buf);
+ }
+ 
+diff --git a/include/configs/baltos.h b/include/configs/baltos.h
+--- a/include/configs/baltos.h
++++ b/include/configs/baltos.h
+@@ -23,173 +23,21 @@
+ #define V_OSCK				24000000  /* Clock output from T2 */
+ #define V_SCLK				(V_OSCK)
+ 
+-/* FIT support */
+-
+-#ifdef CONFIG_MTD_RAW_NAND
+-
+-#define NANDARGS \
+-	"nandargs=setenv bootargs console=${console} " \
+-		"${optargs} " \
+-		"${mtdparts} " \
+-		"root=${nandroot} " \
+-		"rootfstype=${nandrootfstype}\0" \
+-	"nandroot=ubi0:rootfs rw ubi.mtd=5\0" \
+-	"nandrootfstype=ubifs rootwait\0" \
+-	"nandboot=echo Booting from nand ...; " \
+-		"run nandargs; " \
+-		"setenv loadaddr 0x84000000; " \
+-		"ubi part UBI; " \
+-		"ubifsmount ubi0:kernel; " \
+-		"ubifsload $loadaddr kernel-fit.itb;" \
+-		"ubifsumount; " \
+-		"bootm ${loadaddr}#conf${board_name}; " \
+-		"if test $? -ne 0; then echo Using default FIT config; " \
+-		"bootm ${loadaddr}; fi;\0"
+-#else
+-#define NANDARGS ""
+-#endif
+-
+ #define CFG_EXTRA_ENV_SETTINGS \
+ 	DEFAULT_LINUX_BOOT_ENV \
+-	"boot_fdt=try\0" \
+-	"bootpart=0:2\0" \
+-	"bootdir=/boot\0" \
+-	"bootfile=zImage\0" \
+-	"fdtfile=undefined\0" \
+-	"console=ttyO0,115200n8\0" \
+-	"partitions=" \
+-		"uuid_disk=${uuid_gpt_disk};" \
+-		"name=rootfs,start=2MiB,size=-,uuid=${uuid_gpt_rootfs}\0" \
+-	"optargs=\0" \
++	"bootargs_common=console=ttyS0,115200n8 panic=3 earlyprintk\0" \
+ 	"mmcdev=0\0" \
+-	"mmcroot=/dev/mmcblk0p2 ro\0" \
+-	"usbroot=/dev/sda2 ro\0" \
+-	"mmcrootfstype=ext4 rootwait\0" \
+-	"usbrootfstype=ext4 rootwait\0" \
+-	"rootpath=/export/rootfs\0" \
+-	"nfsopts=nolock\0" \
+-	"static_ip=${ipaddr}:${serverip}:${gatewayip}:${netmask}:${hostname}" \
+-		"::off\0" \
+-	"ramroot=/dev/ram0 rw\0" \
+-	"ramrootfstype=ext2\0" \
+-	"mmcargs=setenv bootargs console=${console} " \
+-		"${optargs} " \
+-		"${mtdparts} " \
+-		"root=${mmcroot} " \
+-		"rootfstype=${mmcrootfstype}\0" \
+-	"usbargs=setenv bootargs console=${console} " \
+-		"${optargs} " \
+-		"${mtdparts} " \
+-		"root=${usbroot} " \
+-		"rootfstype=${usbrootfstype}\0" \
+-	"spiroot=/dev/mtdblock4 rw\0" \
+-	"spirootfstype=jffs2\0" \
+-	"spisrcaddr=0xe0000\0" \
+-	"spiimgsize=0x362000\0" \
+-	"spibusno=0\0" \
+-	"spiargs=setenv bootargs console=${console} " \
+-		"${optargs} " \
+-		"root=${spiroot} " \
+-		"rootfstype=${spirootfstype}\0" \
+-	"netargs=setenv bootargs console=${console} " \
+-		"${optargs} " \
+-		"root=/dev/nfs " \
+-		"nfsroot=${serverip}:${rootpath},${nfsopts} rw " \
+-		"ip=dhcp\0" \
+-	"bootenv=uEnv.txt\0" \
+-	"loadbootenv=load mmc ${mmcdev} ${loadaddr} ${bootenv}\0" \
+-	"usbloadbootenv=load usb 0:1 ${loadaddr} ${bootenv}\0" \
+-	"importbootenv=echo Importing environment from mmc ...; " \
+-		"env import -t $loadaddr $filesize\0" \
+-	"usbimportbootenv=echo Importing environment from USB ...; " \
+-		"env import -t $loadaddr $filesize\0" \
+-	"ramargs=setenv bootargs console=${console} " \
+-		"${optargs} " \
+-		"root=${ramroot} " \
+-		"rootfstype=${ramrootfstype}\0" \
+-	"loadramdisk=load mmc ${mmcdev} ${rdaddr} ramdisk.gz\0" \
+-	"loadimage=load mmc ${bootpart} ${loadaddr} ${bootdir}/${bootfile}\0" \
+-	"usbloadimage=load usb 0:1 ${loadaddr} kernel-fit.itb\0" \
+-	"loadfdt=load mmc ${bootpart} ${fdtaddr} ${bootdir}/${fdtfile}\0" \
+-	"usbloados=run usbargs; " \
+-		"bootm ${loadaddr}#conf${board_name}; " \
+-		"if test $? -ne 0; then " \
+-			"echo Using default FIT configuration; " \
+-			"bootm ${loadaddr}; " \
+-		"fi;\0" \
+-	"mmcloados=run mmcargs; " \
+-		"if test ${boot_fdt} = yes || test ${boot_fdt} = try; then " \
+-			"if run loadfdt; then " \
+-				"bootz ${loadaddr} - ${fdtaddr}; " \
+-			"else " \
+-				"if test ${boot_fdt} = try; then " \
+-					"bootz; " \
+-				"else " \
+-					"echo WARN: Cannot load the DT; " \
+-				"fi; " \
+-			"fi; " \
+-		"else " \
+-			"bootz; " \
+-		"fi;\0" \
+-	"usbboot=usb reset; " \
+-		"if usb storage; then " \
+-			"echo USB drive found;" \
+-			"if run usbloadbootenv; then " \
+-				"echo Loaded environment from ${bootenv};" \
+-				"run usbimportbootenv;" \
+-			"fi;" \
+-			"if test -n $uenvcmd; then " \
+-				"echo Running uenvcmd ...;" \
+-				"run uenvcmd;" \
+-			"fi;" \
+-			"if run usbloadimage; then " \
+-				"run usbloados;" \
+-			"fi;" \
+-		"fi;\0" \
+-	"mmcboot=mmc dev ${mmcdev}; " \
+-		"if mmc rescan; then " \
+-			"echo SD/MMC found on device ${mmcdev};" \
+-			"if run loadbootenv; then " \
+-				"echo Loaded environment from ${bootenv};" \
+-				"run importbootenv;" \
+-			"fi;" \
+-			"if test -n $uenvcmd; then " \
+-				"echo Running uenvcmd ...;" \
+-				"run uenvcmd;" \
+-			"fi;" \
+-			"if run loadimage; then " \
+-				"run mmcloados;" \
+-			"fi;" \
+-		"fi;\0" \
+-	"spiboot=echo Booting from spi ...; " \
+-		"run spiargs; " \
+-		"sf probe ${spibusno}:0; " \
+-		"sf read ${loadaddr} ${spisrcaddr} ${spiimgsize}; " \
+-		"bootz ${loadaddr}\0" \
+-	"netboot=echo Booting from network ...; " \
+-		"setenv autoload no; " \
+-		"dhcp; " \
+-		"tftp ${loadaddr} ${bootfile}; " \
+-		"tftp ${fdtaddr} ${fdtfile}; " \
+-		"run netargs; " \
+-		"bootz ${loadaddr} - ${fdtaddr}\0" \
+-	"ramboot=echo Booting from ramdisk ...; " \
+-		"run ramargs; " \
+-		"bootz ${loadaddr} ${rdaddr} ${fdtaddr}\0" \
+-	"findfdt=setenv fdtfile am335x-baltos.dtb\0" \
+-	NANDARGS
+-	/*DFUARGS*/
++	"mmcpart=1\0" \
++	"dtbname=am335x-var-custom.dtb\0" \
++	"mmcboot=mmc dev ${mmcdev} && mmc rescan && load mmc ${mmcdev}:${mmcpart} ${scriptaddr} boot.scr && source ${scriptaddr}\0" \
++	"get_bootslot=if test \"${bootslot}\" = \"\"; then setenv bootslot A; fi\0" \
++	"nandboot=run get_bootslot;ubi part NAND.ubi 2048;ubifsmount ubi0:rootfs${bootslot};ubifsload ${loadaddr} /boot/zImage;ubifsload ${fdtaddr} /boot/${dtbname}; ubifsumount; setenv bootargs ${bootargs_common} root=ubi0:rootfs${bootslot} rw ubi.mtd=NAND.ubi,2048 rootfstype=ubifs rootwait=1; bootz ${loadaddr} - ${fdtaddr}\0" \
++	"\0"
++
++/* #define CONFIG_BOOTCOMMAND "if mmc dev ${mmcdev}; then echo 'run from sdcard'; run mmcboot; else run nandboot; fi;" */
+ 
+ /* NS16550 Configuration */
+ #define CFG_SYS_NS16550_COM1		0x44e09000	/* Base EVM has UART0 */
+-#define CFG_SYS_NS16550_COM2		0x48022000	/* UART1 */
+-#define CFG_SYS_NS16550_COM3		0x48024000	/* UART2 */
+-#define CFG_SYS_NS16550_COM4		0x481a6000	/* UART3 */
+-#define CFG_SYS_NS16550_COM5		0x481a8000	/* UART4 */
+-#define CFG_SYS_NS16550_COM6		0x481aa000	/* UART5 */
+-
+-/* SPL */
+-#ifndef CONFIG_NOR_BOOT
+ 
+ #ifdef CONFIG_MTD_RAW_NAND
+ #define CFG_SYS_NAND_ECCPOS		{ 2, 3, 4, 5, 6, 7, 8, 9, \
+@@ -204,7 +52,6 @@
+ #define CFG_SYS_NAND_ECCBYTES	14
+ #define CFG_SYS_NAND_U_BOOT_START	CONFIG_TEXT_BASE
+ #endif
+-#endif
+ 
+ /* NAND support */
+ #ifdef CONFIG_MTD_RAW_NAND

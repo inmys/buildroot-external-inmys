@@ -1,0 +1,128 @@
+#!/bin/sh
+# Initial NAND provisioning from SD/USB/RAM Linux. --check never writes NAND.
+set -eu
+fail() { echo "ERROR: $*" >&2; exit 1; }
+mode=${1:---check}
+case "$mode" in --check|--install) ;; *) fail "Usage: $0 [--check|--install] IMAGE_DIRECTORY" ;; esac
+[ "$#" -le 2 ] || fail 'Too many arguments'
+images=$(cd "${2:-.}" && pwd)
+[ "$(id -u)" = 0 ] || fail 'Run as root'
+tr '\000' '\n' < /proc/device-tree/compatible | grep -qx 'inmys,nms-sdm-am335x' ||
+    fail 'This installer requires NMS-SDM-AM335x'
+if grep -Eq 'root=(ubi|/dev/(mtd|ubiblock))' /proc/cmdline ||
+   grep -Eq '(^ubi[0-9]|^/dev/(mtd|ubi)| ubifs )' /proc/mounts; then
+    fail 'Boot from SD/USB/RAM and unmount NAND filesystems first'
+fi
+for u in /sys/class/ubi/ubi[0-9]*; do
+    [ ! -f "$u/mtd_num" ] || fail 'A UBI device is attached; detach it before provisioning'
+done
+for tool in sha256sum flash_erase nandwrite nanddump ubiformat ubiattach ubidetach mount umount head od; do
+    command -v "$tool" >/dev/null || fail "Missing tool: $tool"
+done
+check_mtd() {
+    number=$1 name=$2 size=$3
+    base=/sys/class/mtd/mtd$number
+    [ -c "/dev/mtd$number" ] || fail "Missing /dev/mtd$number"
+    [ "$(cat "$base/name")" = "$name" ] || fail "Unexpected name of mtd$number"
+    [ "$(cat "$base/size")" = "$size" ] || fail "Unexpected size of mtd$number"
+    [ "$(cat "$base/type")" = nand ] || fail "mtd$number is not NAND"
+    [ "$(cat "$base/erasesize")" = 131072 ] || fail 'Expected eraseblock 128 KiB'
+    [ "$(cat "$base/writesize")" = 2048 ] || fail 'Expected NAND page 2048'
+    [ "$(cat "$base/oobsize")" = 64 ] || fail 'Expected OOB size 64'
+    [ "$(cat "$base/ecc_strength")" = 8 ] || fail 'Expected BCH8 ECC'
+    [ -r "$base/bad_blocks" ] || fail 'Missing NAND bad-block statistics'
+}
+check_mtd 0 NAND.SPL 131072
+check_mtd 1 NAND.SPL.backup1 131072
+check_mtd 2 NAND.SPL.backup2 131072
+check_mtd 3 NAND.SPL.backup3 131072
+check_mtd 4 NAND.u-boot-spl-os 262144
+check_mtd 5 NAND.u-boot 1048576
+check_mtd 6 NAND.u-boot-env 131072
+check_mtd 7 NAND.u-boot-env.backup1 131072
+check_mtd 8 NAND.kernel 8388608
+check_mtd 9 NAND.ubi 526385152
+for file in MLO u-boot.img rootfs.ubi install-nand.sh nand-SHA256SUMS; do
+    [ -s "$images/$file" ] || fail "Missing $images/$file"
+done
+(cd "$images" && sha256sum -c nand-SHA256SUMS) || fail 'Payload checksum mismatch'
+[ "$(wc -c < "$images/MLO")" -le 131072 ] || fail 'MLO exceeds one ROM boot block'
+[ "$(wc -c < "$images/u-boot.img")" -le 1048576 ] || fail 'U-Boot exceeds its partition'
+[ "$(od -An -tx1 -N4 "$images/u-boot.img" | tr -d ' \n')" = 27051956 ] || fail 'Invalid U-Boot image header'
+[ "$(od -An -tx1 -N4 "$images/rootfs.ubi" | tr -d ' \n')" = 55424923 ] || fail 'Invalid UBI image header'
+usable=0
+for n in 0 1 2 3; do
+    [ "$(cat "/sys/class/mtd/mtd$n/bad_blocks")" -ne 0 ] || usable=$((usable + 1))
+done
+[ "$usable" -gt 0 ] || fail 'All four ROM SPL boot blocks are marked bad'
+echo "Usable SPL boot blocks: $usable/4"
+echo 'PASS: NMS-SDM-AM335x, NAND 512 MiB / page 2 KiB / erase 128 KiB / BCH8, partition map, payload checksums'
+if [ "$mode" = --check ]; then
+    echo 'Check only: NAND was not modified.'
+    exit 0
+fi
+
+echo 'Installing: existing NAND system and settings will be erased.'
+work=$(mktemp -d /tmp/nms-nand.XXXXXX)
+mounted=0
+attached=0
+cleanup() {
+    if [ "$mounted" = 1 ]; then umount "$work/rootfs" || true; fi
+    if [ "$attached" = 1 ]; then ubidetach /dev/ubi_ctrl -d 0 || true; fi
+    rm -rf "$work"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+verify_boot_image() {
+    dev=$1 file=$2
+    bytes=$(wc -c < "$file")
+    padded=$(( (bytes + 2047) / 2048 * 2048 ))
+    nanddump --quiet --bb=skipbad --omitoob --length="$padded" --file="$work/readback" "$dev" || return 1
+    expected=$(sha256sum "$file" | cut -d ' ' -f 1)
+    actual=$(head -c "$bytes" "$work/readback" | sha256sum | cut -d ' ' -f 1)
+    [ "$expected" = "$actual" ] || return 1
+    echo "Verified readback: $dev"
+}
+write_boot_image() {
+    dev=$1 file=$2
+    flash_erase "$dev" 0 0 || return 1
+    nandwrite --pad "$dev" "$file" || return 1
+    verify_boot_image "$dev" "$file" || return 1
+}
+# Install and check the filesystem before replacing boot code.
+ubiformat /dev/mtd9 -y -s 2048 -O 2048 -f "$images/rootfs.ubi"
+ubiattach /dev/ubi_ctrl -d 0 -m 9 -O 2048
+attached=1
+[ "$(cat /sys/class/ubi/ubi0_0/name)" = rootfsA ] || fail 'Missing rootfsA'
+[ "$(cat /sys/class/ubi/ubi0_1/name)" = rootfsB ] || fail 'Missing rootfsB'
+[ "$(cat /sys/class/ubi/ubi0_2/name)" = configs ] || fail 'Missing configs'
+mkdir "$work/rootfs"
+mount -t ubifs -o ro ubi0:rootfsA "$work/rootfs"
+mounted=1
+[ -s "$work/rootfs/boot/zImage" ] || fail 'Missing NAND kernel'
+[ -s "$work/rootfs/boot/am335x-var-custom.dtb" ] || fail 'Missing NAND DTB'
+umount "$work/rootfs"
+mounted=0
+ubidetach /dev/ubi_ctrl -d 0
+attached=0
+write_boot_image /dev/mtd5 "$images/u-boot.img" || fail 'U-Boot programming failed'
+# Erase the old environment so that new boot scripts and ttyS0 take effect.
+# Reserved SPL-OS and legacy kernel partitions are not used by this boot flow.
+for n in 4 6 7 8; do flash_erase "/dev/mtd$n" 0 0; done
+copies=0
+for n in 0 1 2 3; do
+    bad=$(cat "/sys/class/mtd/mtd$n/bad_blocks")
+    if [ "$bad" -gt 0 ]; then
+        echo "Skipping SPL copy mtd$n: factory/marked bad block" >&2
+        continue
+    fi
+    if write_boot_image "/dev/mtd$n" "$images/MLO"; then
+        copies=$((copies + 1))
+    else
+        fail "SPL copy mtd$n write/readback failed; keep the SD recovery card"
+    fi
+done
+[ "$copies" -gt 0 ] || fail 'No valid SPL copies; keep the SD recovery card'
+sync
+echo "DONE: NAND installed, $copies verified SPL copies, default boot slot A."
+echo 'Power off, remove SD, release SW3, then power on. Keep SD for recovery.'

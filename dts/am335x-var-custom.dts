@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/dts-v1/;
+
+#include "am335x-nms-sdm.dtsi"
+#include <dt-bindings/input/input.h>
+
+/ {
+	model = "NMS-SDM-AM335x on VAR-AM33CUSTOMBOARD";
+	compatible = "inmys,nms-sdm-am335x-var-custom", "inmys,nms-sdm-am335x", "ti,am33xx";
+
+	gpio-keys {
+		compatible = "gpio-keys";
+		pinctrl-names = "default";
+		pinctrl-0 = <&sw4_pins>;
+		sw4 {
+			label = "SW4";
+			linux,code = <BTN_0>;
+			gpios = <&gpio3 4 GPIO_ACTIVE_LOW>;
+			debounce-interval = <20>;
+		};
+	};
+};
+
+&am33xx_pinmux {
+	mmc0_pins: pinmux_mmc0_pins {
+		pinctrl-single,pins = <
+			AM33XX_PADCONF(AM335X_PIN_MMC0_DAT3, PIN_INPUT_PULLUP, MUX_MODE0)	/* DAT3 */
+			AM33XX_PADCONF(AM335X_PIN_MMC0_DAT2, PIN_INPUT_PULLUP, MUX_MODE0)	/* DAT2 */
+			AM33XX_PADCONF(AM335X_PIN_MMC0_DAT1, PIN_INPUT_PULLUP, MUX_MODE0)	/* DAT1 */
+			AM33XX_PADCONF(AM335X_PIN_MMC0_DAT0, PIN_INPUT_PULLUP, MUX_MODE0)	/* DAT0 */
+			AM33XX_PADCONF(AM335X_PIN_MMC0_CLK, PIN_INPUT_PULLUP, MUX_MODE0)	/* CLK */
+			AM33XX_PADCONF(AM335X_PIN_MMC0_CMD, PIN_INPUT_PULLUP, MUX_MODE0)	/* CMD */
+			AM33XX_PADCONF(AM335X_PIN_GPMC_BEN1, PIN_INPUT_PULLUP, MUX_MODE7)	/* GPIO1_28 CD */
+		>;
+	};
+
+	rgmii2_pins: pinmux_rgmii2_pins {
+		pinctrl-single,pins = <
+			AM33XX_PADCONF(AM335X_PIN_GPMC_A0, PIN_OUTPUT, MUX_MODE2)	/* GPMC_A0, TX_CTL */
+			AM33XX_PADCONF(AM335X_PIN_GPMC_A1, PIN_INPUT_PULLUP, MUX_MODE2)	/* GPMC_A1, RX_CTL */
+			AM33XX_PADCONF(AM335X_PIN_GPMC_A2, PIN_OUTPUT, MUX_MODE2)	/* GPMC_A2, TXD3 */
+			AM33XX_PADCONF(AM335X_PIN_GPMC_A3, PIN_OUTPUT, MUX_MODE2)	/* GPMC_A3, TXD2 */
+			AM33XX_PADCONF(AM335X_PIN_GPMC_A4, PIN_OUTPUT, MUX_MODE2)	/* GPMC_A4, TXD1 */
+			AM33XX_PADCONF(AM335X_PIN_GPMC_A5, PIN_OUTPUT, MUX_MODE2)	/* GPMC_A5, TXD0 */
+			AM33XX_PADCONF(AM335X_PIN_GPMC_A6, PIN_OUTPUT, MUX_MODE2)	/* GPMC_A6, TX_CLK */
+			AM33XX_PADCONF(AM335X_PIN_GPMC_A7, PIN_INPUT_PULLUP, MUX_MODE2)	/* GPMC_A7, RX_CLK */
+			AM33XX_PADCONF(AM335X_PIN_GPMC_A8, PIN_INPUT_PULLDOWN, MUX_MODE2)	/* GPMC_A8, RXD3 */
+			AM33XX_PADCONF(AM335X_PIN_GPMC_A9, PIN_INPUT_PULLDOWN, MUX_MODE2)	/* GPMC_A9, RXD2 */
+			AM33XX_PADCONF(AM335X_PIN_GPMC_A10, PIN_INPUT_PULLDOWN, MUX_MODE2)	/* GPMC_A10, RXD1 */
+			AM33XX_PADCONF(AM335X_PIN_GPMC_A11, PIN_INPUT_PULLDOWN, MUX_MODE2)	/* GPMC_A11, RXD0 */
+			AM33XX_PADCONF(AM335X_PIN_MII1_RX_CLK, PIN_OUTPUT_PULLUP, MUX_MODE7)	/* GPIO3_10, GETH_EN */
+		>;
+	};
+
+	sw4_pins: pinmux_sw4_pins {
+		pinctrl-single,pins = <
+			AM33XX_PADCONF(AM335X_PIN_MII1_RX_DV, PIN_INPUT_PULLUP, MUX_MODE7)	/* MII1_RXDV, GPIO3_4 */
+		>;
+	};
+};
+
+/* SoC MMC0 is named mmc1 in am33xx.dtsi. Carrier sheet H, SD card. */
+&mmc1 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&mmc0_pins>;
+	vmmc-supply = <&vcc_3v3>;
+	bus-width = <4>;
+	cd-gpios = <&gpio1 28 GPIO_ACTIVE_LOW>;
+	disable-wp;
+};
+
+/* Carrier sheet H, UART1-DTE and CAN transceiver. */
+&uart1 {
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&uart1_pins_default>;
+	pinctrl-1 = <&uart1_pins_sleep>;
+	status = "okay";
+};
+
+&dcan0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&dcan0_default>;
+	status = "okay";
+};
+
+/* Carrier sheet G: KSZ9021RN, MDIO address 7; GPIO3_10 also selects RGMII. */
+&mac {
+	pinctrl-0 = <&cpsw_default &rgmii2_pins>;
+	dual_emac = <1>;
+};
+
+&davinci_mdio {
+	phy7: ethernet-phy@7 {
+		reg = <7>;
+		reset-gpios = <&gpio3 10 GPIO_ACTIVE_LOW>;
+		reset-assert-us = <1000>;
+		reset-deassert-us = <10000>;
+		rxc-skew-ps = <3000>;
+		txc-skew-ps = <3000>;
+		rxdv-skew-ps = <0>;
+		txen-skew-ps = <0>;
+		rxd0-skew-ps = <0>;
+		rxd1-skew-ps = <0>;
+		rxd2-skew-ps = <0>;
+		rxd3-skew-ps = <0>;
+		txd0-skew-ps = <0>;
+		txd1-skew-ps = <0>;
+		txd2-skew-ps = <0>;
+		txd3-skew-ps = <0>;
+	};
+};
+
+&cpsw_emac1 {
+	status = "okay";
+	phy-handle = <&phy7>;
+	phy-mode = "rgmii-txid";
+	dual_emac_res_vlan = <2>;
+};

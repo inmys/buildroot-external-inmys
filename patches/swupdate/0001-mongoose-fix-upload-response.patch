@@ -1,0 +1,19 @@
+--- a/mongoose/mongoose_interface.c
++++ b/mongoose/mongoose_interface.c
+@@ -654,11 +654,11 @@
+ 
+ 			ipc_end(fus->fd);
+ 
+-			mg_http_reply(nc, 200, "%s",
+-								  "Content-Type: text/plain\r\n"
+-								  "Connection: close");
+-			mg_send(nc, "\r\n", 2);
+-			mg_printf(nc, "Ok, %s - %d bytes.\r\n", mp->part.filename, (int) fus->len);
++			mg_http_reply(nc, 200,
++				"Content-Type: text/plain\r\nConnection: close\r\n",
++				"Ok, %.*s - %lu bytes.\r\n",
++				(int)mp->part.filename.len, mp->part.filename.buf,
++				(unsigned long)fus->len);
+ 			nc->is_draining = 1;
+ 
+ 			mp->user_data = NULL;

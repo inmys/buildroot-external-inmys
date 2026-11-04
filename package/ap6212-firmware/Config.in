@@ -1,0 +1,4 @@
+config BR2_PACKAGE_AP6212_FIRMWARE
+	bool "AP6212 firmware"
+	help
+	  BCM43430 SDIO firmware and AP6212 NVRAM for NMS-SDM-AM335x v8.
