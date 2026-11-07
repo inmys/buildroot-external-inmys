@@ -117,7 +117,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-itx-sm-lc-v4.dts b/arch/arm64/boot/dt
 diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts
 --- a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts
 +++ b/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,140 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * NMS_SMARC_TESTER V1 - SMARC test/burn-in carrier
@@ -133,6 +133,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dt
 +/dts-v1/;
 +
 +#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/pwm/pwm.h>
 +
 +#include "nms-sm-k1892vm21ya.dtsi"
 +
@@ -150,6 +151,21 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dt
 +	aliases {
 +		ethernet0 = &emac0;
 +		ethernet1 = &emac1;
++	};
++
++	/*
++	 * No panel is fitted on the tester; the LVDS pairs go to the
++	 * converter/receivers.  The node exists so that the SN65DSI84 has a
++	 * sink and a mode to drive, which is what the LVDS part of the test
++	 * needs - 800x480 at 33 MHz keeps the bit rate at 7 x 33 = 231 Mbit/s
++	 * per lane pair.  The timing is the one in the module device tree.
++	 */
++	backlight: backlight {
++		compatible = "pwm-backlight";
++		pwms = <&pwm 0 2000000>; /* 500 Hz, port 0 output B */
++		power-supply = <&lcd0_bklt_en>;
++		brightness-levels = <100 90 80 70 60 50 40 30 20 10 1 0>;
++		default-brightness-level = <10>;
 +	};
 +};
 +
@@ -202,6 +218,38 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dt
 +	status = "okay";
 +};
 +
++/*
++ * LVDS test path: Mali-DP -> DSI -> SN65DSI84 -> SMARC LVDS0.  The panel
++ * power and backlight enables are the standard SMARC LCD0_VDD_EN (S133)
++ * and LCD0_BKLT_EN (S127) lines; the tester schematic has not been checked
++ * pin by pin, so if the converter is powered from a fixed rail instead,
++ * drop the two power-supply properties.
++ */
++&lvds_bridge {
++	status = "okay";
++};
++
++/*
++ * Backlight PWM.  SMARC LCD0_BKLT_PWM (S141) is D2.AW17 = GPIO1_PORTD_3,
++ * whose alternate function is PWM_OENB0 - port 0 output B of the
++ * elvees-pwm block at 0x1770000 - so elvees,output-channel[0] = 1 selects
++ * the B output.  The designware timers cannot reach this pin; see the
++ * module device tree.
++ */
++&pwm {
++	status = "okay";
++	elvees,output-channel = <1 0 0 0>;
++	elvees,state-on-disable = <1 0 0 0>;
++	pinctrl-names = "default";
++	pinctrl-0 = <&pwm_oenb0_mux>;
++};
++
++&lvds_panel {
++	status = "okay";
++	backlight = <&backlight>;
++	power-supply = <&lcd0_vdd_en>;
++};
++
 +/* CAN bus connectors */
 +&mfbsp0_can {
 +	status = "okay";
@@ -213,7 +261,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dt
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts b/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts
 --- a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts
-@@ -0,0 +1,299 @@
+@@ -0,0 +1,327 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-K1892VM21YA V1 on ELV-SMARC-CB r3.3.0
@@ -288,11 +336,20 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts b/arch/arm64/boot/d
 +		};
 +	};
 +
-+	/* XP6 backlight connector, enabled by LCD0_BKLT_EN (expander P0_0) */
++	/*
++	 * Backlight inverter on XP4 ("BKLT VCC SEL", 4-pin).  The rail is
++	 * gated by SMARC LCD0_BKLT_EN (S127) -> VT4 -> +V_BKLT -> XP4.1/3,
++	 * which the module drives from PCAL6416A P0_0, so the regulator in the
++	 * module device tree owns that line.
++	 *
++	 * Brightness comes from SMARC LCD0_BKLT_PWM (S141) = SoC GPIO1_PORTD_3
++	 * through timer1; the inverter is active low, hence the inverted
++	 * polarity.
++	 */
 +	backlight: backlight {
 +		compatible = "pwm-backlight";
-+		pwms = <&timers_pwm 1 2000000 PWM_POLARITY_INVERTED>;
-+		enable-gpios = <&gpio_expander 0 GPIO_ACTIVE_HIGH>;
++		pwms = <&pwm 0 2000000>; /* 500 Hz, port 0 output B */
++		power-supply = <&lcd0_bklt_en>;
 +		brightness-levels = <100 90 80 70 60 50 40 30 20 10 1 0>;
 +		default-brightness-level = <10>;
 +		status = "disabled";
@@ -417,7 +474,16 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts b/arch/arm64/boot/d
 +	};
 +};
 +
-+/* MIPI DSI path: Mali-DP -> DSI -> SN65DSI84 -> LVDS panel on XP7 */
++/*
++ * MIPI DSI path: Mali-DP -> DSI -> SN65DSI84 (module D10) -> LVDS panel on
++ * XP7.  XP7 is a 2x15P header carrying both LVDS channels (A on S125..S138,
++ * B on S108..S121) through series resistors ZL39..ZL48, so a dual-link panel
++ * can be plugged in as well; this device tree describes channel A only.
++ *
++ * Panel power comes from XP8 ("LVDS VCC SEL", 6-pin) via VT6, gated by
++ * SMARC LCD0_VDD_EN (S133) = PCAL6416A P0_1, which is why the panel takes
++ * lcd0_vdd_en as its supply rather than being switched by a boot script.
++ */
 +&de_dsi {
 +	status = "okay";
 +};
@@ -429,12 +495,22 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts b/arch/arm64/boot/d
 +&lvds_panel {
 +	status = "okay";
 +	backlight = <&backlight>;
++	power-supply = <&lcd0_vdd_en>;
 +};
 +
-+&timers_pwm {
++/*
++ * Backlight PWM.  SMARC LCD0_BKLT_PWM (S141) is D2.AW17 = GPIO1_PORTD_3,
++ * whose alternate function is PWM_OENB0 - port 0 output B of the
++ * elvees-pwm block at 0x1770000 - so elvees,output-channel[0] = 1 selects
++ * the B output.  The designware timers cannot reach this pin; see the
++ * module device tree.
++ */
++&pwm {
 +	status = "okay";
++	elvees,output-channel = <1 0 0 0>;
++	elvees,state-on-disable = <1 0 0 0>;
 +	pinctrl-names = "default";
-+	pinctrl-0 = <&timer1_toggle_mux>;
++	pinctrl-0 = <&pwm_oenb0_mux>;
 +};
 +
 +&backlight {
@@ -516,7 +592,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts b/arch/arm64/boot/d
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elvees/nms-sm-evm.dts
 --- a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-evm.dts
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,225 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-EVM V1 - default carrier board for NMS-SM-K1892VM21YA
@@ -544,6 +620,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 +
 +#include <dt-bindings/gpio/gpio.h>
 +#include <dt-bindings/input/input.h>
++#include <dt-bindings/pwm/pwm.h>
 +
 +#include "nms-sm-k1892vm21ya.dtsi"
 +
@@ -573,6 +650,20 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 +				remote-endpoint = <&adv7513_out>;
 +			};
 +		};
++	};
++
++	/*
++	 * Backlight for the X24 panel.  SMARC LCD0_BKLT_EN (S127) -> R98 ->
++	 * D20 level shifter -> X24.17, and LCD0_BKLT_PWM (S141) -> D20 ->
++	 * X24.19.  The enable line is the module's PCAL6416A P0_0, owned by
++	 * lcd0_bklt_en in the module device tree.
++	 */
++	backlight: backlight {
++		compatible = "pwm-backlight";
++		pwms = <&pwm 0 2000000>; /* 500 Hz, port 0 output B */
++		power-supply = <&lcd0_bklt_en>;
++		brightness-levels = <100 90 80 70 60 50 40 30 20 10 1 0>;
++		default-brightness-level = <10>;
 +	};
 +};
 +
@@ -681,6 +772,44 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 +};
 +
 +/* ------------------------------------------------------------------ */
++/* LVDS panel (X24) - SN65DSI84 on the module drives SMARC LVDS0        */
++/* ------------------------------------------------------------------ */
++
++/*
++ * X24 is a 30-pin FPC carrying LVDS0 (S125..S138) plus the LCD0 controls;
++ * X25 is the same for LVDS1 / LCD1 and is not described yet.  The panel
++ * itself is the 7" 800x480 unit whose timing lives in the module device
++ * tree; only the carrier-side wiring is added here.
++ *
++ * Panel power is SMARC LCD0_VDD_EN (S133) -> R96 -> D22 -> X24.11, which
++ * the module drives from PCAL6416A P0_1.
++ */
++&lvds_bridge {
++	status = "okay";
++};
++
++/*
++ * Backlight PWM.  SMARC LCD0_BKLT_PWM (S141) is D2.AW17 = GPIO1_PORTD_3,
++ * whose alternate function is PWM_OENB0 - port 0 output B of the
++ * elvees-pwm block at 0x1770000 - so elvees,output-channel[0] = 1 selects
++ * the B output.  The designware timers cannot reach this pin; see the
++ * module device tree.
++ */
++&pwm {
++	status = "okay";
++	elvees,output-channel = <1 0 0 0>;
++	elvees,state-on-disable = <1 0 0 0>;
++	pinctrl-names = "default";
++	pinctrl-0 = <&pwm_oenb0_mux>;
++};
++
++&lvds_panel {
++	status = "okay";
++	backlight = <&backlight>;
++	power-supply = <&lcd0_vdd_en>;
++};
++
++/* ------------------------------------------------------------------ */
 +/* PCIe (X33 x4 slot on PCIe0, X19 miniPCIe on PCIe1)                 */
 +/* ------------------------------------------------------------------ */
 +
@@ -692,7 +821,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 --- a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
-@@ -0,0 +1,801 @@
+@@ -0,0 +1,858 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-K1892VM21YA V1
@@ -795,29 +924,75 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot
 +	};
 +
 +	/*
-+	 * LVDS panel on the carrier (XP7 on the ELV-SMARC-CB).  It is declared
-+	 * here, disabled, only so that the SN65DSI84 output endpoint resolves
-+	 * for every carrier device tree.  The timing is a placeholder - replace
-+	 * it with the data of the panel actually plugged in, otherwise the
-+	 * picture will be wrong even though the pipeline probes cleanly.
++	 * SMARC LCD0_VDD_EN (S133) and LCD0_BKLT_EN (S127) are driven by the
++	 * module's own PCAL6416A - D34 P0_1 and P0_0 - so they belong here and
++	 * not in a carrier device tree.  Both are modelled as regulators so
++	 * that the panel and the backlight sequence their own power-up instead
++	 * of a boot script poking the expander behind the driver's back; this
++	 * is why nms-gpio.sh no longer touches LCD0_VDD_EN.
++	 *
++	 * Neither is always-on: at probe the GPIO is left in its inactive
++	 * state, so a carrier without a panel simply keeps the rail off.
++	 */
++	lcd0_vdd_en: regulator-lcd0-vdd {
++		compatible = "regulator-fixed";
++		regulator-name = "LCD0_VDD_EN";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		gpios = <&gpio_expander 1 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
++
++	lcd0_bklt_en: regulator-lcd0-bklt {
++		compatible = "regulator-fixed";
++		regulator-name = "LCD0_BKLT_EN";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		gpios = <&gpio_expander 0 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
++
++	/*
++	 * LVDS panel on the carrier.  Declared here, disabled, only so that the
++	 * SN65DSI84 output endpoint resolves for every carrier device tree;
++	 * each carrier that has an LVDS receptacle enables it and points it at
++	 * its own backlight and at lcd0_vdd_en.
++	 *
++	 * The timing is the 7" 800x480 panel INMYS uses on the RK3588 carriers
++	 * (rk3588-inmys-smarc-evm.dts): 33 MHz pixel clock, JEIDA-24 mapping,
++	 * 231x139 mm.  It is also the mode the SMARC tester drives into its
++	 * LVDS receivers - 7 x 33 = 231 Mbit/s per lane pair.  A carrier with a
++	 * different panel overrides panel-timing and data-mapping.
++	 *
++	 * Only LVDS channel A is described; the SN65DSI84 second channel is
++	 * wired to SMARC LVDS1 (S108..S121), so a dual-link panel needs a
++	 * port@3 here and a second port in the panel node.
 +	 */
 +	lvds_panel: panel-lvds {
 +		compatible = "panel-lvds";
 +		status = "disabled";
-+		width-mm = <217>;
-+		height-mm = <136>;
++		width-mm = <231>;
++		height-mm = <139>;
 +		data-mapping = "jeida-24";
++		enable-delay-ms = <20>;
++		prepare-delay-ms = <20>;
++		unprepare-delay-ms = <20>;
++		disable-delay-ms = <20>;
 +
 +		panel-timing {
-+			clock-frequency = <71000000>;
-+			hactive = <1280>;
-+			vactive = <800>;
++			clock-frequency = <33000000>;
++			hactive = <800>;
++			vactive = <480>;
 +			hfront-porch = <40>;
 +			hback-porch = <40>;
 +			hsync-len = <48>;
-+			vfront-porch = <3>;
-+			vback-porch = <10>;
-+			vsync-len = <6>;
++			vfront-porch = <13>;
++			vback-porch = <29>;
++			vsync-len = <3>;
++			hsync-active = <1>;
++			vsync-active = <1>;
++			de-active = <1>;
++			pixelclk-active = <0>;
 +		};
 +
 +		ports {
@@ -1401,11 +1576,22 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot
 +/* PWM (LCD backlight)                                                */
 +/* ------------------------------------------------------------------ */
 +
-+&timers_pwm {
-+	status = "okay";
-+	pinctrl-names = "default";
-+	pinctrl-0 = <&timer1_toggle_mux>;
-+};
++/*
++ * The LCD backlight PWMs are NOT on the designware timers.  On this module
++ *
++ *   LCD0_BKLT_PWM  = D2.AW17 = GPIO1_PORTD_3, function 1 = PWM_OENB0
++ *   LCD1_BKLT_PWM  = D2.AV19 = GPIO1_PORTD_4, function 1 = PWM_OENA1
++ *
++ * so they belong to the elvees-pwm block at 0x1770000 (compatible
++ * "elvees,elvees-pwm"), not to timers_pwm.  The carriers that have a panel
++ * enable &pwm and pick the output with elvees,output-channel and
++ * pwm_oenb0_mux / pwm_oena1_mux.
++ *
++ * timers_pwm must stay disabled: its outputs land on GPIO1_PORTD_0/1, and
++ * PORTD_1 (AW16) is GPIO3_CAM1_RST# on SMARC P111.  Enabling
++ * timer1_toggle_mux would silently take that pin away from the camera
++ * reset and drive the backlight PWM into nothing.
++ */
 +
 +/* ------------------------------------------------------------------ */
 +/* GPIO line names (SMARC naming)                                     */
