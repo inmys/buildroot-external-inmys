@@ -60,10 +60,13 @@
 	vqmmc-supply = <&sdio_3v3>;
 	no-1-8-v;
 	/*
-	 * SDMMC0_CDN (ball BB1) -> SMARC SDIO_CD# (P35).  The controller
-	 * reports it in Present State bit 16, so no broken-cd: polling an
-	 * empty slot every 10 s is pure noise.
+	 * SDMMC0_CDN (ball BB1) is wired to the SMARC SDIO_CD# pin.  Keep
+	 * broken-cd here: it gates the POWER_ON / CARD_EN workaround in
+	 * patches/uboot/0006, and U-Boot does not poll the slot anyway, so
+	 * it costs nothing.  Linux has no such gate on a working board and
+	 * does not need it - see the Linux DTS.
 	 */
+	broken-cd;
 };
 
 /* Boot flash (D21 W25Q128, 16 MiB) */

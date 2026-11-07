@@ -58,6 +58,11 @@ write_extlinux() {
 # template here; a new carrier then needs no change to genimage.cfg.
 GENIMAGE_TMP="$BUILD_DIR/genimage.tmp"
 
+# genimage is invoked once per output image, and the sed below renames the
+# vfat image to "$out.vfat".  An older build may have left a plain
+# boot.vfat behind; it is never used again and only confuses inspection.
+rm -f "$BINARIES_DIR/boot.vfat"
+
 DTB_LIST=
 for dtb in "$BINARIES_DIR"/nms-*.dtb; do
 	[ -f "$dtb" ] || continue
