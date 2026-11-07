@@ -189,6 +189,7 @@ swu_images() {
 	echo "software = {"
 	echo "\tversion = \"${SWU_VERSION:-1.0}\";"
 	echo "\tdescription = \"NMS-SM-K1892VM21YA\";"
+	echo "\thardware-compatibility = [\"nms-sm-k1892vm21ya\"];"
 	echo "\tstable = {"
 	echo "\t\tA = {"
 	swu_images A ""

@@ -46,6 +46,12 @@ nms_ab_other_root_dev() {
 	esac
 }
 
+# Print the block device of the boot partition (p1 of the same disk).
+nms_ab_boot_dev() {
+	root=$(nms_ab_root_dev) || return 1
+	echo "${root%p*}p1"
+}
+
 # Print the other slot's name.
 nms_ab_other_slot() {
 	case "$(nms_ab_slot)" in

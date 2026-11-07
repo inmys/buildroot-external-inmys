@@ -49,7 +49,6 @@ done
 cat > "$TARGET_DIR/etc/fstab" <<EOF
 # device	mount point	type		options					dump	pass
 /dev/root	/		ext4		defaults				0	1
-LABEL=boot	/boot		vfat	defaults				0	0
 proc		/proc		proc		defaults				0	0
 sysfs		/sys		sysfs		defaults				0	0
 devtmpfs	/dev		devtmpfs	defaults				0	0
@@ -57,6 +56,7 @@ devpts		/dev/pts	devpts		defaults,gid=5,mode=620,ptmxmode=0666	0	0
 tmpfs		/dev/shm	tmpfs		mode=0777				0	0
 tmpfs		/run		tmpfs		mode=0755				0	0
 tmpfs		/tmp		tmpfs		mode=1777				0	0
+debugfs		/sys/kernel/debug	debugfs		defaults				0	0
 EOF
 
 # Allow root login over the serial console

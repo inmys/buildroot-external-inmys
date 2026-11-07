@@ -23,9 +23,11 @@ dev=$(nms_ab_other_root_dev) || { echo "nms-update: cannot find the other rootfs
 
 # The boot partition must be writable: it holds the per-slot kernel, the
 # device trees and extlinux.conf.
+bootdev=$(nms_ab_boot_dev) || {
+	echo "nms-update: cannot find the boot partition" >&2; exit 1; }
 mkdir -p /boot
-mountpoint -q /boot || mount /boot || {
-	echo "nms-update: /boot is not mounted" >&2; exit 1; }
+mountpoint -q /boot || mount -t vfat "$bootdev" /boot || {
+	echo "nms-update: cannot mount $bootdev on /boot" >&2; exit 1; }
 
 # sw-description refers to the inactive slot through these symlinks, so
 # the same package works on the SD card and on the eMMC.

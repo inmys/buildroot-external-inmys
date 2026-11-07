@@ -1,0 +1,8 @@
+# Hardware revision, read by SWUpdate (CONFIG_HW_COMPATIBILITY) and
+# compared against hardware-compatibility in sw-description.
+#
+# Note the upstream quirk: check_hw_compatibility() matches the list
+# against the *revision* field, not the board name, so the revision is
+# the board name here.  Bump it when the hardware changes in a way that
+# makes old packages unsafe.
+nms-sm-k1892vm21ya nms-sm-k1892vm21ya
