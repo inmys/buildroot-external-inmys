@@ -1,0 +1,68 @@
+#!/bin/sh
+#
+# A/B slot helpers for NMS-SM-K1892VM21YA.
+#
+# The boot partition is shared and U-Boot is stock distro-boot, so the
+# active slot is whatever extlinux.conf says, and the root filesystem is
+# told which one it is by root= on the kernel command line.  Nothing is
+# stored anywhere: derive everything from /proc/cmdline and /sys.
+
+# Print A or B for the running root filesystem.
+nms_ab_slot() {
+	want=$(sed -n 's/.*root=PARTUUID=\([^ ]*\).*/\1/p' /proc/cmdline)
+	[ -n "$want" ] || return 1
+	for u in /sys/class/block/*/uevent; do
+		grep -qx "PARTUUID=$want" "$u" 2>/dev/null || continue
+		case "$want" in
+		*-02) echo A ;;
+		*-03) echo B ;;
+		*) return 1 ;;
+		esac
+		return 0
+	done
+	return 1
+}
+
+# Print the block device of the running root filesystem.
+nms_ab_root_dev() {
+	want=$(sed -n 's/.*root=PARTUUID=\([^ ]*\).*/\1/p' /proc/cmdline)
+	[ -n "$want" ] || return 1
+	for u in /sys/class/block/*/uevent; do
+		grep -qx "PARTUUID=$want" "$u" 2>/dev/null || continue
+		echo "/dev/$(basename "$(dirname "$u")")"
+		return 0
+	done
+	return 1
+}
+
+# Print the block device of the other slot's root filesystem.
+nms_ab_other_root_dev() {
+	root=$(nms_ab_root_dev) || return 1
+	slot=$(nms_ab_slot) || return 1
+	disk=${root%p*}
+	case "$slot" in
+	A) echo "${disk}p3" ;;
+	B) echo "${disk}p2" ;;
+	esac
+}
+
+# Print the other slot's name.
+nms_ab_other_slot() {
+	case "$(nms_ab_slot)" in
+	A) echo B ;;
+	B) echo A ;;
+	*) return 1 ;;
+	esac
+}
+
+# Point extlinux.conf at a slot.  /boot must already be mounted.
+nms_ab_set() {
+	[ -f /boot/extlinux/extlinux.conf ] || return 1
+	cur=$(sed -n 's/^default[[:space:]]*//p' /boot/extlinux/extlinux.conf)
+	[ -n "$cur" ] || return 1
+	# Labels are "<carrier>_<slot>"; keep the carrier, swap the suffix.
+	new=${cur%_*}_$1
+	grep -qx "label $new" /boot/extlinux/extlinux.conf || return 1
+	sed -i "s/^default[[:space:]].*/default $new/" /boot/extlinux/extlinux.conf
+	sync
+}

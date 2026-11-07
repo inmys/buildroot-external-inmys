@@ -28,28 +28,47 @@ fi
 
 # Buildroot installs the kernel device trees with the directory name
 # preserved (elvees/nms-*.dtb); extlinux and genimage want them flat.
+#
+# A/B: the boot partition is shared, so every slot gets its own copy of
+# the kernel and of each device tree.  That keeps an update atomic -- the
+# inactive slot is fully written before extlinux.conf is flipped, and the
+# running slot's files are never touched.
+rm -f "$BINARIES_DIR"/nms-*.dtb
 for dtb in "$BINARIES_DIR"/elvees/nms-*.dtb; do
 	[ -f "$dtb" ] || continue
-	cp "$dtb" "$BINARIES_DIR/"
+	name=$(basename "$dtb" .dtb)
+	cp "$dtb" "$BINARIES_DIR/$name.A.dtb"
+	cp "$dtb" "$BINARIES_DIR/$name.B.dtb"
 done
+cp "$BINARIES_DIR/Image" "$BINARIES_DIR/Image.A"
+cp "$BINARIES_DIR/Image" "$BINARIES_DIR/Image.B"
 
 # One label per carrier, so a single image boots on any of them; the
 # carrier this image was built for is the default.
+# One label per carrier and slot, so a single image boots on any carrier;
+# the carrier this image was built for, slot A, is the default.
 write_extlinux() {
-	root=$1
+	root_a=$1
+	root_b=$2
 	{
-		echo "default $CARRIER"
+		echo "default ${CARRIER}_A"
 		echo "menu title NMS-SM-K1892VM21YA boot options"
-		echo "timeout 10"
-		for dtb in "$BINARIES_DIR"/nms-*.dtb; do
+		echo "timeout 3"
+		for dtb in "$BINARIES_DIR"/elvees/nms-*.dtb; do
 			[ -f "$dtb" ] || continue
 			name=$(basename "$dtb" .dtb)
-			echo
-			echo "label $name"
-			echo "\tmenu label $name"
-			echo "\tlinux /Image"
-			echo "\tfdt /$name.dtb"
-			echo "\tappend root=$root rootwait rw console=ttyS0,115200 earlycon"
+			for slot in A B; do
+				case $slot in
+				A) root=$root_a ;;
+				B) root=$root_b ;;
+				esac
+				echo
+				echo "label ${name}_$slot"
+				echo "\tmenu label $name ($slot)"
+				echo "\tlinux /Image.$slot"
+				echo "\tfdt /$name.$slot.dtb"
+				echo "\tappend root=$root rootwait rw console=ttyS0,115200 earlycon"
+			done
 		done
 	} > "$BINARIES_DIR/extlinux/extlinux.conf"
 }
@@ -69,18 +88,19 @@ for dtb in "$BINARIES_DIR"/nms-*.dtb; do
 	DTB_LIST="$DTB_LIST\t\t\t\"$(basename "$dtb")\",\n"
 done
 
-# build_image <name> <root=> <mbr-signature, 4 bytes as printf escapes>
+# build_image <name> <root-A> <root-B> <mbr-signature>
 #
-# Two images are produced.  They differ only in the root= argument and in
+# Two images are produced.  They differ only in the root= arguments and in
 # the MBR disk signature, so root=PARTUUID resolves to the right device
 # even when the SD card and the eMMC are both present: the SD image points
-# at "NMS1"-02, the eMMC image at "NMS2"-02.
+# at "NMS1"-02/-03, the eMMC image at "NMS2"-02/-03.
 build_image() {
 	out=$1
-	root=$2
-	sig=$3
+	root_a=$2
+	root_b=$3
+	sig=$4
 
-	write_extlinux "$root"
+	write_extlinux "$root_a" "$root_b"
 
 	sed -e "s|^\t\t\t\"nms-\*\.dtb\",$|$DTB_LIST|" \
 	    -e "s|^image boot\.vfat {|image $out.vfat {|" \
@@ -110,11 +130,79 @@ build_image() {
 # "NMS2" written at offset 0x1b8 come out as 0x31534d4e / 0x32534d4e --
 # that is what "mmc part" reports and what root=PARTUUID must match.
 # (dash's printf has no \x, hence the octal escapes.)
-build_image sdcard.img "PARTUUID=31534d4e-02" '\116\115\123\061'
-build_image emmc.img   "PARTUUID=32534d4e-02" '\116\115\123\062'
+build_image sdcard.img "PARTUUID=31534d4e-02" "PARTUUID=31534d4e-03" '\116\115\123\061'
+build_image emmc.img   "PARTUUID=32534d4e-02" "PARTUUID=32534d4e-03" '\116\115\123\062'
 
 # leave the SD variant in place as the reference extlinux.conf
-write_extlinux "PARTUUID=31534d4e-02"
+write_extlinux "PARTUUID=31534d4e-02" "PARTUUID=31534d4e-03"
+
+# ------------------------------------------------------------------
+# SWUpdate package (A/B)
+#
+# Carries the root filesystem plus the kernel and the device trees of
+# every carrier.  nms-update on the target resolves the inactive slot and
+# points /run/swupdate/* at it, so one package works on both the SD card
+# and the eMMC, and for either slot.
+# ------------------------------------------------------------------
+SWU="$BUILD_DIR/swu"
+rm -rf "$SWU"
+mkdir -p "$SWU"
+gzip -n -9 -c "$BINARIES_DIR/rootfs.ext4" > "$SWU/rootfs.ext4.gz"
+cp "$BINARIES_DIR/Image" "$SWU/Image"
+SWU_FILES="rootfs.ext4.gz Image"
+for dtb in "$BINARIES_DIR"/elvees/nms-*.dtb; do
+	[ -f "$dtb" ] || continue
+	cp "$dtb" "$SWU/"
+	SWU_FILES="$SWU_FILES $(basename "$dtb")"
+done
+
+# One entry per image, each ending in a comma; the last one is stripped
+# afterwards so libconfig never sees a trailing comma.
+swu_entries() {
+	slot=$1
+	printf '\t\t\t\t{ filename = "rootfs.ext4.gz"; type = "raw";\n'
+	printf '\t\t\t\t  compressed = "zlib"; installed-directly = true;\n'
+	printf '\t\t\t\t  device = "/run/swupdate/rootfs-%s";\n' "$slot"
+	printf '\t\t\t\t  sha256 = "%s" },\n' "$(sha256sum "$SWU/rootfs.ext4.gz" | cut -d' ' -f1)"
+	printf '\t\t\t\t{ filename = "Image"; type = "raw";\n'
+	printf '\t\t\t\t  installed-directly = true;\n'
+	printf '\t\t\t\t  device = "/run/swupdate/Image-%s";\n' "$slot"
+	printf '\t\t\t\t  sha256 = "%s" },\n' "$(sha256sum "$SWU/Image" | cut -d' ' -f1)"
+	for dtb in "$BINARIES_DIR"/elvees/nms-*.dtb; do
+		[ -f "$dtb" ] || continue
+		name=$(basename "$dtb")
+		printf '\t\t\t\t{ filename = "%s"; type = "raw";\n' "$name"
+		printf '\t\t\t\t  installed-directly = true;\n'
+		printf '\t\t\t\t  device = "/run/swupdate/%s-%s.dtb";\n' "${name%.dtb}" "$slot"
+		printf '\t\t\t\t  sha256 = "%s" },\n' "$(sha256sum "$SWU/$name" | cut -d' ' -f1)"
+	done
+}
+
+swu_images() {
+	slot=$1
+	echo "\t\t\timages = ("
+	swu_entries "$slot" | sed '$ s/,$//'
+	echo "\t\t\t);"
+}
+
+{
+	echo "software = {"
+	echo "\tversion = \"${SWU_VERSION:-1.0}\";"
+	echo "\tdescription = \"NMS-SM-K1892VM21YA\";"
+	echo "\tstable = {"
+	echo "\t\tA = {"
+	swu_images A ""
+	echo "\t\t};"
+	echo "\t\tB = {"
+	swu_images B ""
+	echo "\t\t};"
+	echo "\t};"
+	echo "};"
+} > "$SWU/sw-description"
+
+( cd "$SWU" && printf '%s\n' sw-description $SWU_FILES |
+	cpio --quiet -o -H crc > "$BINARIES_DIR/firmware.swu" )
+echo "post-image: firmware.swu ($(stat -c %s "$BINARIES_DIR/firmware.swu") bytes)"
 
 # ------------------------------------------------------------------
 # QSPI boot flash

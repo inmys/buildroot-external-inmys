@@ -49,6 +49,7 @@ done
 cat > "$TARGET_DIR/etc/fstab" <<EOF
 # device	mount point	type		options					dump	pass
 /dev/root	/		ext4		defaults				0	1
+LABEL=boot	/boot		vfat	defaults				0	0
 proc		/proc		proc		defaults				0	0
 sysfs		/sys		sysfs		defaults				0	0
 devtmpfs	/dev		devtmpfs	defaults				0	0
