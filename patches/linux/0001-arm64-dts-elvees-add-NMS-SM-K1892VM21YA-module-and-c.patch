@@ -595,7 +595,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 --- a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
-@@ -0,0 +1,760 @@
+@@ -0,0 +1,756 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-K1892VM21YA V1
@@ -976,10 +976,6 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot
 +				};
 +			};
 +
-+			rtc: rtc@68 {
-+				compatible = "nxp,pcf8523";
-+				reg = <0x68>;
-+			};
 +		};
 +	};
 +};

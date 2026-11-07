@@ -11,6 +11,17 @@
 CONFIG_I2C_MUX=y
 CONFIG_I2C_MUX_PCA954x=y
 
+# --- RTC --------------------------------------------------------------
+# D8 PCF8523TK on the 1.8 V branch of the PCA9540B (bus 9, address 0x68).
+# The ELVEES defconfig has no RTC support at all, so /sys/class/rtc is
+# empty and hwclock has nothing to talk to.
+CONFIG_RTC_CLASS=y
+CONFIG_RTC_DRV_PCF8523=y
+# Seed the system clock from the RTC at boot and write it back on
+# shutdown, so the time survives a power cycle without NTP.
+CONFIG_RTC_HCTOSYS=y
+CONFIG_RTC_SYSTOHC=y
+
 # --- Display --------------------------------------------------------------
 # D10 SN65DSI84 DSI->dual-LVDS bridge and D19 ADV7513 HDMI transmitter.
 CONFIG_DRM_TI_SN65DSI83=y
