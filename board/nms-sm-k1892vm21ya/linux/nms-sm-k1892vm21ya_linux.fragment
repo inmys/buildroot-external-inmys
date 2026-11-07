@@ -52,5 +52,6 @@ CONFIG_DRM_DISPLAY_CONNECTOR=y
 
 # Panel backlight is driven from timer0-pwm (snps,dw-apb-timers-pwm2).
 CONFIG_BACKLIGHT_PWM=y
+CONFIG_PWM_ELVEES=y
 CONFIG_PWM_DWC_CORE=y
 CONFIG_PWM_DWC_OF=y

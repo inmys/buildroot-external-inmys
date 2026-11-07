@@ -13,6 +13,7 @@
 /dts-v1/;
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pwm/pwm.h>
 
 #include "nms-sm-k1892vm21ya.dtsi"
 
@@ -30,6 +31,21 @@
 	aliases {
 		ethernet0 = &emac0;
 		ethernet1 = &emac1;
+	};
+
+	/*
+	 * No panel is fitted on the tester; the LVDS pairs go to the
+	 * converter/receivers.  The node exists so that the SN65DSI84 has a
+	 * sink and a mode to drive, which is what the LVDS part of the test
+	 * needs - 800x480 at 33 MHz keeps the bit rate at 7 x 33 = 231 Mbit/s
+	 * per lane pair.  The timing is the one in the module device tree.
+	 */
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm 0 2000000>; /* 500 Hz, port 0 output B */
+		power-supply = <&lcd0_bklt_en>;
+		brightness-levels = <100 90 80 70 60 50 40 30 20 10 1 0>;
+		default-brightness-level = <10>;
 	};
 };
 
@@ -80,6 +96,38 @@
 
 &de_dpi {
 	status = "okay";
+};
+
+/*
+ * LVDS test path: Mali-DP -> DSI -> SN65DSI84 -> SMARC LVDS0.  The panel
+ * power and backlight enables are the standard SMARC LCD0_VDD_EN (S133)
+ * and LCD0_BKLT_EN (S127) lines; the tester schematic has not been checked
+ * pin by pin, so if the converter is powered from a fixed rail instead,
+ * drop the two power-supply properties.
+ */
+&lvds_bridge {
+	status = "okay";
+};
+
+/*
+ * Backlight PWM.  SMARC LCD0_BKLT_PWM (S141) is D2.AW17 = GPIO1_PORTD_3,
+ * whose alternate function is PWM_OENB0 - port 0 output B of the
+ * elvees-pwm block at 0x1770000 - so elvees,output-channel[0] = 1 selects
+ * the B output.  The designware timers cannot reach this pin; see the
+ * module device tree.
+ */
+&pwm {
+	status = "okay";
+	elvees,output-channel = <1 0 0 0>;
+	elvees,state-on-disable = <1 0 0 0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm_oenb0_mux>;
+};
+
+&lvds_panel {
+	status = "okay";
+	backlight = <&backlight>;
+	power-supply = <&lcd0_vdd_en>;
 };
 
 /* CAN bus connectors */

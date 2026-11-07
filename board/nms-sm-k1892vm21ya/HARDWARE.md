@@ -377,6 +377,82 @@ modules are installed in the rootfs nothing loads them, so `/proc/asound`
 never appeared.  `alsa-utils` (aplay, arecord, amixer, alsactl,
 speaker-test) is installed for testing.
 
+### 1.10 Display: LVDS and the LCD0 controls
+
+The module carries the whole display chain, so the carriers only route
+SMARC signals to their receptacles.
+
+| SMARC | Signal | Module side |
+|-------|--------|-------------|
+| S125..S138 | LVDS0 (A.CLK, A.D0..D3) | D10 SN65DSI84 channel A |
+| S108..S121 | LVDS1 (B.CLK, B.D0..D3) | D10 SN65DSI84 channel B |
+| S127 | LCD0_BKLT_EN | D34 PCAL6416A P0_0 (+ R228) |
+| S133 | LCD0_VDD_EN | D34 PCAL6416A P0_1 (+ R229) |
+| S141 | LCD0_BKLT_PWM | D2.AW17 = GPIO1_PORTD_3 |
+| S107 | LCD1_BKLT_EN | D34 PCAL6416A P0_2 (+ R231) |
+| S116 | LCD1_VDD_EN | D34 PCAL6416A P0_3 (+ R232) |
+| S122 | LCD1_BKLT_PWM | D2.AV19 = GPIO1_PORTD_4 |
+
+`LCD0_VDD_EN` and `LCD0_BKLT_EN` are modelled as `regulator-fixed`
+nodes in the module device tree (`lcd0_vdd_en`, `lcd0_bklt_en`), not
+left to `nms-gpio.sh`: the panel takes the first as its `power-supply`
+and the backlight the second, so the power-up order is the driver's
+business and the expander lines are not poked behind its back.  Neither
+is `regulator-always-on`, so on a carrier without a panel the rails stay
+off.  `nms-gpio.sh` therefore no longer touches `LCD0_VDD_EN`; the `lcd`
+subcommand now only drives the LCD1 pair.
+
+#### The backlight PWM is *not* on the designware timers
+
+This is the one place where the module differs from the ELVEES
+reference device trees, and getting it wrong costs the camera reset:
+
+| Pin | Ball | Function 1 |
+|-----|------|------------|
+| GPIO1_PORTD_0 | BC16 | TIMERS_TOGGLE_0 |
+| GPIO1_PORTD_1 | AW16 | TIMERS_TOGGLE_1 |
+| GPIO1_PORTD_2 | BC15 | PWM_OENA0 |
+| GPIO1_PORTD_3 | AW17 | PWM_OENB0 |
+| GPIO1_PORTD_4 | AV19 | PWM_OENA1 |
+| GPIO1_PORTD_5 | BC14 | PWM_OENB1 |
+
+The backlight lines land on `PWM_OEN*`, which belongs to the
+`elvees,elvees-pwm` block at `0x1770000`, not to `timers_pwm`
+(`snps,dw-apb-timers-pwm2` at `0x1790000`).  And `GPIO1_PORTD_1`, the
+pin `timer1_toggle_mux` takes over, is `GPIO3_CAM1_RST#` on SMARC P111 -
+so the ELVEES recipe (`pwms = <&timers_pwm 1 ...>` plus
+`pinctrl-0 = <&timer1_toggle_mux>`) both fails to reach S141 and quietly
+takes the camera reset away.
+
+The carriers therefore use
+
+```
+&pwm {
+        status = "okay";
+        elvees,output-channel = <1 0 0 0>;   /* port 0 -> output B */
+        elvees,state-on-disable = <1 0 0 0>;
+        pinctrl-names = "default";
+        pinctrl-0 = <&pwm_oenb0_mux>;
+};
+
+backlight { pwms = <&pwm 0 2000000>; ... };  /* 500 Hz */
+```
+
+`CONFIG_PWM_ELVEES=y` is forced in the kernel fragment; the ELVEES
+defconfig leaves it `=m` and nothing loads modules.  `timers_pwm` stays
+disabled.
+
+#### Panel timing
+
+`lvds_panel` is declared in the module dtsi (disabled) so that the
+SN65DSI84 output endpoint resolves for every carrier, and enabled by the
+carriers that have a receptacle.  The timing is the 7" 800x480 panel
+INMYS uses on the RK3588 carriers: 33 MHz pixel clock, JEIDA-24,
+231x139 mm, which is also the mode the SMARC tester feeds its LVDS
+receivers (7 x 33 = 231 Mbit/s per lane pair).  Only LVDS channel A is
+described; a dual-link panel needs a `port@3` on the bridge and a second
+port on the panel node.
+
 ## 2. NMS-SM-EVM V1 carrier (default)
 
 | Item | Part | Notes |

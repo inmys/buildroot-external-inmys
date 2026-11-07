@@ -8,7 +8,6 @@
 #
 #   name            function
 #   --------------  -----------------------------------------------------
-#   LCD0_VDD_EN     panel 0 power                  -> SMARC S133
 #   LCD1_BKLT_EN    backlight 1 enable             -> SMARC S107
 #   LCD1_VDD_EN     panel 1 power                  -> SMARC S116
 #   QSPI_SPI#       1 = QSPI1 (socket XS7), 0 = SPI1
@@ -25,8 +24,9 @@
 #   CAM_SEL0/1      camera clock/FSYNC mux A/B (D1 RS2255)
 #   UART_0_1_CROSS# which UART reaches SER3/BC and which reaches SER1_DBG
 #
-# Not here, because a driver owns them: LCD0_BKLT_EN (pwm-backlight),
-# HDMI_PD (adv7511), ENABLE_LVDS (sn65dsi83); HDMI_INT# is an input.
+# Not here, because a driver owns them: LCD0_VDD_EN (lvds_panel),
+# LCD0_BKLT_EN (pwm-backlight), HDMI_PD (adv7511), ENABLE_LVDS
+# (sn65dsi83); HDMI_INT# is an input.
 #
 # D1 is a 4:1 analog mux (RS2255XN, ENABLE tied to GND) that puts one of the
 # SoC camera clocks onto the shared SMARC S6 pin:
@@ -60,7 +60,6 @@ PIDFILE=/run/nms-gpio.pid
 
 # name value -- the order is the order of the "status" output
 DEFAULTS="
-LCD0_VDD_EN 0
 LCD1_BKLT_EN 0
 LCD1_VDD_EN 0
 QSPI_SPI# 1
@@ -83,7 +82,7 @@ usage: $(basename "$0") status
        $(basename "$0") uart01 <0|1>        0 = UART0 on SER3/BC
        $(basename "$0") cam <0|1|2|3>       0 = CMOS0_FSYNC, 1 = CMOS1_FSYNC
                                             2 = CMOS0_CLK,   3 = CMOS1_CLK
-       $(basename "$0") lcd <power> <bklt>  LCD0_VDD_EN, LCD1_BKLT_EN
+       $(basename "$0") lcd <bklt> <power>  LCD1_BKLT_EN, LCD1_VDD_EN
        $(basename "$0") bcreset [ms]      pulse BC_RST (default 50 ms);
                                            the SoC restarts, this shell dies
 EOF
@@ -163,8 +162,8 @@ cam)
 	set_line "CAM_SEL1" "$(( ($2 >> 1) & 1 ))" ;;
 lcd)
 	[ $# -eq 3 ] || usage
-	set_line "LCD0_VDD_EN" "$2"
-	set_line "LCD1_BKLT_EN" "$3" ;;
+	set_line "LCD1_BKLT_EN" "$2"
+	set_line "LCD1_VDD_EN" "$3" ;;
 bcreset)
 	# pulse only, never held: the line is released again after <ms>
 	ms=${2:-50}

@@ -25,6 +25,7 @@
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/pwm/pwm.h>
 
 #include "nms-sm-k1892vm21ya.dtsi"
 
@@ -54,6 +55,20 @@
 				remote-endpoint = <&adv7513_out>;
 			};
 		};
+	};
+
+	/*
+	 * Backlight for the X24 panel.  SMARC LCD0_BKLT_EN (S127) -> R98 ->
+	 * D20 level shifter -> X24.17, and LCD0_BKLT_PWM (S141) -> D20 ->
+	 * X24.19.  The enable line is the module's PCAL6416A P0_0, owned by
+	 * lcd0_bklt_en in the module device tree.
+	 */
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm 0 2000000>; /* 500 Hz, port 0 output B */
+		power-supply = <&lcd0_bklt_en>;
+		brightness-levels = <100 90 80 70 60 50 40 30 20 10 1 0>;
+		default-brightness-level = <10>;
 	};
 };
 
@@ -159,6 +174,44 @@
 			};
 		};
 	};
+};
+
+/* ------------------------------------------------------------------ */
+/* LVDS panel (X24) - SN65DSI84 on the module drives SMARC LVDS0        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * X24 is a 30-pin FPC carrying LVDS0 (S125..S138) plus the LCD0 controls;
+ * X25 is the same for LVDS1 / LCD1 and is not described yet.  The panel
+ * itself is the 7" 800x480 unit whose timing lives in the module device
+ * tree; only the carrier-side wiring is added here.
+ *
+ * Panel power is SMARC LCD0_VDD_EN (S133) -> R96 -> D22 -> X24.11, which
+ * the module drives from PCAL6416A P0_1.
+ */
+&lvds_bridge {
+	status = "okay";
+};
+
+/*
+ * Backlight PWM.  SMARC LCD0_BKLT_PWM (S141) is D2.AW17 = GPIO1_PORTD_3,
+ * whose alternate function is PWM_OENB0 - port 0 output B of the
+ * elvees-pwm block at 0x1770000 - so elvees,output-channel[0] = 1 selects
+ * the B output.  The designware timers cannot reach this pin; see the
+ * module device tree.
+ */
+&pwm {
+	status = "okay";
+	elvees,output-channel = <1 0 0 0>;
+	elvees,state-on-disable = <1 0 0 0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm_oenb0_mux>;
+};
+
+&lvds_panel {
+	status = "okay";
+	backlight = <&backlight>;
+	power-supply = <&lcd0_vdd_en>;
 };
 
 /* ------------------------------------------------------------------ */

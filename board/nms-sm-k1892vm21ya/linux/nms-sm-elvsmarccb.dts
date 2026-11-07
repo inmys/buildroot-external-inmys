@@ -72,11 +72,20 @@
 		};
 	};
 
-	/* XP6 backlight connector, enabled by LCD0_BKLT_EN (expander P0_0) */
+	/*
+	 * Backlight inverter on XP4 ("BKLT VCC SEL", 4-pin).  The rail is
+	 * gated by SMARC LCD0_BKLT_EN (S127) -> VT4 -> +V_BKLT -> XP4.1/3,
+	 * which the module drives from PCAL6416A P0_0, so the regulator in the
+	 * module device tree owns that line.
+	 *
+	 * Brightness comes from SMARC LCD0_BKLT_PWM (S141) = SoC GPIO1_PORTD_3
+	 * through timer1; the inverter is active low, hence the inverted
+	 * polarity.
+	 */
 	backlight: backlight {
 		compatible = "pwm-backlight";
-		pwms = <&timers_pwm 1 2000000 PWM_POLARITY_INVERTED>;
-		enable-gpios = <&gpio_expander 0 GPIO_ACTIVE_HIGH>;
+		pwms = <&pwm 0 2000000>; /* 500 Hz, port 0 output B */
+		power-supply = <&lcd0_bklt_en>;
 		brightness-levels = <100 90 80 70 60 50 40 30 20 10 1 0>;
 		default-brightness-level = <10>;
 		status = "disabled";
@@ -201,7 +210,16 @@
 	};
 };
 
-/* MIPI DSI path: Mali-DP -> DSI -> SN65DSI84 -> LVDS panel on XP7 */
+/*
+ * MIPI DSI path: Mali-DP -> DSI -> SN65DSI84 (module D10) -> LVDS panel on
+ * XP7.  XP7 is a 2x15P header carrying both LVDS channels (A on S125..S138,
+ * B on S108..S121) through series resistors ZL39..ZL48, so a dual-link panel
+ * can be plugged in as well; this device tree describes channel A only.
+ *
+ * Panel power comes from XP8 ("LVDS VCC SEL", 6-pin) via VT6, gated by
+ * SMARC LCD0_VDD_EN (S133) = PCAL6416A P0_1, which is why the panel takes
+ * lcd0_vdd_en as its supply rather than being switched by a boot script.
+ */
 &de_dsi {
 	status = "okay";
 };
@@ -213,12 +231,22 @@
 &lvds_panel {
 	status = "okay";
 	backlight = <&backlight>;
+	power-supply = <&lcd0_vdd_en>;
 };
 
-&timers_pwm {
+/*
+ * Backlight PWM.  SMARC LCD0_BKLT_PWM (S141) is D2.AW17 = GPIO1_PORTD_3,
+ * whose alternate function is PWM_OENB0 - port 0 output B of the
+ * elvees-pwm block at 0x1770000 - so elvees,output-channel[0] = 1 selects
+ * the B output.  The designware timers cannot reach this pin; see the
+ * module device tree.
+ */
+&pwm {
 	status = "okay";
+	elvees,output-channel = <1 0 0 0>;
+	elvees,state-on-disable = <1 0 0 0>;
 	pinctrl-names = "default";
-	pinctrl-0 = <&timer1_toggle_mux>;
+	pinctrl-0 = <&pwm_oenb0_mux>;
 };
 
 &backlight {

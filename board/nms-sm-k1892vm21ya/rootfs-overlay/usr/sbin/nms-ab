@@ -61,6 +61,39 @@ nms_ab_other_slot() {
 	esac
 }
 
+# Prepare /run/swupdate so that a sw-description written for <slot> can be
+# installed.  The device paths in sw-description are symlinks, which is what
+# makes one package work for both slots and for both boot media.  /boot is
+# mounted here because the per-slot kernel and device trees live on it.
+nms_ab_prepare() {
+	slot=$1
+	[ -n "$slot" ] || return 1
+
+	dev=$(nms_ab_other_root_dev) || return 1
+	[ -b "$dev" ] || return 1
+
+	bootdev=$(nms_ab_boot_dev) || return 1
+	mkdir -p /boot
+	mountpoint -q /boot || mount -t vfat "$bootdev" /boot || return 1
+
+	rm -rf /run/swupdate
+	mkdir -p /run/swupdate
+	ln -sfn "$dev" "/run/swupdate/rootfs-$slot"
+	ln -sfn "/boot/Image.$slot" "/run/swupdate/Image-$slot"
+	for dtb in /boot/nms-*.dtb; do
+		[ -f "$dtb" ] || continue
+		name=$(basename "$dtb")
+		case "$name" in
+		*."$slot".dtb)
+			ln -sfn "$dtb" "/run/swupdate/${name%.$slot.dtb}-$slot.dtb"
+			;;
+		esac
+	done
+
+	# Remembered for nms-postupdate, which runs in a fresh shell.
+	echo "$slot" > /run/swupdate/.target-slot
+}
+
 # Point extlinux.conf at a slot.  /boot must already be mounted.
 nms_ab_set() {
 	[ -f /boot/extlinux/extlinux.conf ] || return 1

@@ -100,29 +100,75 @@
 	};
 
 	/*
-	 * LVDS panel on the carrier (XP7 on the ELV-SMARC-CB).  It is declared
-	 * here, disabled, only so that the SN65DSI84 output endpoint resolves
-	 * for every carrier device tree.  The timing is a placeholder - replace
-	 * it with the data of the panel actually plugged in, otherwise the
-	 * picture will be wrong even though the pipeline probes cleanly.
+	 * SMARC LCD0_VDD_EN (S133) and LCD0_BKLT_EN (S127) are driven by the
+	 * module's own PCAL6416A - D34 P0_1 and P0_0 - so they belong here and
+	 * not in a carrier device tree.  Both are modelled as regulators so
+	 * that the panel and the backlight sequence their own power-up instead
+	 * of a boot script poking the expander behind the driver's back; this
+	 * is why nms-gpio.sh no longer touches LCD0_VDD_EN.
+	 *
+	 * Neither is always-on: at probe the GPIO is left in its inactive
+	 * state, so a carrier without a panel simply keeps the rail off.
+	 */
+	lcd0_vdd_en: regulator-lcd0-vdd {
+		compatible = "regulator-fixed";
+		regulator-name = "LCD0_VDD_EN";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpios = <&gpio_expander 1 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	lcd0_bklt_en: regulator-lcd0-bklt {
+		compatible = "regulator-fixed";
+		regulator-name = "LCD0_BKLT_EN";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpios = <&gpio_expander 0 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	/*
+	 * LVDS panel on the carrier.  Declared here, disabled, only so that the
+	 * SN65DSI84 output endpoint resolves for every carrier device tree;
+	 * each carrier that has an LVDS receptacle enables it and points it at
+	 * its own backlight and at lcd0_vdd_en.
+	 *
+	 * The timing is the 7" 800x480 panel INMYS uses on the RK3588 carriers
+	 * (rk3588-inmys-smarc-evm.dts): 33 MHz pixel clock, JEIDA-24 mapping,
+	 * 231x139 mm.  It is also the mode the SMARC tester drives into its
+	 * LVDS receivers - 7 x 33 = 231 Mbit/s per lane pair.  A carrier with a
+	 * different panel overrides panel-timing and data-mapping.
+	 *
+	 * Only LVDS channel A is described; the SN65DSI84 second channel is
+	 * wired to SMARC LVDS1 (S108..S121), so a dual-link panel needs a
+	 * port@3 here and a second port in the panel node.
 	 */
 	lvds_panel: panel-lvds {
 		compatible = "panel-lvds";
 		status = "disabled";
-		width-mm = <217>;
-		height-mm = <136>;
+		width-mm = <231>;
+		height-mm = <139>;
 		data-mapping = "jeida-24";
+		enable-delay-ms = <20>;
+		prepare-delay-ms = <20>;
+		unprepare-delay-ms = <20>;
+		disable-delay-ms = <20>;
 
 		panel-timing {
-			clock-frequency = <71000000>;
-			hactive = <1280>;
-			vactive = <800>;
+			clock-frequency = <33000000>;
+			hactive = <800>;
+			vactive = <480>;
 			hfront-porch = <40>;
 			hback-porch = <40>;
 			hsync-len = <48>;
-			vfront-porch = <3>;
-			vback-porch = <10>;
-			vsync-len = <6>;
+			vfront-porch = <13>;
+			vback-porch = <29>;
+			vsync-len = <3>;
+			hsync-active = <1>;
+			vsync-active = <1>;
+			de-active = <1>;
+			pixelclk-active = <0>;
 		};
 
 		ports {
@@ -706,11 +752,22 @@ ser3: &uart1 { };
 /* PWM (LCD backlight)                                                */
 /* ------------------------------------------------------------------ */
 
-&timers_pwm {
-	status = "okay";
-	pinctrl-names = "default";
-	pinctrl-0 = <&timer1_toggle_mux>;
-};
+/*
+ * The LCD backlight PWMs are NOT on the designware timers.  On this module
+ *
+ *   LCD0_BKLT_PWM  = D2.AW17 = GPIO1_PORTD_3, function 1 = PWM_OENB0
+ *   LCD1_BKLT_PWM  = D2.AV19 = GPIO1_PORTD_4, function 1 = PWM_OENA1
+ *
+ * so they belong to the elvees-pwm block at 0x1770000 (compatible
+ * "elvees,elvees-pwm"), not to timers_pwm.  The carriers that have a panel
+ * enable &pwm and pick the output with elvees,output-channel and
+ * pwm_oenb0_mux / pwm_oena1_mux.
+ *
+ * timers_pwm must stay disabled: its outputs land on GPIO1_PORTD_0/1, and
+ * PORTD_1 (AW16) is GPIO3_CAM1_RST# on SMARC P111.  Enabling
+ * timer1_toggle_mux would silently take that pin away from the camera
+ * reset and drive the backlight PWM into nothing.
+ */
 
 /* ------------------------------------------------------------------ */
 /* GPIO line names (SMARC naming)                                     */

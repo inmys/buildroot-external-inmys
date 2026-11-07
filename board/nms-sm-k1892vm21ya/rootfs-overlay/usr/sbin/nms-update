@@ -21,27 +21,10 @@ nxt=$(nms_ab_other_slot) || { echo "nms-update: cannot tell the other slot" >&2;
 dev=$(nms_ab_other_root_dev) || { echo "nms-update: cannot find the other rootfs" >&2; exit 1; }
 [ -b "$dev" ] || { echo "nms-update: $dev is not a block device" >&2; exit 1; }
 
-# The boot partition must be writable: it holds the per-slot kernel, the
-# device trees and extlinux.conf.
-bootdev=$(nms_ab_boot_dev) || {
-	echo "nms-update: cannot find the boot partition" >&2; exit 1; }
-mkdir -p /boot
-mountpoint -q /boot || mount -t vfat "$bootdev" /boot || {
-	echo "nms-update: cannot mount $bootdev on /boot" >&2; exit 1; }
-
-# sw-description refers to the inactive slot through these symlinks, so
-# the same package works on the SD card and on the eMMC.
-rm -rf /run/swupdate
-mkdir -p /run/swupdate
-ln -sfn "$dev" "/run/swupdate/rootfs-$nxt"
-ln -sfn "/boot/Image.$nxt" "/run/swupdate/Image-$nxt"
-for dtb in /boot/nms-*.dtb; do
-	[ -f "$dtb" ] || continue
-	name=$(basename "$dtb")
-	case "$name" in
-	*."$nxt".dtb) ln -sfn "$dtb" "/run/swupdate/${name%.$nxt.dtb}-$nxt.dtb" ;;
-	esac
-done
+# Mounts /boot if needed and points the sw-description device paths at the
+# inactive slot, so the same package works on the SD card and on the eMMC.
+nms_ab_prepare "$nxt" || {
+	echo "nms-update: cannot prepare the inactive slot" >&2; exit 1; }
 
 echo "nms-update: slot $cur -> $nxt ($dev)"
 swupdate -v -e "stable,$nxt" -i "$SWU"
