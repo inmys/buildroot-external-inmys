@@ -303,6 +303,80 @@ Consequence: the STM32 system bootloader cannot be entered from the SoC.
 reset that the bootloader needs is the same reset that removes the power.
 Use SWD (`bc-stm32/tools/bc-probe.py`, `st-util`) instead.
 
+### 1.9 Audio
+
+Two independent paths, both described in the device trees and both
+verified on hardware.
+
+#### HDMI audio (on the module)
+
+```
+SoC I2S0  SCLK_OUT  ball BB18  GPIO1_PORTB_0  ->  D19.9  SCLK
+          WS_OUT    ball BA18  GPIO1_PORTB_1  ->  D19.10 LRCLK
+          SDO0      ball BD18  GPIO1_PORTB_2  ->  D19.5  I2S0
+```
+
+The SoC is the clock master and the ADV7513 is an I2S slave.  Its MCLK
+(D19.4), SPDIF (D19.3) and I2S1..3 (D19.6/7/8) inputs are tied to ground
+through R191/R190/R187..189, so only the I2S0 path is usable and no
+master clock is needed.
+
+`hdmi_sound` is declared in the module dtsi (`simple-audio-card`,
+"hdmi-audio", CPU = `i2s0`) and enabled by the carrier.
+
+Note that `sound-dai = <&adv7513>` looks wrong but is correct: since 6.13
+the ADV7511 driver no longer registers an ASoC codec, it only exposes DRM
+bridge HDMI-audio ops, and `drm_bridge_connector` creates the `hdmi-codec`
+platform device as a child of the bridge's i2c device.  ASoC's
+`soc_component_to_node()` falls back to `dev->parent->of_node`, so the
+phandle of the i2c node resolves to that component.
+
+#### Analog audio (on the carrier)
+
+The ELV-SMARC-CB carries an Everest **ES8327** (DD1):
+
+| Signal | ES8327 pin | Via | SMARC | On the module |
+|--------|-----------|-----|-------|---------------|
+| CCLK   | 32 | R14, R102 | I2C_GP | `i2c1@1710000` (bus 1) |
+| CDATA  | 31 | R15, R103 | I2C_GP | `i2c1@1710000` (bus 1) |
+| CE     | 30 | R13 -> AGND | | address **0x18** |
+| SCLK   | 5  | R17 | S42 I2S0_CK | `D2.BC23` MFBSP0_LCLK |
+| LRCK   | 7  | R19 | S39 I2S0_LRCK | `D2.BA24` MFBSP0_LDAT1 |
+| SDIN   | 6  | R18 | S40 I2S0_SDOUT | `D2.AY24` MFBSP0_LDAT3 |
+| SDOUT  | 8  | R20 | S41 I2S0_SDIN | `D2.BC24` MFBSP0_LDAT2 |
+| MCLK   | 1  | R16 <- S38, R12 <- G1 | AUDIO_MCK | **S38 not connected** |
+| INTOUT | 10 | DD29 | P118 | `D2.BD33` GPIO0_PORTD_1 |
+
+SMARC `I2S0*` lands on **MFBSP0**, not on the designware I2S0 that feeds
+HDMI - the two audio paths use different controllers.  MFBSP0 is the
+bitclock/frame master, exactly as in the ELVEES reference device tree.
+
+The master clock always comes from the carrier: `G1` is an
+`SX2M12.000M20F30TNN` 12.000 MHz oscillator, and it is also routed to
+S38 through R16.  `audio_mclk` in the module dtsi is therefore a 12 MHz
+`fixed-clock`.
+
+Two things had to be fixed beyond describing the codec:
+
+* `qlic0` is the interrupt controller of the service subsystem, where
+  MFBSP0/1 live.  `mcom03r.dtsi` leaves it `disabled`, so `mfbsp-i2s`
+  never got its DMA interrupts, never probed, and the sound card failed
+  to bind with `asoc-simple-card: parse error`.  The carrier DTS enables
+  it, as the ELVEES reference does.
+* Jack detection is **not** wired up.  `gpio0d` is not declared as an
+  interrupt controller in `mcom03r.dtsi` (only bank A of each GPIO
+  controller is), and the GIC SPI numbers of bank D are not documented in
+  the SDK, so guessing them could claim an SPI that belongs to another
+  peripheral.  The `es8326` driver tolerates a missing IRQ - it warns and
+  continues - so playback and capture work, only headset detection does
+  not.
+
+The whole sound stack is built in (`CONFIG_SND*` = `y`) rather than left
+as modules: the ELVEES defconfig makes it all `=m`, and although the
+modules are installed in the rootfs nothing loads them, so `/proc/asound`
+never appeared.  `alsa-utils` (aplay, arecord, amixer, alsactl,
+speaker-test) is installed for testing.
+
 ## 2. NMS-SM-EVM V1 carrier (default)
 
 | Item | Part | Notes |

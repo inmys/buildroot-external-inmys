@@ -213,7 +213,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dt
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts b/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts
 --- a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,299 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-K1892VM21YA V1 on ELV-SMARC-CB r3.3.0
@@ -260,6 +260,31 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts b/arch/arm64/boot/d
 +			hdmi_connector_in: endpoint {
 +				remote-endpoint = <&adv7513_out>;
 +			};
++		};
++	};
++
++	/*
++	 * Analog audio.  The ELV-SMARC-CB carries an Everest ES8327 (DD1)
++	 * on the carrier, behind the SMARC I2S0 and I2C_GP pins.  The SoC's
++	 * MFBSP0 is the I2S controller that reaches those pins (S38..S42 ->
++	 * MFBSP0_LCLK / LDAT1 / LDAT2 / LDAT3), so it is the CPU side of the
++	 * link and stays the bitclock/frame master, exactly as the ELVEES
++	 * reference device tree does it for this carrier.
++	 */
++	analog_audio: analog-audio {
++		compatible = "simple-audio-card";
++		simple-audio-card,name = "analog-audio";
++		simple-audio-card,format = "i2s";
++		simple-audio-card,bitclock-master = <&analog_dailink_master>;
++		simple-audio-card,frame-master = <&analog_dailink_master>;
++		simple-audio-card,continuous-clock;
++
++		analog_dailink_master: simple-audio-card,cpu {
++			sound-dai = <&mfbsp0_i2s>;
++		};
++
++		simple-audio-card,codec {
++			sound-dai = <&es8327>;
 +		};
 +	};
 +
@@ -416,6 +441,78 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts b/arch/arm64/boot/d
 +	status = "okay";
 +};
 +
++
++/*
++ * Audio codec ES8327 (DD1) on the carrier.
++ *
++ * Wiring, traced from the ELV-SMARC-CB r3.3.0 netlist:
++ *   CCLK/CDATA (32/31) -> R14/R15 -> I2C_GP   -> this bus, address 0x18
++ *   CE         (30)    -> R13 -> AGND        -> address select = 0
++ *   SCLK/LRCK/SDIN/SDOUT -> SMARC S42/S39/S40/S41 -> MFBSP0
++ *   MCLK       (1)     -> R16 <- SMARC S38, and R12 <- carrier G1 12 MHz
++ *   INTOUT     (10)    -> DD29 -> SMARC P118 -> GPIO0_PORTD_1
++ *
++ * S38 is not connected on this module, so the 12 MHz master clock always
++ * comes from the carrier's own oscillator.
++ *
++ * The jack-detect interrupt is deliberately not described: gpio0d is not
++ * declared as an interrupt controller in mcom03r.dtsi (only bank A of each
++ * GPIO controller is), and the GIC SPI numbers of bank D are not documented
++ * anywhere in the SDK.  Guessing them would either fail loudly or, worse,
++ * claim an SPI that belongs to another peripheral.  The es8326 driver
++ * tolerates a missing IRQ - it warns and keeps going - so playback and
++ * capture work, only headset detection is unavailable until the mapping is
++ * confirmed against the SoC manual.
++ *
++ * The everest,mic*-src properties are carried over from the ELVEES device
++ * tree for this carrier; the 6.18 driver does not read them yet, but they
++ * document the board and will be honoured if the driver grows support.
++ */
++&i2c1 {
++	es8327: codec@18 {
++		compatible = "everest,es8326";
++		reg = <0x18>;
++
++		clocks = <&audio_mclk>;
++		clock-names = "mclk";
++		#sound-dai-cells = <0>;
++
++		everest,mic1-src = [22];
++		everest,mic2-src = [44];
++		everest,jack-pol = [0e];
++		everest,interrupt-src = [08];
++		everest,interrupt-clk = [45];
++	};
++};
++
++/* HDMI audio: SoC I2S0 -> ADV7513 on the module */
++&i2s0 {
++	status = "okay";
++};
++
++&hdmi_sound {
++	status = "okay";
++};
++
++/*
++ * QLIC0 is the interrupt controller of the service subsystem, where MFBSP0
++ * and MFBSP1 live.  mcom03r.dtsi leaves it disabled, so without this the
++ * mfbsp-i2s driver never gets its DMA interrupts, never probes, and the
++ * analog-audio card fails to bind ("parse error").  The ELVEES reference
++ * device tree for this carrier enables it for exactly the same reason.
++ */
++&qlic0 {
++	status = "okay";
++};
++
++/* Analog audio: SoC MFBSP0 -> ES8327 on the carrier */
++&mfbsp0_i2s {
++	status = "okay";
++};
++
++&audio_mclk {
++	status = "okay";
++};
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elvees/nms-sm-evm.dts
 --- a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-evm.dts
@@ -595,7 +692,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 --- a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
-@@ -0,0 +1,756 @@
+@@ -0,0 +1,801 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-K1892VM21YA V1
@@ -733,6 +830,51 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot
 +					remote-endpoint = <&lvds_out_a>;
 +				};
 +			};
++		};
++	};
++
++	/*
++	 * Audio master clock on SMARC S38 (AUDIO_MCK).  On this module S38 is
++	 * a dead end - it is not connected to any SoC pin - so the clock is
++	 * always generated on the carrier.  The ELV-SMARC-CB feeds the codec
++	 * from its own G1 oscillator (SX2M12.000M20F30TNN, 12.000 MHz) and
++	 * also routes it to S38 through R16, which is why 12 MHz is the value
++	 * that matters here.  Declared disabled so that a carrier which does
++	 * not populate the oscillator cannot silently claim a clock.
++	 */
++	audio_mclk: audio_mclk {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <12000000>;
++		status = "disabled";
++	};
++
++	/*
++	 * HDMI audio.  The SoC I2S0 drives SCLK/WS/SDO0 (GPIO1_PORTB_0/1/2,
++	 * balls BB18/BA18/BD18) into the ADV7513, which runs as an I2S slave;
++	 * its MCLK, SPDIF and I2S1..3 inputs are tied to ground on the module.
++	 *
++	 * sound-dai = <&adv7513> works even though the ADV7511 driver no
++	 * longer registers an ASoC codec itself: since 6.13 it only exposes
++	 * DRM bridge HDMI-audio ops, and drm_bridge_connector creates the
++	 * hdmi-codec platform device as a child of the bridge's i2c device.
++	 * soc_component_to_node() falls back to dev->parent->of_node, so the
++	 * phandle of the i2c node resolves to that component.
++	 */
++	hdmi_sound: hdmi-sound {
++		compatible = "simple-audio-card";
++		simple-audio-card,name = "hdmi-audio";
++		simple-audio-card,format = "i2s";
++		simple-audio-card,bitclock-master = <&hdmi_dailink_master>;
++		simple-audio-card,frame-master = <&hdmi_dailink_master>;
++		status = "disabled";
++
++		hdmi_dailink_master: simple-audio-card,cpu {
++			sound-dai = <&i2s0>;
++		};
++
++		simple-audio-card,codec {
++			sound-dai = <&adv7513>;
 +		};
 +	};
 +};

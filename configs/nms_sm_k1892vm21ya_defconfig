@@ -117,3 +117,12 @@ BR2_PACKAGE_HTOP=y
 BR2_PACKAGE_LRZSZ=y
 BR2_PACKAGE_UBOOT_TOOLS=y
 BR2_PACKAGE_UBOOT_TOOLS_FWPRINTENV=y
+
+# --- Audio userspace ------------------------------------------------------
+# aplay/arecord for the smoke test, amixer for the ES8327 mixer controls and
+# speaker-test for the channel check.
+BR2_PACKAGE_ALSA_UTILS=y
+BR2_PACKAGE_ALSA_UTILS_APLAY=y
+BR2_PACKAGE_ALSA_UTILS_AMIXER=y
+BR2_PACKAGE_ALSA_UTILS_ALSACTL=y
+BR2_PACKAGE_ALSA_UTILS_SPEAKER_TEST=y

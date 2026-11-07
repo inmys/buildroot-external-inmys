@@ -137,6 +137,51 @@
 			};
 		};
 	};
+
+	/*
+	 * Audio master clock on SMARC S38 (AUDIO_MCK).  On this module S38 is
+	 * a dead end - it is not connected to any SoC pin - so the clock is
+	 * always generated on the carrier.  The ELV-SMARC-CB feeds the codec
+	 * from its own G1 oscillator (SX2M12.000M20F30TNN, 12.000 MHz) and
+	 * also routes it to S38 through R16, which is why 12 MHz is the value
+	 * that matters here.  Declared disabled so that a carrier which does
+	 * not populate the oscillator cannot silently claim a clock.
+	 */
+	audio_mclk: audio_mclk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <12000000>;
+		status = "disabled";
+	};
+
+	/*
+	 * HDMI audio.  The SoC I2S0 drives SCLK/WS/SDO0 (GPIO1_PORTB_0/1/2,
+	 * balls BB18/BA18/BD18) into the ADV7513, which runs as an I2S slave;
+	 * its MCLK, SPDIF and I2S1..3 inputs are tied to ground on the module.
+	 *
+	 * sound-dai = <&adv7513> works even though the ADV7511 driver no
+	 * longer registers an ASoC codec itself: since 6.13 it only exposes
+	 * DRM bridge HDMI-audio ops, and drm_bridge_connector creates the
+	 * hdmi-codec platform device as a child of the bridge's i2c device.
+	 * soc_component_to_node() falls back to dev->parent->of_node, so the
+	 * phandle of the i2c node resolves to that component.
+	 */
+	hdmi_sound: hdmi-sound {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "hdmi-audio";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,bitclock-master = <&hdmi_dailink_master>;
+		simple-audio-card,frame-master = <&hdmi_dailink_master>;
+		status = "disabled";
+
+		hdmi_dailink_master: simple-audio-card,cpu {
+			sound-dai = <&i2s0>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&adv7513>;
+		};
+	};
 };
 
 &uart0 {

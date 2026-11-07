@@ -22,6 +22,24 @@ CONFIG_RTC_DRV_PCF8523=y
 CONFIG_RTC_HCTOSYS=y
 CONFIG_RTC_SYSTOHC=y
 
+# --- Audio ------------------------------------------------------------
+# Two independent paths:
+#   analog - SoC MFBSP0 -> ES8327 on the ELV-SMARC-CB (I2C_GP, 0x18)
+#   HDMI   - SoC I2S0   -> ADV7513 on the module
+# The ELVEES defconfig leaves the whole sound stack as =m.  Modules do get
+# installed into the rootfs, but nothing loads them: there is no udev and
+# /etc/modules-load.d is empty, so /proc/asound never appears.  Build the
+# pieces in instead of adding an init script for each of them.
+CONFIG_SOUND=y
+CONFIG_SND=y
+CONFIG_SND_SOC=y
+CONFIG_SND_SIMPLE_CARD=y
+CONFIG_SND_DESIGNWARE_I2S=y
+CONFIG_SND_SOC_ELVEES_MFBSP=y
+CONFIG_SND_SOC_ES8326=y
+# Selected by DRM_I2C_ADV7511_AUDIO, which is already =y
+CONFIG_SND_SOC_HDMI_CODEC=y
+
 # --- Display --------------------------------------------------------------
 # D10 SN65DSI84 DSI->dual-LVDS bridge and D19 ADV7513 HDMI transmitter.
 CONFIG_DRM_TI_SN65DSI83=y
