@@ -1,0 +1,202 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * INMYS NMS-SM-K1892VM21YA V1 on ELV-SMARC-CB r3.3.0
+ *
+ * The ELV-SMARC-CB is the ELVEES reference SMARC carrier: 2x GbE, HDMI out,
+ * LVDS/eDP, audio codec, 2x CAN, PCIe x4 + miniPCIe, USB, microSD.
+ * Only the resources needed for bring-up are described here; the remaining
+ * peripherals are added as they are validated.
+ *
+ * Copyright (C) 2026 INMYS
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/clock/mcom03-clock.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pwm/pwm.h>
+
+#include "nms-sm-k1892vm21ya.dtsi"
+
+/ {
+	model = "INMYS NMS-SM-K1892VM21YA V1 on ELV-SMARC-CB r3.3.0";
+	compatible = "inmys,nms-sm-elvsmarccb",
+		     "inmys,nms-sm-k1892vm21ya",
+		     "inmys,nms-sm-k1892",
+		     "elvees,mcom03r";
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	aliases {
+		ethernet0 = &emac0;
+		ethernet1 = &emac1;
+	};
+
+	/* HDMI receptacle on the carrier, fed from the module's ADV7513 */
+	hdmi_connector: hdmi-connector {
+		compatible = "hdmi-connector";
+		label = "hdmi";
+		type = "a";
+
+		port {
+			hdmi_connector_in: endpoint {
+				remote-endpoint = <&adv7513_out>;
+			};
+		};
+	};
+
+	/* XP6 backlight connector, enabled by LCD0_BKLT_EN (expander P0_0) */
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&timers_pwm 1 2000000 PWM_POLARITY_INVERTED>;
+		enable-gpios = <&gpio_expander 0 GPIO_ACTIVE_HIGH>;
+		brightness-levels = <100 90 80 70 60 50 40 30 20 10 1 0>;
+		default-brightness-level = <10>;
+		status = "disabled";
+	};
+};
+
+/* SER1_DBG, USB Type-C debug UART */
+&uart0 {
+	status = "okay";
+};
+
+&uart3 {
+	status = "okay";
+};
+
+/*
+ * microSD socket XS6 (SDIO).  3.3 V only; the clock pad drive strength has
+ * to be raised on this PCB, as in the ELVEES reference device tree.
+ */
+&sdhci0 {
+	status = "okay";
+	sdhci-caps-mask = <0x7 0x4000000>;
+	sdhci-caps = <0x0 0x0>;
+	elvees,drive-strength-clk = <6>;
+
+	/*
+	 * SDHCI 3.0 only allows even clock dividers, so with the 125 MHz base
+	 * clock a 50 MHz request becomes 125/4 = 31.25 MHz (125/2 = 62.5 MHz
+	 * is too fast).  Dropping the base clock to 100 MHz makes divider 2
+	 * land exactly on 50 MHz.
+	 */
+	assigned-clocks = <&hsperiph_clocks CLK_HSP_UCG1_SDMMC0_XIN>;
+	assigned-clock-rates = <100000000>;
+};
+
+/* Ethernet (RJ45 XS2/XS3) */
+&emac0 {
+	status = "okay";
+	phy-handle = <&ethernet_phy0>;
+};
+
+&emac1 {
+	status = "okay";
+	phy-handle = <&ethernet_phy1>;
+};
+
+&usb0 {
+	status = "okay";
+};
+
+&usb1 {
+	status = "okay";
+};
+
+/*
+ * QSPI1 flash socket XS7 (SOIC-8, ACA-SPI-004), powered from 1V8_SF-0 and
+ * routed through the module's RS2299 crossbar D31/D32.  The crossbar is
+ * selected by QSPI_SPI# = PCAL6416A P0_4: 1 = QSPI1, 0 = SPI1.  U-Boot sets
+ * it before probing the socket; the kernel only has to keep the pads in
+ * 1.8 V mode, which is what qspi1_default_18 does.
+ */
+&qspi1 {
+	status = "okay";
+	pinctrl-0 = <&qspi1_default_18>;
+
+	qspi_flash: spi-nor@0 {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "jedec,spi-nor", "spi-flash";
+		reg = <0x0>;
+		/* Highest frequency for the IC installed into the socket */
+		spi-max-frequency = <3000000>;
+		m25p,fast-read;
+	};
+};
+
+&qspi1_default {
+	/*
+	 * Max clock frequency is 1 MHz with the default pad drive strength;
+	 * this raises it to 3 MHz.
+	 */
+	clk {
+		drive-strength = <10>;
+	};
+};
+
+/* PCIe x4 slot and miniPCIe */
+&pcie0 {
+	status = "okay";
+};
+
+/* ------------------------------------------------------------------ */
+/* Display                                                            */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Both display bridges sit on the module (D19 ADV7513 for HDMI, D10
+ * SN65DSI84 for LVDS); the carrier only routes the SMARC HDMI and LVDS pins
+ * to its receptacles, so nothing but the connector and the panel has to be
+ * described here.
+ */
+&dp {
+	status = "okay";
+};
+
+/* Parallel RGB path: Mali-DP -> DPI -> ADV7513 -> HDMI receptacle */
+&de_dpi {
+	status = "okay";
+};
+
+&adv7513 {
+	status = "okay";
+
+	ports {
+		port@1 {
+			reg = <1>;
+
+			adv7513_out: endpoint {
+				remote-endpoint = <&hdmi_connector_in>;
+			};
+		};
+	};
+};
+
+/* MIPI DSI path: Mali-DP -> DSI -> SN65DSI84 -> LVDS panel on XP7 */
+&de_dsi {
+	status = "okay";
+};
+
+&lvds_bridge {
+	status = "okay";
+};
+
+&lvds_panel {
+	status = "okay";
+	backlight = <&backlight>;
+};
+
+&timers_pwm {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&timer1_toggle_mux>;
+};
+
+&backlight {
+	status = "okay";
+};
+

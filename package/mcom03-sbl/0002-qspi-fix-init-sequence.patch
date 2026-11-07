@@ -1,0 +1,88 @@
+diff --git a/drivers/qspi/qspi.c b/drivers/qspi/qspi.c
+index d1d1d99..d8e58a7 100644
+--- a/drivers/qspi/qspi.c
++++ b/drivers/qspi/qspi.c
+@@ -6,7 +6,9 @@
+ #include <stdint.h>
+ 
+ #include <drivers/service/service.h>
++#include <drivers/ucg/ucg.h>
+ #include <libs/errors.h>
++#include <libs/log.h>
+ #include <libs/mmio.h>
+ #include <libs/utils-def.h>
+ 
+@@ -119,6 +121,26 @@ int qspi_init(void)
+ 	if (ret)
+ 		return ret;
+ 
++	/**
++	 * The BootROM configured the XIP engine before jumping here.  Clearing
++	 * the enable request is supposed to be enough, but the configuration
++	 * register is cleared as well so that nothing keeps the flash selected.
++	 */
++	service_urb_regs_t *urb = service_get_urb_registers();
++	uint32_t xip_cfg_before = urb->qspi0_xip_cfg;
++	urb->qspi0_xip_cfg = 0;
++
++	/**
++	 * The BootROM may leave the controller enabled (it has just read the
++	 * SBIMG either through XIP or in command mode).  CTRL and CTRL_AUX
++	 * are only writable while the controller is disabled, so switch it
++	 * off and wait for the acknowledge before touching them.
++	 */
++	qspi_write_reg(&qspi_regs->enable, QSPI_ENABLE_ENABLEREQ_MASK, QSPI_DISABLE);
++	for (int r = 0; r < UINT8_MAX; r++)
++		if (FIELD_GET(QSPI_ENABLE_ENABLEREQ_MASK, qspi_regs->enable) == QSPI_DISABLE)
++			break;
++
+ 	// Disable all interrupts of the qspi controller
+ 	qspi_regs->intr_en &= ~(QSPI_STAT_IRQ_ALL);
+ 	// Clear all interrupts from the qspi controller
+@@ -142,15 +164,37 @@ int qspi_init(void)
+ 	qspi_write_reg(&qspi_regs->ctrl_aux, QSPI_CTRL_AUX_QMODE_MASK, QSPI_MODE_NORMAL);
+ 	// Enable full duplex mode
+ 	qspi_full_duplex_en(qspi_regs, QSPI_FULL_DUPLEX);
+-	// Allowed control outputs from the register
+-	qspi_write_reg(&qspi_regs->gpo_set, QSPI_GPO_GPO_MASK, 0xC);
+-	qspi_write_reg(&qspi_regs->gpo_clr, QSPI_GPO_GPO_MASK, ~0xC);
+-	// 0 QSPI_SISO
+-	qspi_write_reg(&qspi_regs->gpo_set, QSPI_GPO_OEN_MASK, 0);
+-	qspi_write_reg(&qspi_regs->gpo_clr, QSPI_GPO_OEN_MASK, ~0);
+-	// Enable outputs
+-	qspi_write_reg(&qspi_regs->gpo_set, QSPI_GPO_EN_MASK, 0xC);
+-	qspi_write_reg(&qspi_regs->gpo_clr, QSPI_GPO_EN_MASK, ~0xC);
++	/**
++	 * gpo_set/gpo_clr are write-1-to-set/clear registers; reading them back
++	 * is not meaningful and a read-modify-write can end up enabling GPO
++	 * mode on SISO0/SISO1 (which kills the SPI function on those pins) when
++	 * the read returns all ones.  Use plain writes, exactly like U-Boot and
++	 * Linux do:
++	 *   - drive SISO2 and SISO3 high (/WP and /HOLD deasserted) and give
++	 *     the GPO control over them;
++	 *   - leave SISO0/SISO1 under the SPI engine, no tri-state on SISO2/3,
++	 *     full-duplex mode.
++	 */
++	mmio_write_32((uintptr_t)&qspi_regs->gpo_set, 0xC | (0xC << 8));
++	mmio_write_32((uintptr_t)&qspi_regs->gpo_clr, (0x3 << 8) | (0xC << 4) | BIT(12));
++
++	/* Bring-up aid: the register state makes it obvious whether the
++	 * configuration actually landed and whether XIP is really off.
++	 */
++	ERROR("QSPI: en=%08x ctrl=%08x aux=%08x stat=%08x ss=%08x pol=%08x fifo=%u "
++	      "xip_out=%08x xip_cfg=%08x\n",
++	      qspi_regs->enable, qspi_regs->ctrl, qspi_regs->ctrl_aux, qspi_regs->stat,
++	      qspi_regs->ss, qspi_regs->ss_polarity, qspi_regs->fifo_depth,
++	      urb->qspi0_xip_en_out, urb->qspi0_xip_cfg);
++	ERROR("QSPI: xip_cfg was %08x, now %08x\n", (unsigned int)xip_cfg_before,
++	      (unsigned int)urb->qspi0_xip_cfg);
++	ERROR("QSPI: gpo_set=%08x gpo_clr=%08x\n", qspi_regs->gpo_set, qspi_regs->gpo_clr);
++	ucg_regs_t *ucg = ucg_get_registers(UCG_SUBSYS_SERV, 0);
++	ERROR("QSPI: ucg qspi0=%08x ext=%08x bp=%08x sync=%08x pll=%08x diag=%08x\n",
++	      (unsigned int)ucg->ucg_ctr_reg[SERVICE_UCG1_CHANNEL_CLK_QSPI0],
++	      (unsigned int)ucg->ucg_ctr_reg[SERVICE_UCG1_CHANNEL_CLK_QSPI0_EXT],
++	      (unsigned int)ucg->ucg_bp_ctr_reg, (unsigned int)ucg->ucg_sync_clk_reg,
++	      urb->service_subs_pllcnfg, urb->service_subs_plldiag);
+ 
+ 	return 0;
+ }

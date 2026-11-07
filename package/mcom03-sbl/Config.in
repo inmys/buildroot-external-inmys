@@ -1,0 +1,14 @@
+config BR2_PACKAGE_MCOM03_SBL
+	bool "mcom03-sbl"
+	depends on BR2_aarch64
+	depends on BR2_PACKAGE_DDRINIT
+	depends on BR2_TARGET_ARM_TRUSTED_FIRMWARE
+	depends on BR2_TARGET_UBOOT
+	help
+	  Second bootloader (SBL-XIP) for the ELVEES MCom-03
+	  (К1892ВМ21Я).  It is stored in the QSPI0 boot flash and copies
+	  ddrinit, TF-A, U-Boot and the U-Boot device tree to DDR.
+
+comment "mcom03-sbl needs ddrinit, TF-A and U-Boot"
+	depends on !BR2_PACKAGE_DDRINIT || !BR2_TARGET_ARM_TRUSTED_FIRMWARE || \
+		!BR2_TARGET_UBOOT

@@ -1,0 +1,8 @@
+
+  INMYS NMS-SM-K1892VM21YA V1
+  ELVEES MCom-03R (К1892ВМ21Я) SMARC module
+
+  console: ttyS0 (SER1_DBG), 115200 8N1
+  eMMC:    /dev/mmcblk1    SD: /dev/mmcblk0
+  Ethernet: eth0/eth1 (DAP8211 PHYs)
+

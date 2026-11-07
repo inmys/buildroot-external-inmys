@@ -1,0 +1,32 @@
+# U-Boot configuration fragment for the INMYS NMS-SM-K1892VM21YA.
+#
+# Applied on top of the ELVEES mcom03r_defconfig.  Everything here is
+# diagnostic only: it adds the I2C multiplexer support and the GPIO
+# command so that the module's I2C tree can be explored from the U-Boot
+# prompt without rebuilding anything.
+#
+#   i2c bus                     four SoC buses plus the two mux branches
+#   i2c dev <n>; i2c probe      scan a branch
+#   i2c mux 70 0|1              select a PCA9540B branch (channel 0 is
+#                               I2C_INT, channel 1 is I2C_INT_1V8)
+#   gpio status -a              dump the PCAL6416A expander pins
+
+# `gpio` command.  The driver (DM_PCA953X) is already enabled by the
+# ELVEES defconfig, but without CMD_GPIO there is no way to use it.
+CONFIG_CMD_GPIO=y
+
+# I2C multiplexer support, so that the PCA9540B (D30) and the PCA9546A
+# (D29) are bound and their branches show up as separate buses.
+CONFIG_I2C_MUX=y
+CONFIG_I2C_MUX_PCA954x=y
+
+# SFDP probing and a wider set of vendors, so that an arbitrary flash
+# plugged into the ELV-SMARC-CB QSPI1 socket XS7 is recognised.  The
+# built-in table alone only covers Winbond, Spansion and Fudan Micro.
+CONFIG_SPI_FLASH_SFDP_SUPPORT=y
+CONFIG_SPI_FLASH_MACRONIX=y
+CONFIG_SPI_FLASH_GIGADEVICE=y
+CONFIG_SPI_FLASH_ISSI=y
+CONFIG_SPI_FLASH_XTX=y
+CONFIG_SPI_FLASH_ZBIT=y
+CONFIG_GPIO_HOG=y

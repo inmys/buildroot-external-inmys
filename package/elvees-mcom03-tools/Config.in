@@ -1,0 +1,6 @@
+config BR2_PACKAGE_HOST_ELVEES_MCOM03_TOOLS
+	bool
+	help
+	  ELVEES MCom-03 host tools: bootrom-tools (mksbimage,
+	  otpcreator) and the MIPS32 bare-metal toolchain used by
+	  ddrinit and the SBL.

@@ -1,0 +1,55 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] spi: silvaco: clear the QSPI1 pad open-drain bit
+
+The HSPERIPH URB resets the QSPI1 pad configuration register (offset
+0x1c) to 0x7, i.e. pad enable | 1.8 V | **open drain**.  U-Boot's
+mcom03_qspi_set_soc_regs() only touches the enable and the 1.8 V bits,
+so the pads stay in open-drain mode: the controller can pull the lines
+low but has to rely on pull-ups for the high level.
+
+That is enough for a single-byte command with an all-zero address --
+`sf probe 1:0` happily reports
+
+	SF: Detected w25q80ew with page size 256 Bytes, erase size 4 KiB, total 1 MiB
+
+-- but every real transfer comes back as 0xbb, and because 0xbb is
+uniform the whole chip even has a plausible-looking CRC.  Erasing a
+sector and reading it back still returns 0xbb, which is what gave the
+game away.
+
+QSPI is a push-pull bus, so clear the open-drain bit together with the
+enable.  After that the same W25Q80EW reads back a blank 1 MiB
+(crc32 956bac74) and erase/write/verify work.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+diff -urN a/drivers/spi/silvaco_qspi.c b/drivers/spi/silvaco_qspi.c
+--- a/drivers/spi/silvaco_qspi.c
++++ b/drivers/spi/silvaco_qspi.c
+@@ -31,6 +31,7 @@
+ #define QSPI1_PAD		0x1c
+ #define QSPI1_PAD_EN		1
+ #define QSPI1_PAD_1V8		BIT(1)
++#define QSPI1_PAD_OPEN_DRAIN	BIT(2)
+ 
+ #define QSPI1_SS		0x20
+ #define QSPI1_SISO		0x24
+@@ -135,7 +136,17 @@
+ 		debug("\nHint: QSPI1 pads are configured as %s\n", is_18v ?
+ 		      "1.8V" : "3.3V");
+ 
+-		ret = regmap_update_bits(regmap, QSPI1_PAD, QSPI1_PAD_EN, QSPI1_PAD_EN);
++		/*
++		 * The pads come out of reset with the open-drain bit set, so
++		 * the controller can only pull the lines low and relies on
++		 * pull-ups for the high level.  A single-byte command such as
++		 * READ ID survives that, but any real transfer does not: on a
++		 * W25Q80EW in the ELV-SMARC-CB socket every data byte reads
++		 * back as 0xbb.  QSPI is a push-pull bus, clear the bit.
++		 */
++		ret = regmap_update_bits(regmap, QSPI1_PAD,
++					 QSPI1_PAD_EN | QSPI1_PAD_OPEN_DRAIN,
++					 QSPI1_PAD_EN);
+ 		if (ret < 0)
+ 			return ret;
+ 

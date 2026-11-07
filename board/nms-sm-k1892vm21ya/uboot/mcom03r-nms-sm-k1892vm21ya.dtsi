@@ -1,0 +1,275 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * INMYS NMS-SM-K1892VM21YA V1 - U-Boot module description
+ *
+ * Copyright (C) 2026 INMYS
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+
+#include "mcom03r.dtsi"
+
+/ {
+	model = "INMYS NMS-SM-K1892VM21YA V1";
+	compatible = "inmys,nms-sm-k1892vm21ya",
+		     "inmys,nms-sm-k1892",
+		     "elvees,mcom03r";
+
+	aliases {
+		i2c_pm = &i2c0;
+		i2c_gp = &i2c1;
+		mmc0 = &sdhci0;
+		mmc1 = &sdhci1;
+	};
+
+	emmc_1v8: regulator-emmc-1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "emmc-1v8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+	};
+
+	sdio_3v3: regulator-sdio-3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "sdio-3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+};
+
+/* eMMC (D20) on SDMMC1 */
+&sdhci1 {
+	status = "okay";
+
+	non-removable;
+	bus-width = <8>;
+	vqmmc-supply = <&emmc_1v8>;
+};
+
+/* SMARC SDIO on SDMMC0 */
+/* SMARC SDIO (4 bit, 3.3 V only) */
+&sdhci0 {
+	status = "okay";
+
+	bus-width = <4>;
+	vmmc-supply = <&sdio_3v3>;
+	vqmmc-supply = <&sdio_3v3>;
+	no-1-8-v;
+	/*
+	 * SDMMC0_CDN (ball BB1) -> SMARC SDIO_CD# (P35).  The controller
+	 * reports it in Present State bit 16, so no broken-cd: polling an
+	 * empty slot every 10 s is pure noise.
+	 */
+};
+
+/* Boot flash (D21 W25Q128, 16 MiB) */
+&qspi0 {
+	status = "okay";
+
+	flash0: flash@0 {
+		compatible = "jedec,spi-nor", "spi-flash";
+		reg = <0x0>;
+		spi-tx-bus-width = <4>;
+		spi-rx-bus-width = <4>;
+	};
+};
+
+/* SMARC serial ports */
+ser0: &uart3 { };
+ser1: &uart0 { };
+ser2: &uart2 { };
+ser3: &uart1 { };
+
+/*
+ * SMARC I2C_PM (X1.P121/P122) and I2C_GP (X1.S48/S49).  Both are plain
+ * module-level buses that go straight to the carrier, so they are enabled
+ * unconditionally: nothing is probed on them automatically, they are only
+ * used by hand (`i2c dev` / `i2c probe`) and by the carrier device nodes.
+ */
+i2c_pm: &i2c0 {
+	status = "okay";
+	clock-frequency = <100000>;
+};
+
+i2c_gp: &i2c1 {
+	status = "okay";
+	clock-frequency = <100000>;
+};
+
+/* Ethernet PHYs D9A/D9B (DAP8211RI), one PHY per MDIO bus */
+/*
+ * The PHY VDDIO is +1V8_AO and the RGMII nets are pulled to it, so the
+ * SoC's EMAC pads must be 1.8 V (URB 0x10400140).  Without this the MAC
+ * transmits but receives nothing.
+ */
+&emac0 {
+	status = "okay";
+	phy-mode = "rgmii-id";
+	phy-handle = <&ethernet_phy0>;
+	elvees,pads-1v8-en;
+
+	ethernet_phy0: ethernet-phy@0 {
+		reg = <0x0>;
+	};
+};
+
+&emac1 {
+	status = "okay";
+	phy-mode = "rgmii-id";
+	phy-handle = <&ethernet_phy1>;
+	elvees,pads-1v8-en;
+
+	ethernet_phy1: ethernet-phy@0 {
+		reg = <0x0>;
+	};
+};
+
+/* USB0 -> TUSB8041 hub, USB1 -> TUSB9261 USB-SATA */
+&usb0 {
+	status = "okay";
+};
+
+&usb1 {
+	status = "okay";
+};
+
+/*
+ * SoC I2C2 -> PCA9540B (D30).  Note that the PCA9540B control register
+ * has an enable bit (bit 2) on top of the channel bit (bit 0): writing
+ * 0x00 or 0x01 leaves the part disabled and nothing behind the mux
+ * answers.  The Linux/U-Boot pca954x drivers handle this themselves,
+ * but a raw `i2c mw 70 0.0 <v>` from the prompt needs 0x04 (channel 0,
+ * I2C_INT, 3.3 V) or 0x05 (channel 1, I2C_INT_1V8).
+ *
+ *   channel 0 (I2C_INT, 3.3 V)  EMC2301 fan controller @0x2f,
+ *                               TUSB8041 hub @0x44
+ *   channel 1 (I2C_INT_1V8)     PCAL6416A @0x20, SN65DSI84 @0x2d,
+ *                               ADV7513 @0x39, 24AA025E48 @0x50/@0x53,
+ *                               PCF8523 RTC @0x68
+ */
+&i2c2 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	i2c-switch@70 {
+		compatible = "nxp,pca9540";
+		reg = <0x70>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		i2c@0 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0>;
+		};
+
+		i2c@1 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <1>;
+
+			/*
+			 * PCAL6416A (D34).  Register compatible with the
+			 * PCA9555 as far as U-Boot is concerned, so the
+			 * pca953x driver binds to it and `gpio status -a`
+			 * lists every pin.
+			 */
+			gpio_expander: gpio@20 {
+				compatible = "nxp,pca9555";
+				reg = <0x20>;
+				gpio-controller;
+				#gpio-cells = <2>;
+			};
+
+			/*
+			 * Factory MAC addresses, 24AA025E48 EUI-48 EEPROMs
+			 * (D11/D12, SOT-23-6).  The address sits in the last
+			 * six bytes of the array (0xfa..0xff); the rest of
+			 * the array is blank.  Read by
+			 * board/elvees/common/factory-settings.c to set
+			 * ethaddr/eth1addr instead of a random address.
+			 *
+			 * D11 has A0/A1 tied to GND (0x50) and drives GBE0,
+			 * D12 has A0/A1 tied to +1V8_CORE (0x53) and drives
+			 * GBE1.  Swap the indices here if a board turns out
+			 * to be wired the other way round.
+			 */
+			mac-eeprom@50 {
+				compatible = "inmys,eui48-eeprom";
+				reg = <0x50>;
+				inmys,eth-index = <0>;
+			};
+
+			mac-eeprom@53 {
+				compatible = "inmys,eui48-eeprom";
+				reg = <0x53>;
+				inmys,eth-index = <1>;
+			};
+		};
+	};
+};
+
+/* PCA9546A (D29): CAM0/CAM1/LCD */
+&i2c3 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	i2c-switch@77 {
+		compatible = "nxp,pca9546";
+		reg = <0x77>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		i2c@0 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0>;
+		};
+
+		i2c@1 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <1>;
+		};
+
+		i2c@2 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <2>;
+		};
+	};
+};
+
+&gpio0a {
+	gpio-line-names = "GPIO6", "nSMB_ALERT", "SER0_CTS", "nINT_GPIOEXP",
+		"GPIO11", "nLID", "", "SER0_RTS";
+};
+
+&gpio0b {
+	gpio-line-names = "SER0_RX", "SER0_TX", "", "WDT_TIME_OUT#",
+		"PCIE_A_nRST", "SER3_RX", "SER3_TX", "SER2_RX";
+};
+
+&gpio0c {
+	gpio-line-names = "SPI0_SCK", "SPI0_MOSI", "SPI0_MISO", "SPI0_SS_IN",
+		"SPI0_CS0", "SPI0_CS1", "", "";
+};
+
+&gpio0d {
+	gpio-line-names = "SER2_TX", "GPIO10", "nCARRIER_SHDWN", "I2C_PM_CK",
+		"I2C_PM_DAT", "GPIO1_CAM1_PWR#", "GPIO2_CAM0_RST#", "GPIO12";
+};
+
+&gpio1a {
+	gpio-line-names = "I2C_GP_CK", "I2C_GP_DAT", "I2C2_SCL", "I2C2_SDA",
+		"I2C3_SCL", "I2C3_SDA", "GPIO0_CAM0_PWR#", "GPIO3_CAM1_RST#";
+};
+
+&gpio1b {
+	gpio-line-names = "HDMI_I2S_SCLK", "HDMI_I2S_LRCLK", "HDMI_I2S_D",
+		"", "GPIO7", "GPIO4_HDA_RST#", "SER1_TX", "SER1_RX";
+};

@@ -1,0 +1,31 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] mtd: spi: add Winbond W25Q80EW to the JEDEC ID table
+
+The ELV-SMARC-CB r3.3.0 carrier has a QSPI1 flash socket (XS7) that is
+populated with a W25Q80EW (1.8 V, 8 Mbit).  U-Boot knows the rest of the
+1.8 V "EW/FW" family (0xef6012, 0xef6015..0xef6019) but not 0xef6014, so
+`sf probe 1:0` fails with
+
+	unrecognized JEDEC id bytes: ef, 60, 14
+
+even though the bus, the pads and the chip itself are fine.
+CONFIG_SPI_FLASH_SFDP_SUPPORT does not help here: spi_nor_scan() only
+parses SFDP *after* spi_nor_read_id() has matched the built-in table.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+diff -urN a/drivers/mtd/spi/spi-nor-ids.c b/drivers/mtd/spi/spi-nor-ids.c
+--- a/drivers/mtd/spi/spi-nor-ids.c
++++ b/drivers/mtd/spi/spi-nor-ids.c
+@@ -445,6 +445,11 @@
+ 	{ INFO("w25q20cl", 0xef4012, 0, 64 * 1024,  4, SECT_4K) },
+ 	{ INFO("w25q20bw", 0xef5012, 0, 64 * 1024,  4, SECT_4K) },
+ 	{ INFO("w25q20ew", 0xef6012, 0, 64 * 1024,  4, SECT_4K) },
++	{
++		INFO("w25q80ew", 0xef6014, 0, 64 * 1024,  16,
++			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ |
++			SPI_NOR_HAS_LOCK | SPI_NOR_HAS_TB)
++	},
+ 	{ INFO("w25q32", 0xef4016, 0, 64 * 1024,  64, SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ) },
+ 	{
+ 		INFO("w25q16dw", 0xef6015, 0, 64 * 1024,  32,

@@ -1,0 +1,31 @@
+comment "NMS-SM-K1892VM21YA support needs an AArch64 target"
+	depends on !BR2_aarch64
+
+if BR2_aarch64
+
+config BR2_NMS_SM_K1892_CARRIER
+	string "Default carrier board"
+	default "nms-sm-evm"
+	help
+	  Carrier board used for the default boot entry.  The device tree
+	  for this carrier is written to extlinux.conf and used by the
+	  generated SD card image.
+
+	  Supported carriers:
+	    nms-sm-evm         - NMS-SM-EVM V1 (default)
+	    nms-smarc-tester   - NMS_SMARC_TESTER V1
+	    nms-itx-sm-lc-v4   - NMS-ITX-SM-LC-V4
+
+config BR2_NMS_SM_K1892_SBL_CONFIG
+	string "SBL build configuration file"
+	default "$(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/board/nms-sm-k1892vm21ya/nms-sm-k1892vm21ya-sbl-config.toml"
+	help
+	  TOML file describing which ddrinit configuration and U-Boot
+	  device tree pairs are packed into the SBL images.
+
+source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/ddrinit/Config.in"
+source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/elvees-mcom03-tools/Config.in"
+source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/kconfiglib/Config.in"
+source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/mcom03-sbl/Config.in"
+
+endif

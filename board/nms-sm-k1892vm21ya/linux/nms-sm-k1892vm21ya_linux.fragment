@@ -1,0 +1,27 @@
+# Kernel configuration fragment for the INMYS NMS-SM-K1892VM21YA module.
+#
+# The rootfs built by this SDK contains no loadable modules, so anything the
+# board needs at boot time has to be built in.  The ELVEES mcom03r defconfig
+# leaves several of these as =m, which silently breaks whole subsystems.
+
+# --- I2C muxes ------------------------------------------------------------
+# D30 PCA9540B (I2C_INT / I2C_INT_1V8) and D29 PCA9546A (CAM0/CAM1/LCD).
+# With =m the muxes never bind, no child adapters are created and every
+# device behind them (RTC, GPIO expander, EEPROMs, bridges) is invisible.
+CONFIG_I2C_MUX=y
+CONFIG_I2C_MUX_PCA954x=y
+
+# --- Display --------------------------------------------------------------
+# D10 SN65DSI84 DSI->dual-LVDS bridge and D19 ADV7513 HDMI transmitter.
+CONFIG_DRM_TI_SN65DSI83=y
+CONFIG_DRM_I2C_ADV7511=y
+
+# LVDS panel (XP7 on the ELV-SMARC-CB) and the generic "hdmi-connector".
+CONFIG_DRM_PANEL_LVDS=y
+CONFIG_DRM_PANEL_SIMPLE=y
+CONFIG_DRM_DISPLAY_CONNECTOR=y
+
+# Panel backlight is driven from timer0-pwm (snps,dw-apb-timers-pwm2).
+CONFIG_BACKLIGHT_PWM=y
+CONFIG_PWM_DWC_CORE=y
+CONFIG_PWM_DWC_OF=y

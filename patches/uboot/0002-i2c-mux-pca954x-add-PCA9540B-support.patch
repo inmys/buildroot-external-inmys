@@ -1,0 +1,55 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] i2c: mux: pca954x: add PCA9540B support
+
+The PCA9540B is a 2-channel I2C multiplexer in an 8-pin package with a
+fixed address of 0x70.  Its control register is the same as the one of
+the PCA9544: bits 1:0 select the channel (binary) and bit 2 is an enable
+bit that has to be set, otherwise the part stays disconnected and nothing
+behind the mux answers.
+
+The Linux driver has had this entry for years (pca_9540 in
+drivers/i2c/muxes/i2c-mux-pca954x.c: nchans = 2, enable = 0x4,
+muxtype = pca954x_ismux), but U-Boot's copy of the driver is missing it,
+so a `nxp,pca9540` node in the device tree is silently ignored.
+
+The INMYS NMS-SM-K1892VM21YA module uses a PCA9540BGD (D30) to split the
+SoC I2C2 into the I2C_INT (3.3 V) and I2C_INT_1V8 branches.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+ drivers/i2c/muxes/pca954x.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/i2c/muxes/pca954x.c b/drivers/i2c/muxes/pca954x.c
+--- a/drivers/i2c/muxes/pca954x.c
++++ b/drivers/i2c/muxes/pca954x.c
+@@ -20,6 +20,7 @@
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+ enum pca_type {
++	PCA9540,
+ 	PCA9543,
+ 	PCA9544,
+ 	PCA9546,
+@@ -45,6 +46,11 @@ struct pca954x_priv {
+ };
+ 
+ static const struct chip_desc chips[] = {
++	[PCA9540] = {
++		.enable = 0x4,
++		.muxtype = pca954x_ismux,
++		.width = 2,
++	},
+ 	[PCA9543] = {
+ 		.muxtype = pca954x_isswi,
+ 		.width = 2,
+@@ -106,6 +112,7 @@ static const struct i2c_mux_ops pca954x_ops = {
+ };
+ 
+ static const struct udevice_id pca954x_ids[] = {
++	{ .compatible = "nxp,pca9540", .data = PCA9540 },
+ 	{ .compatible = "nxp,pca9543", .data = PCA9543 },
+ 	{ .compatible = "nxp,pca9544", .data = PCA9544 },
+ 	{ .compatible = "nxp,pca9546", .data = PCA9546 },
+-- 
+2.43.0

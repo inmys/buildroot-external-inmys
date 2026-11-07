@@ -1,0 +1,5 @@
+config BR2_PACKAGE_HOST_KCONFIGLIB
+	bool
+	help
+	  kconfiglib Kconfig frontends (genconfig, olddefconfig, ...)
+	  used by the ELVEES ddrinit and SBL build systems.

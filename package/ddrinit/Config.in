@@ -1,0 +1,11 @@
+config BR2_PACKAGE_DDRINIT
+	bool "ddrinit"
+	depends on BR2_aarch64
+	select BR2_PACKAGE_HOST_KCONFIGLIB
+	select BR2_PACKAGE_HOST_ELVEES_MCOM03_TOOLS
+	help
+	  DDR initializer for the ELVEES MCom-03 (К1892ВМ21Я) DDR
+	  subsystem.  Bare-metal MIPS32 firmware which runs on the RISC0
+	  core before TF-A and trains the LPDDR4/DDR4 interface.
+
+	  The images are installed to BINARIES_DIR/ddrinit-<defconfig>/.

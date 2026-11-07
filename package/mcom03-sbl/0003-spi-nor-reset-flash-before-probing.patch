@@ -1,0 +1,52 @@
+diff --git a/drivers/spi-nor/spi-nor.c b/drivers/spi-nor/spi-nor.c
+index 85125b2..2bd9b73 100644
+--- a/drivers/spi-nor/spi-nor.c
++++ b/drivers/spi-nor/spi-nor.c
+@@ -7,6 +7,7 @@
+ #include <stdint.h>
+ 
+ #include <drivers/qspi/qspi.h>
++#include <drivers/timer/timer.h>
+ #include <libs/errors.h>
+ #include <libs/log.h>
+ #include <libs/utils-def.h>
+@@ -337,6 +338,30 @@ static int __spi_nor_init(void)
+ 	return 0;
+ }
+ 
++/**
++ * Bring the flash back to plain single-bit SPI mode.
++ *
++ * The BootROM reads the SBIMG with whatever command set it likes; if it used
++ * continuous read mode (0x0B/0xEB with the mode bits set) or QPI, the part
++ * ignores normal commands afterwards and every read returns 0xff.  0xFF exits
++ * both modes, 0xAB releases the device from deep power-down and 0x66/0x99
++ * resets it.  All four are no-ops on a part that is already in SPI mode.
++ */
++static void spi_nor_reset(void)
++{
++	uint8_t cmd;
++
++	cmd = 0xFF;
++	qspi_xfer(&cmd, 1, NULL, 0);
++	cmd = 0xAB;
++	qspi_xfer(&cmd, 1, NULL, 0);
++	cmd = 0x66;
++	qspi_xfer(&cmd, 1, NULL, 0);
++	cmd = 0x99;
++	qspi_xfer(&cmd, 1, NULL, 0);
++	timer_delay_us(1000);
++}
++
+ int spi_nor_init(void)
+ {
+ 	int ret;
+@@ -347,6 +372,8 @@ int spi_nor_init(void)
+ 		return ret;
+ 	}
+ 
++	spi_nor_reset();
++
+ 	ret = __spi_nor_init();
+ 	if (ret) {
+ 		ERROR("__spi_nor_init failed. Code : %d\n", ret);

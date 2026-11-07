@@ -1,0 +1,141 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * INMYS NMS-SM-K1892VM21YA V1 on ELV-SMARC-CB r3.3.0 - U-Boot device tree
+ *
+ * The ELV-SMARC-CB is the ELVEES reference SMARC carrier.  Its SD socket
+ * (XS6) is fed from 3V3_SDIO through the load switch DA3, which is enabled
+ * by SMARC SDIO_PWR_EN (module SDMMC0_PWR, pulled up on the module), and the
+ * card detect switch goes to SMARC SDIO_CD#.
+ *
+ * Copyright (C) 2026 INMYS
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+
+#include "mcom03r-nms-sm-k1892vm21ya.dtsi"
+
+/ {
+	model = "INMYS NMS-SM-K1892VM21YA V1 on ELV-SMARC-CB r3.3.0";
+	compatible = "inmys,nms-sm-elvsmarccb",
+		     "inmys,nms-sm-k1892vm21ya",
+		     "inmys,nms-sm-k1892",
+		     "elvees,mcom03r";
+
+	aliases {
+		ethernet0 = &emac0;
+		ethernet1 = &emac1;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+};
+
+/* SER1_DBG is the USB Type-C debug UART on this carrier */
+&uart0 {
+	status = "okay";
+	clock-frequency = <27920454>;
+};
+
+&uart3 {
+	status = "okay";
+	clock-frequency = <27920454>;
+};
+
+/*
+ * SD socket XS6.  3.3 V only, and the clock pad drive strength has to be
+ * raised on this PCB (see the ELVEES reference device tree).
+ */
+&sdhci0 {
+	sdhci-caps-mask = <0x7 0x4000000>;
+	sdhci-caps = <0x0 0x0>;
+	elvees,drive-strength-clk = <6>;
+};
+
+/*
+ * SMARC ID EEPROM DD4 (BL24C32A, 4 KiB, 2-byte addressing) sits directly on
+ * I2C_PM at 0x50, exactly as the SMARC specification requires.  U-Boot's
+ * board detection reads it through this node.
+ */
+&i2c_pm {
+	eeprom@50 {
+		compatible = "atmel,24c32";
+		reg = <0x50>;
+		pagesize = <32>;
+	};
+};
+
+/*
+ * Temperature sensor DA15 (TMP112B, fixed address 0x49) on I2C_GP.  The same
+ * bus also serves the STM32 board controller (through R96/R97), so a probe of
+ * this bus exercises the level shifter DD5 as well.
+ */
+&i2c_gp {
+	temperature-sensor@49 {
+		compatible = "ti,tmp112";
+		reg = <0x49>;
+	};
+};
+
+/*
+ * QSPI1 flash socket XS7 (SOIC-8, ACA-SPI-004).  The socket is powered from
+ * 1V8_SF-0 (ferrite L7 from +1v8) and the module routes QSPI1 to the SMARC
+ * connector through the RS2299 crossbar D31/D32, so the pads are 1.8 V.
+ *
+ * The crossbar is selected by QSPI_SPI# = PCAL6416A P0_4 (D34 pin 5):
+ * 1 -> COM connects to NO -> QSPI1 (CLK, SS0, IO0, IO1);
+ * 0 -> COM connects to NC -> SPI1 (CLK, CS0, MOSI, MISO).
+ * With P0_4 left as an input the pin sits on a 10k/10k divider (0.9 V),
+ * i.e. between VIL(max) = 0.5 V and VIH(min) = 1.3 V, so it must be driven
+ * explicitly before the flash can be reached:
+ *
+ *	gpio clear gpio@20_4   # actually 'gpio set gpio@20_4' for QSPI1
+ *
+ * IO2/IO3 are wired straight through, not through the crossbar.
+ */
+/*
+ * Drive the crossbar select.  The PCAL6416A comes out of reset with every
+ * pin as an input, so QSPI_SPI# would otherwise sit on a 10k/10k divider
+ * (0.9 V) -- between VIL(max) = 0.5 V and VIH(min) = 1.3 V of the RS2299.
+ * If the hog does not get applied for some reason, do it by hand:
+ *
+ *	i2c dev 6; i2c mw 20 2 10; i2c mw 20 6 ef
+ */
+&gpio_expander {
+	qspi-spi-hog {
+		gpio-hog;
+		gpios = <4 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "QSPI_SPI#";
+	};
+};
+
+&qspi1 {
+	status = "okay";
+	elvees,pads-1v8-en;
+	/*
+	 * U-Boot's silvaco_qspi has no set_speed(), so spi-max-frequency is
+	 * ignored and the serial clock is whatever clk_ext runs at.  Put it
+	 * at 3 MHz, the highest rate ELVEES recommends for a socketed part.
+	 */
+	assigned-clock-rates = <93750000 3000000>;
+
+	flash1: flash@0 {
+		compatible = "jedec,spi-nor", "spi-flash";
+		reg = <0x0>;
+		/* Highest frequency for the IC installed into the socket */
+		spi-max-frequency = <3000000>;
+		spi-tx-bus-width = <4>;
+		spi-rx-bus-width = <4>;
+	};
+};
+
+&pcie0 {
+	status = "okay";
+};
+
+&pcie1 {
+	status = "okay";
+};

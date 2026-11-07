@@ -1,0 +1,54 @@
+diff --git a/drivers/spi-nor/spi-nor.c b/drivers/spi-nor/spi-nor.c
+index 85125b2..4a8ea67 100644
+--- a/drivers/spi-nor/spi-nor.c
++++ b/drivers/spi-nor/spi-nor.c
+@@ -85,6 +85,13 @@ static struct spi_nor_id spi_nor_ids[] = {
+ 	{ "W25Q256JV-IM/JM", 0xEF7019, 0, 32 * MiB, 64 * KiB, 256, 0 },
+ 	{ "W25Q256JW", 0xEF6019, 0, 32 * MiB, 64 * KiB, 256, 0 },
+ 	{ "W25Q256JW-IM", 0xEF8019, 0, 32 * MiB, 64 * KiB, 256, 0 },
++	/* Second-source 128 Mbit parts with the same geometry as W25Q128. */
++	{ "GD25Q128", 0xC84018, 0, 16 * MiB, 64 * KiB, 256, 0 },
++	{ "XT25F128B", 0x0B4018, 0, 16 * MiB, 64 * KiB, 256, 0 },
++	{ "MX25L128", 0xC22018, 0, 16 * MiB, 64 * KiB, 256, 0 },
++	{ "IS25LP128", 0x9D6018, 0, 16 * MiB, 64 * KiB, 256, 0 },
++	{ "ZB25VQ128", 0x5E4018, 0, 16 * MiB, 64 * KiB, 256, 0 },
++	{ "BY25Q128AS", 0x684018, 0, 16 * MiB, 64 * KiB, 256, 0 },
+ };
+ 
+ static nor_flash_t nor_flash;
+@@ -312,9 +319,13 @@ static int __spi_nor_init(void)
+ 			break;
+ 		}
+ 	}
+-	INFO("SPI NOR ID: 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x (%s)\n", jedecid[0], jedecid[1],
+-	     jedecid[2], jedecid[3], jedecid[4], jedecid[5],
+-	     spi_nor_id ? spi_nor_id->name : "unknown");
++	/* ERROR rather than INFO: an unsupported ID is exactly the case where
++	 * this line has to be visible, and INFO is compiled out of release
++	 * builds (LOG_LEVEL=20).
++	 */
++	ERROR("SPI NOR ID: 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x (%s)\n", jedecid[0],
++	      jedecid[1], jedecid[2], jedecid[3], jedecid[4], jedecid[5],
++	      spi_nor_id ? spi_nor_id->name : "unknown");
+ 	if (spi_nor_id) {
+ 		nor_flash.name = spi_nor_id->name;
+ 		nor_flash.size_in_bytes = spi_nor_id->size;
+@@ -323,7 +334,17 @@ static int __spi_nor_init(void)
+ 		nor_flash.addr_bytes = spi_nor_id->size > 0x1000000 ? 4 : 3;
+ 		nor_flash.flags = spi_nor_id->flags;
+ 	} else {
+-		return -ENOTSUPPORTED;
++		/* Refusing to boot only because the ID is not in the table is a
++		 * poor trade: most 128 Mbit parts are command compatible with
++		 * W25Q128. Use that geometry and carry on.
++		 */
++		ERROR("SPI NOR: unsupported ID, assuming 16 MiB/64 KiB/256 B\n");
++		nor_flash.name = "unknown-16MiB";
++		nor_flash.size_in_bytes = 16 * MiB;
++		nor_flash.page_size = 256;
++		nor_flash.sector_size = 64 * KiB;
++		nor_flash.addr_bytes = 3;
++		nor_flash.flags = 0;
+ 	}
+ 
+ 	if ((nor_flash.flags & (FLAG_HAS_CR1 | FLAG_DIFFERENT_SECTORS)) ==

@@ -1,0 +1,92 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * INMYS NMS-SM-K1892VM21YA V1 on NMS-SM-EVM V1 - U-Boot device tree
+ *
+ * Copyright (C) 2026 INMYS
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+
+#include "mcom03r-nms-sm-k1892vm21ya.dtsi"
+
+/ {
+	model = "INMYS NMS-SM-K1892VM21YA V1 on NMS-SM-EVM V1";
+	compatible = "inmys,nms-sm-evm",
+		     "inmys,nms-sm-k1892vm21ya",
+		     "inmys,nms-sm-k1892",
+		     "elvees,mcom03r";
+
+	aliases {
+		ethernet0 = &emac0;
+		ethernet1 = &emac1;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+};
+
+&uart3 {
+	status = "okay";
+	clock-frequency = <27920454>;
+};
+
+&uart0 {
+	status = "okay";
+	clock-frequency = <27920454>;
+};
+
+/* Carrier PCA9535 (D31) on I2C_PM */
+&i2c0 {
+	status = "okay";
+
+	gpio@20 {
+		compatible = "nxp,pca9535";
+		reg = <0x20>;
+		gpio-controller;
+		#gpio-cells = <2>;
+	};
+};
+
+/* Carrier fan controller (D32) and I2C switch (D30) on I2C_GP */
+&i2c1 {
+	status = "okay";
+
+	i2c-switch@70 {
+		compatible = "nxp,pca9546";
+		reg = <0x70>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		i2c@0 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0>;
+		};
+
+		i2c@1 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <1>;
+		};
+
+		i2c@2 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <2>;
+		};
+
+		i2c@3 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <3>;
+		};
+	};
+};
+
+&pcie0 {
+	status = "okay";
+	reset-gpios = <&gpio0b 4 GPIO_ACTIVE_LOW>;
+};

@@ -1,0 +1,225 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] board: elvees: take the factory MAC addresses from the
+ EUI-48 EEPROMs on the module
+
+The INMYS NMS-SM-K1892VM21YA module carries two 24AA025E48 EUI-48
+EEPROMs (D11/D12, SOT-23-6) on the I2C_INT_1V8 branch behind the
+PCA9540B multiplexer.  Each one holds a factory-programmed unicast MAC
+address in the last six bytes of its 256-byte array (0xfa..0xff); the
+rest of the array is blank.
+
+Until now U-Boot ignored them, so with CONFIG_NET_RANDOM_ETHADDR=y it
+invented a new locally administered address and saved it in the
+environment, which made DHCP reservations and PXE filters impossible.
+
+The device tree describes the EEPROMs as
+
+	mac-eeprom@50 {
+		compatible = "inmys,eui48-eeprom";
+		reg = <0x50>;
+		inmys,eth-index = <0>;
+	};
+
+and this patch makes do_factory_settings() fall back to them when the
+factory_eth0_mac / factory_eth1_mac environment variables are not set,
+in the same way it already falls back to those variables before the
+random address is generated.
+
+An address that is already present in the environment and is globally
+administered is left alone, so a deliberate override keeps working.  A
+locally administered one (bit 1 of the first octet, i.e. exactly what
+CONFIG_NET_RANDOM_ETHADDR produces and what older firmware may have
+saved to flash) is replaced by the EEPROM value.  Blank (all 0x00/0xff)
+and multicast addresses are rejected so that an unprogrammed EEPROM
+cannot produce a bogus ethaddr.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+diff -urN a/board/elvees/common/factory-settings.c b/board/elvees/common/factory-settings.c
+--- a/board/elvees/common/factory-settings.c
++++ b/board/elvees/common/factory-settings.c
+@@ -7,6 +7,7 @@
+ #include <ctype.h>
+ #include <dm.h>
+ #include <dm/of_access.h>
++#include <dm/uclass.h>
+ #include <env.h>
+ #include <env_internal.h>
+ #include <i2c.h>
+@@ -377,6 +378,158 @@
+ 	return ret;
+ }
+ 
++/*
++ * Factory MAC addresses
++ *
++ * The INMYS NMS-SM-K1892VM21YA module carries two 24AA025E48 EUI-48
++ * EEPROMs (D11/D12, SOT-23-6) on the I2C_INT_1V8 branch behind the
++ * PCA9540B multiplexer.  The 6-byte EUI-48 address lives in the last
++ * six bytes of the 256-byte array (0xfa..0xff); the rest of the array
++ * is free for the customer.
++ *
++ * The device tree describes them as
++ *
++ *	mac-eeprom@50 {
++ *		compatible = "inmys,eui48-eeprom";
++ *		reg = <0x50>;
++ *		inmys,eth-index = <0>;
++ *	};
++ *
++ * where "inmys,eth-index" says which Ethernet port the address belongs
++ * to (0 -> ethaddr/GBE0, 1 -> eth1addr/GBE1).
++ */
++#define EUI48_EEPROM_COMPAT	"inmys,eui48-eeprom"
++#define EUI48_MAC_OFFSET	0xfa
++#define EUI48_MAC_LEN		6
++
++static ofnode find_eui48_eeprom(u32 eth_index)
++{
++	ofnode node = ofnode_null();
++
++	for (node = ofnode_by_compatible(node, EUI48_EEPROM_COMPAT);
++	     ofnode_valid(node);
++	     node = ofnode_by_compatible(node, EUI48_EEPROM_COMPAT)) {
++		u32 index;
++
++		if (ofnode_read_u32(node, "inmys,eth-index", &index))
++			continue;
++		if (index == eth_index)
++			return node;
++	}
++
++	return ofnode_null();
++}
++
++static int read_eui48_eeprom(ofnode node, char *mac_str)
++{
++	struct udevice *bus, *chip;
++	ofnode bus_node;
++	u8 mac[EUI48_MAC_LEN];
++	u32 addr;
++	int i, ret;
++
++	ret = ofnode_read_u32(node, "reg", &addr);
++	if (ret)
++		return ret;
++
++	bus_node = ofnode_get_parent(node);
++	if (!ofnode_valid(bus_node))
++		return -ENODEV;
++
++	ret = uclass_get_device_by_ofnode(UCLASS_I2C, bus_node, &bus);
++	if (ret)
++		return ret;
++
++	/* The 24AA025E48 uses a single-byte register address */
++	ret = i2c_get_chip(bus, addr, 1, &chip);
++	if (ret)
++		return ret;
++
++	ret = dm_i2c_read(chip, EUI48_MAC_OFFSET, mac, EUI48_MAC_LEN);
++	if (ret)
++		return ret;
++
++	/* An erased or blank EEPROM must not be used as a MAC address */
++	for (i = 0; i < EUI48_MAC_LEN; i++)
++		if (mac[i] != 0x00 && mac[i] != 0xff)
++			break;
++	if (i == EUI48_MAC_LEN)
++		return -ENODATA;
++
++	/* A multicast/broadcast address is not a valid station address */
++	if (mac[0] & 0x01)
++		return -EINVAL;
++
++	sprintf(mac_str, "%02x:%02x:%02x:%02x:%02x:%02x",
++		mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
++
++	return 0;
++}
++
++static int hex_nibble(char c)
++{
++	if (c >= '0' && c <= '9')
++		return c - '0';
++	if (c >= 'a' && c <= 'f')
++		return c - 'a' + 10;
++	if (c >= 'A' && c <= 'F')
++		return c - 'A' + 10;
++	return -1;
++}
++
++/*
++ * A locally administered address (bit 1 of the first octet set) is what
++ * CONFIG_NET_RANDOM_ETHADDR generates, so it is not a factory address.
++ */
++static bool mac_is_globally_administered(const char *str)
++{
++	int hi, lo;
++
++	if (!str || strlen(str) < 2)
++		return false;
++
++	hi = hex_nibble(str[0]);
++	lo = hex_nibble(str[1]);
++	if (hi < 0 || lo < 0)
++		return false;
++
++	return !((hi << 4 | lo) & 0x02);
++}
++
++/*
++ * Set "ethaddr" (index 0) or "eth1addr" (index 1) from the module's
++ * EUI-48 EEPROM.  An address that is already set and globally
++ * administered is left alone; a random (locally administered) one, as
++ * generated by CONFIG_NET_RANDOM_ETHADDR and possibly saved in the
++ * environment by an older firmware, is replaced.
++ */
++static void set_mac_from_eeprom(u32 eth_index, const char *env_name)
++{
++	char mac_str[18];
++	const char *cur;
++	ofnode node;
++
++	cur = env_get(env_name);
++	if (cur && mac_is_globally_administered(cur))
++		return;
++
++	node = find_eui48_eeprom(eth_index);
++	if (!ofnode_valid(node)) {
++		log_debug("No EUI-48 EEPROM for %s in the device tree\n", env_name);
++		return;
++	}
++
++	if (read_eui48_eeprom(node, mac_str)) {
++		log_err("Unable to read the EUI-48 EEPROM for %s\n", env_name);
++		return;
++	}
++
++	if (env_set(env_name, mac_str))
++		log_err("Unable to set %s to %s\n", env_name, mac_str);
++	else
++		log_notice("%s: %s (from EUI-48 EEPROM)\n", env_name, mac_str);
++}
++
+ int do_factory_settings(const char *board_name)
+ {
+ 	int ret = 0;
+@@ -414,6 +567,8 @@
+ 				ret = -EINVAL;
+ 				goto exit;
+ 			}
++		} else {
++			set_mac_from_eeprom(0, "ethaddr");
+ 		}
+ 	}
+ 
+@@ -428,6 +583,8 @@
+ 				ret = -EINVAL;
+ 				goto exit;
+ 			}
++		} else {
++			set_mac_from_eeprom(1, "eth1addr");
+ 		}
+ 	}
+ 

@@ -1,0 +1,104 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] mmc: sdhci: force card present when the CD pin is unusable
+
+On MCom-03 the Arasan SDHCI gates both SD Bus Power and the card clock on
+its own card-detect state.  A slot whose CD pin cannot be used therefore
+never produces a clock at all, and the failure looks like a clock problem:
+
+	sdhci_set_clock: Timeout to wait cmd & data inhibit
+	sdhci_send_command: MMC: 0 busy timeout.
+
+Two independent gates have to be opened:
+
+ * POWER_CONTROL.POWER_ON is dropped again immediately after it is
+   written (0x0f reads back as 0x0e, 0x0b as 0x0a: the VDD field sticks,
+   POWER_ON does not) until HOST_CONTROL.CDSS is set together with CDTL,
+   i.e. the "card present" test level is forced.
+
+ * CLOCK_CONTROL.CARD_EN is dropped again immediately after it is written
+   (0x9d07 reads back as 0x9d03, with INT_EN/INT_STABLE set) until
+   SDMMC_CORECFG1.SLOT_NONREMOVABLE is set for the controller.
+
+With both in place POWER_CONTROL reads 0x0f, CLOCK_CONTROL keeps
+CARD_EN and the card clock appears on the pin at the programmed rate
+(398 kHz for a 400 kHz request from a 125 MHz base clock).
+
+The CDSS/CDTL write has to happen right after the reset in sdhci_init()
+and before sdhci_set_power(), because sdhci_set_ios() calls
+sdhci_set_clock() before set_ios_post().  Both are applied only to slots
+declared broken-cd, which are polled by the MMC core anyway.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+diff -urN a/drivers/mmc/mcom03-sdhci.c b/drivers/mmc/mcom03-sdhci.c
+--- a/drivers/mmc/mcom03-sdhci.c
++++ b/drivers/mmc/mcom03-sdhci.c
+@@ -462,6 +462,15 @@ static int mcom03_sdhci_probe(struct udevice *dev)
+ 	if (ret)
+ 		goto assert_reset;
+ 
++	/*
++	 * A slot with broken-cd is polled, but the controller still treats it
++	 * as removable: it clears CLOCK_CONTROL.CARD_EN as soon as it is set,
++	 * so no card clock is ever output.  Mark the slot non-removable for
++	 * the controller as well.
++	 */
++	if (plat->cfg.host_caps & MMC_CAP_NEEDS_POLL)
++		priv->non_removable = true;
++
+ 	if (priv->haps)
+ 		mdelay(100);  /* TODO: 100 ms may be too much */
+ 
+@@ -475,6 +484,13 @@ static int mcom03_sdhci_probe(struct udevice *dev)
+ 	host->quirks = SDHCI_QUIRK_WAIT_SEND_CMD;
+ 	if (priv->broken_hs)
+ 		host->quirks |= SDHCI_QUIRK_BROKEN_HISPD_MODE;
++	/*
++	 * With broken-cd the slot is polled, but the controller still gates
++	 * bus power and SDCLK on its own card detect state and therefore
++	 * never outputs a clock.  Force "card present" in that case.
++	 */
++	if (plat->cfg.host_caps & MMC_CAP_NEEDS_POLL)
++		host->quirks |= SDHCI_QUIRK_CDSS_FORCE_PRESENT;
+ 
+ 	host->mmc = &plat->mmc;
+ 	host->mmc->dev = dev;
+diff -urN a/drivers/mmc/sdhci.c b/drivers/mmc/sdhci.c
+--- a/drivers/mmc/sdhci.c
++++ b/drivers/mmc/sdhci.c
+@@ -727,6 +727,16 @@ static int sdhci_init(struct mmc *mmc)
+ 
+ 	sdhci_reset(host, SDHCI_RESET_ALL);
+ 
++	/*
++	 * SD Bus Power, and with it SDCLK, is derived from the card detect
++	 * state of the slot.  For slots whose CD pin cannot be used, force the
++	 * "card present" test level, otherwise POWER_ON is dropped again right
++	 * after it has been set and no clock is ever output.
++	 */
++	if (host->quirks & SDHCI_QUIRK_CDSS_FORCE_PRESENT)
++		sdhci_writeb(host, SDHCI_CTRL_CD_TEST | SDHCI_CTRL_CD_TEST_INS,
++			     SDHCI_HOST_CONTROL);
++
+ #if defined(CONFIG_FIXED_SDHCI_ALIGNED_BUFFER)
+ 	host->align_buffer = (void *)CONFIG_FIXED_SDHCI_ALIGNED_BUFFER;
+ 	/*
+diff -urN a/include/sdhci.h b/include/sdhci.h
+--- a/include/sdhci.h
++++ b/include/sdhci.h
+@@ -253,6 +253,15 @@
+ #define SDHCI_QUIRK_SUPPORT_SINGLE	(1 << 10)
+ /* Capability register bit-63 indicates HS400 support */
+ #define SDHCI_QUIRK_CAPS_BIT63_FOR_HS400	BIT(11)
++/*
++ * SDHCI_QUIRK_CDSS_FORCE_PRESENT
++ * The controller derives SD Bus Power, and with it SDCLK, from the card
++ * detect state of the slot.  When the CD pin cannot be used the controller
++ * keeps bus power off, so the card clock is never output.  Force the "card
++ * present" test level instead; the MMC core polls the slot on its own
++ * (broken-cd).
++ */
++#define SDHCI_QUIRK_CDSS_FORCE_PRESENT	BIT(12)
+ 
+ /* to make gcc happy */
+ struct sdhci_host;

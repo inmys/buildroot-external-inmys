@@ -1,0 +1,632 @@
+diff -urN a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -1353,7 +1353,11 @@
+ 	mcom03r-ip-ku-m1-r1.1.dtb \
+ 	mcom03r-mcom03bub-r1.3.0.dtb \
+ 	mcom03r-skifmsb-v2.0-skifbs-v1.0.dtb \
+-	mcom03r-skifmsb-v2.0-skifmp-v2.0.dtb
++	mcom03r-skifmsb-v2.0-skifmp-v2.0.dtb \
++	mcom03r-nms-itx-sm-lc-v4.dtb \
++	mcom03r-nms-sm-elvsmarccb.dtb \
++	mcom03r-nms-sm-evm.dtb \
++	mcom03r-nms-smarc-tester.dtb
+ 
+ dtb-$(CONFIG_TARGET_MCOM03R_ECAM03) += \
+ 	mcom03r-pm03cam-r3.0-ecam03common-r3.0.dtb
+diff -urN a/arch/arm/dts/mcom03r-nms-itx-sm-lc-v4.dts b/arch/arm/dts/mcom03r-nms-itx-sm-lc-v4.dts
+--- a/arch/arm/dts/mcom03r-nms-itx-sm-lc-v4.dts
++++ b/arch/arm/dts/mcom03r-nms-itx-sm-lc-v4.dts
+@@ -0,0 +1,44 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * INMYS NMS-SM-K1892VM21YA V1 on NMS-ITX-SM-LC-V4 - U-Boot device tree
++ *
++ * Copyright (C) 2026 INMYS
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++
++#include "mcom03r-nms-sm-k1892vm21ya.dtsi"
++
++/ {
++	model = "INMYS NMS-SM-K1892VM21YA V1 on NMS-ITX-SM-LC-V4";
++	compatible = "inmys,nms-itx-sm-lc-v4",
++		     "inmys,nms-sm-k1892vm21ya",
++		     "inmys,nms-sm-k1892",
++		     "elvees,mcom03r";
++
++	aliases {
++		ethernet0 = &emac0;
++		ethernet1 = &emac1;
++	};
++
++	chosen {
++		stdout-path = "serial0:115200n8";
++	};
++};
++
++&uart3 {
++	status = "okay";
++	clock-frequency = <27920454>;
++};
++
++&uart0 {
++	status = "okay";
++	clock-frequency = <27920454>;
++};
++
++&pcie0 {
++	status = "okay";
++	reset-gpios = <&gpio0b 4 GPIO_ACTIVE_LOW>;
++};
+diff -urN a/arch/arm/dts/mcom03r-nms-smarc-tester.dts b/arch/arm/dts/mcom03r-nms-smarc-tester.dts
+--- a/arch/arm/dts/mcom03r-nms-smarc-tester.dts
++++ b/arch/arm/dts/mcom03r-nms-smarc-tester.dts
+@@ -0,0 +1,44 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * INMYS NMS-SM-K1892VM21YA V1 on NMS_SMARC_TESTER V1 - U-Boot device tree
++ *
++ * Copyright (C) 2026 INMYS
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++
++#include "mcom03r-nms-sm-k1892vm21ya.dtsi"
++
++/ {
++	model = "INMYS NMS-SM-K1892VM21YA V1 on NMS_SMARC_TESTER V1";
++	compatible = "inmys,nms-smarc-tester",
++		     "inmys,nms-sm-k1892vm21ya",
++		     "inmys,nms-sm-k1892",
++		     "elvees,mcom03r";
++
++	aliases {
++		ethernet0 = &emac0;
++		ethernet1 = &emac1;
++	};
++
++	chosen {
++		stdout-path = "serial0:115200n8";
++	};
++};
++
++&uart3 {
++	status = "okay";
++	clock-frequency = <27920454>;
++};
++
++&uart0 {
++	status = "okay";
++	clock-frequency = <27920454>;
++};
++
++&pcie0 {
++	status = "okay";
++	reset-gpios = <&gpio0b 4 GPIO_ACTIVE_LOW>;
++};
+diff -urN a/arch/arm/dts/mcom03r-nms-sm-elvsmarccb.dts b/arch/arm/dts/mcom03r-nms-sm-elvsmarccb.dts
+--- a/arch/arm/dts/mcom03r-nms-sm-elvsmarccb.dts
++++ b/arch/arm/dts/mcom03r-nms-sm-elvsmarccb.dts
+@@ -0,0 +1,141 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * INMYS NMS-SM-K1892VM21YA V1 on ELV-SMARC-CB r3.3.0 - U-Boot device tree
++ *
++ * The ELV-SMARC-CB is the ELVEES reference SMARC carrier.  Its SD socket
++ * (XS6) is fed from 3V3_SDIO through the load switch DA3, which is enabled
++ * by SMARC SDIO_PWR_EN (module SDMMC0_PWR, pulled up on the module), and the
++ * card detect switch goes to SMARC SDIO_CD#.
++ *
++ * Copyright (C) 2026 INMYS
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++
++#include "mcom03r-nms-sm-k1892vm21ya.dtsi"
++
++/ {
++	model = "INMYS NMS-SM-K1892VM21YA V1 on ELV-SMARC-CB r3.3.0";
++	compatible = "inmys,nms-sm-elvsmarccb",
++		     "inmys,nms-sm-k1892vm21ya",
++		     "inmys,nms-sm-k1892",
++		     "elvees,mcom03r";
++
++	aliases {
++		ethernet0 = &emac0;
++		ethernet1 = &emac1;
++	};
++
++	chosen {
++		stdout-path = "serial0:115200n8";
++	};
++};
++
++/* SER1_DBG is the USB Type-C debug UART on this carrier */
++&uart0 {
++	status = "okay";
++	clock-frequency = <27920454>;
++};
++
++&uart3 {
++	status = "okay";
++	clock-frequency = <27920454>;
++};
++
++/*
++ * SD socket XS6.  3.3 V only, and the clock pad drive strength has to be
++ * raised on this PCB (see the ELVEES reference device tree).
++ */
++&sdhci0 {
++	sdhci-caps-mask = <0x7 0x4000000>;
++	sdhci-caps = <0x0 0x0>;
++	elvees,drive-strength-clk = <6>;
++};
++
++/*
++ * SMARC ID EEPROM DD4 (BL24C32A, 4 KiB, 2-byte addressing) sits directly on
++ * I2C_PM at 0x50, exactly as the SMARC specification requires.  U-Boot's
++ * board detection reads it through this node.
++ */
++&i2c_pm {
++	eeprom@50 {
++		compatible = "atmel,24c32";
++		reg = <0x50>;
++		pagesize = <32>;
++	};
++};
++
++/*
++ * Temperature sensor DA15 (TMP112B, fixed address 0x49) on I2C_GP.  The same
++ * bus also serves the STM32 board controller (through R96/R97), so a probe of
++ * this bus exercises the level shifter DD5 as well.
++ */
++&i2c_gp {
++	temperature-sensor@49 {
++		compatible = "ti,tmp112";
++		reg = <0x49>;
++	};
++};
++
++/*
++ * QSPI1 flash socket XS7 (SOIC-8, ACA-SPI-004).  The socket is powered from
++ * 1V8_SF-0 (ferrite L7 from +1v8) and the module routes QSPI1 to the SMARC
++ * connector through the RS2299 crossbar D31/D32, so the pads are 1.8 V.
++ *
++ * The crossbar is selected by QSPI_SPI# = PCAL6416A P0_4 (D34 pin 5):
++ * 1 -> COM connects to NO -> QSPI1 (CLK, SS0, IO0, IO1);
++ * 0 -> COM connects to NC -> SPI1 (CLK, CS0, MOSI, MISO).
++ * With P0_4 left as an input the pin sits on a 10k/10k divider (0.9 V),
++ * i.e. between VIL(max) = 0.5 V and VIH(min) = 1.3 V, so it must be driven
++ * explicitly before the flash can be reached:
++ *
++ *	gpio clear gpio@20_4   # actually 'gpio set gpio@20_4' for QSPI1
++ *
++ * IO2/IO3 are wired straight through, not through the crossbar.
++ */
++/*
++ * Drive the crossbar select.  The PCAL6416A comes out of reset with every
++ * pin as an input, so QSPI_SPI# would otherwise sit on a 10k/10k divider
++ * (0.9 V) -- between VIL(max) = 0.5 V and VIH(min) = 1.3 V of the RS2299.
++ * If the hog does not get applied for some reason, do it by hand:
++ *
++ *	i2c dev 6; i2c mw 20 2 10; i2c mw 20 6 ef
++ */
++&gpio_expander {
++	qspi-spi-hog {
++		gpio-hog;
++		gpios = <4 GPIO_ACTIVE_HIGH>;
++		output-high;
++		line-name = "QSPI_SPI#";
++	};
++};
++
++&qspi1 {
++	status = "okay";
++	elvees,pads-1v8-en;
++	/*
++	 * U-Boot's silvaco_qspi has no set_speed(), so spi-max-frequency is
++	 * ignored and the serial clock is whatever clk_ext runs at.  Put it
++	 * at 3 MHz, the highest rate ELVEES recommends for a socketed part.
++	 */
++	assigned-clock-rates = <93750000 3000000>;
++
++	flash1: flash@0 {
++		compatible = "jedec,spi-nor", "spi-flash";
++		reg = <0x0>;
++		/* Highest frequency for the IC installed into the socket */
++		spi-max-frequency = <3000000>;
++		spi-tx-bus-width = <4>;
++		spi-rx-bus-width = <4>;
++	};
++};
++
++&pcie0 {
++	status = "okay";
++};
++
++&pcie1 {
++	status = "okay";
++};
+diff -urN a/arch/arm/dts/mcom03r-nms-sm-evm.dts b/arch/arm/dts/mcom03r-nms-sm-evm.dts
+--- a/arch/arm/dts/mcom03r-nms-sm-evm.dts
++++ b/arch/arm/dts/mcom03r-nms-sm-evm.dts
+@@ -0,0 +1,92 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * INMYS NMS-SM-K1892VM21YA V1 on NMS-SM-EVM V1 - U-Boot device tree
++ *
++ * Copyright (C) 2026 INMYS
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++
++#include "mcom03r-nms-sm-k1892vm21ya.dtsi"
++
++/ {
++	model = "INMYS NMS-SM-K1892VM21YA V1 on NMS-SM-EVM V1";
++	compatible = "inmys,nms-sm-evm",
++		     "inmys,nms-sm-k1892vm21ya",
++		     "inmys,nms-sm-k1892",
++		     "elvees,mcom03r";
++
++	aliases {
++		ethernet0 = &emac0;
++		ethernet1 = &emac1;
++	};
++
++	chosen {
++		stdout-path = "serial0:115200n8";
++	};
++};
++
++&uart3 {
++	status = "okay";
++	clock-frequency = <27920454>;
++};
++
++&uart0 {
++	status = "okay";
++	clock-frequency = <27920454>;
++};
++
++/* Carrier PCA9535 (D31) on I2C_PM */
++&i2c0 {
++	status = "okay";
++
++	gpio@20 {
++		compatible = "nxp,pca9535";
++		reg = <0x20>;
++		gpio-controller;
++		#gpio-cells = <2>;
++	};
++};
++
++/* Carrier fan controller (D32) and I2C switch (D30) on I2C_GP */
++&i2c1 {
++	status = "okay";
++
++	i2c-switch@70 {
++		compatible = "nxp,pca9546";
++		reg = <0x70>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		i2c@0 {
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <0>;
++		};
++
++		i2c@1 {
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <1>;
++		};
++
++		i2c@2 {
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <2>;
++		};
++
++		i2c@3 {
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <3>;
++		};
++	};
++};
++
++&pcie0 {
++	status = "okay";
++	reset-gpios = <&gpio0b 4 GPIO_ACTIVE_LOW>;
++};
+diff -urN a/arch/arm/dts/mcom03r-nms-sm-k1892vm21ya.dtsi b/arch/arm/dts/mcom03r-nms-sm-k1892vm21ya.dtsi
+--- a/arch/arm/dts/mcom03r-nms-sm-k1892vm21ya.dtsi
++++ b/arch/arm/dts/mcom03r-nms-sm-k1892vm21ya.dtsi
+@@ -0,0 +1,275 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * INMYS NMS-SM-K1892VM21YA V1 - U-Boot module description
++ *
++ * Copyright (C) 2026 INMYS
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++
++#include "mcom03r.dtsi"
++
++/ {
++	model = "INMYS NMS-SM-K1892VM21YA V1";
++	compatible = "inmys,nms-sm-k1892vm21ya",
++		     "inmys,nms-sm-k1892",
++		     "elvees,mcom03r";
++
++	aliases {
++		i2c_pm = &i2c0;
++		i2c_gp = &i2c1;
++		mmc0 = &sdhci0;
++		mmc1 = &sdhci1;
++	};
++
++	emmc_1v8: regulator-emmc-1v8 {
++		compatible = "regulator-fixed";
++		regulator-name = "emmc-1v8";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		regulator-always-on;
++	};
++
++	sdio_3v3: regulator-sdio-3v3 {
++		compatible = "regulator-fixed";
++		regulator-name = "sdio-3v3";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		regulator-always-on;
++	};
++};
++
++/* eMMC (D20) on SDMMC1 */
++&sdhci1 {
++	status = "okay";
++
++	non-removable;
++	bus-width = <8>;
++	vqmmc-supply = <&emmc_1v8>;
++};
++
++/* SMARC SDIO on SDMMC0 */
++/* SMARC SDIO (4 bit, 3.3 V only) */
++&sdhci0 {
++	status = "okay";
++
++	bus-width = <4>;
++	vmmc-supply = <&sdio_3v3>;
++	vqmmc-supply = <&sdio_3v3>;
++	no-1-8-v;
++	/*
++	 * SDMMC0_CDN (ball BB1) -> SMARC SDIO_CD# (P35).  The controller
++	 * reports it in Present State bit 16, so no broken-cd: polling an
++	 * empty slot every 10 s is pure noise.
++	 */
++};
++
++/* Boot flash (D21 W25Q128, 16 MiB) */
++&qspi0 {
++	status = "okay";
++
++	flash0: flash@0 {
++		compatible = "jedec,spi-nor", "spi-flash";
++		reg = <0x0>;
++		spi-tx-bus-width = <4>;
++		spi-rx-bus-width = <4>;
++	};
++};
++
++/* SMARC serial ports */
++ser0: &uart3 { };
++ser1: &uart0 { };
++ser2: &uart2 { };
++ser3: &uart1 { };
++
++/*
++ * SMARC I2C_PM (X1.P121/P122) and I2C_GP (X1.S48/S49).  Both are plain
++ * module-level buses that go straight to the carrier, so they are enabled
++ * unconditionally: nothing is probed on them automatically, they are only
++ * used by hand (`i2c dev` / `i2c probe`) and by the carrier device nodes.
++ */
++i2c_pm: &i2c0 {
++	status = "okay";
++	clock-frequency = <100000>;
++};
++
++i2c_gp: &i2c1 {
++	status = "okay";
++	clock-frequency = <100000>;
++};
++
++/* Ethernet PHYs D9A/D9B (DAP8211RI), one PHY per MDIO bus */
++/*
++ * The PHY VDDIO is +1V8_AO and the RGMII nets are pulled to it, so the
++ * SoC's EMAC pads must be 1.8 V (URB 0x10400140).  Without this the MAC
++ * transmits but receives nothing.
++ */
++&emac0 {
++	status = "okay";
++	phy-mode = "rgmii-id";
++	phy-handle = <&ethernet_phy0>;
++	elvees,pads-1v8-en;
++
++	ethernet_phy0: ethernet-phy@0 {
++		reg = <0x0>;
++	};
++};
++
++&emac1 {
++	status = "okay";
++	phy-mode = "rgmii-id";
++	phy-handle = <&ethernet_phy1>;
++	elvees,pads-1v8-en;
++
++	ethernet_phy1: ethernet-phy@0 {
++		reg = <0x0>;
++	};
++};
++
++/* USB0 -> TUSB8041 hub, USB1 -> TUSB9261 USB-SATA */
++&usb0 {
++	status = "okay";
++};
++
++&usb1 {
++	status = "okay";
++};
++
++/*
++ * SoC I2C2 -> PCA9540B (D30).  Note that the PCA9540B control register
++ * has an enable bit (bit 2) on top of the channel bit (bit 0): writing
++ * 0x00 or 0x01 leaves the part disabled and nothing behind the mux
++ * answers.  The Linux/U-Boot pca954x drivers handle this themselves,
++ * but a raw `i2c mw 70 0.0 <v>` from the prompt needs 0x04 (channel 0,
++ * I2C_INT, 3.3 V) or 0x05 (channel 1, I2C_INT_1V8).
++ *
++ *   channel 0 (I2C_INT, 3.3 V)  EMC2301 fan controller @0x2f,
++ *                               TUSB8041 hub @0x44
++ *   channel 1 (I2C_INT_1V8)     PCAL6416A @0x20, SN65DSI84 @0x2d,
++ *                               ADV7513 @0x39, 24AA025E48 @0x50/@0x53,
++ *                               PCF8523 RTC @0x68
++ */
++&i2c2 {
++	status = "okay";
++	clock-frequency = <100000>;
++
++	i2c-switch@70 {
++		compatible = "nxp,pca9540";
++		reg = <0x70>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		i2c@0 {
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <0>;
++		};
++
++		i2c@1 {
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <1>;
++
++			/*
++			 * PCAL6416A (D34).  Register compatible with the
++			 * PCA9555 as far as U-Boot is concerned, so the
++			 * pca953x driver binds to it and `gpio status -a`
++			 * lists every pin.
++			 */
++			gpio_expander: gpio@20 {
++				compatible = "nxp,pca9555";
++				reg = <0x20>;
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			/*
++			 * Factory MAC addresses, 24AA025E48 EUI-48 EEPROMs
++			 * (D11/D12, SOT-23-6).  The address sits in the last
++			 * six bytes of the array (0xfa..0xff); the rest of
++			 * the array is blank.  Read by
++			 * board/elvees/common/factory-settings.c to set
++			 * ethaddr/eth1addr instead of a random address.
++			 *
++			 * D11 has A0/A1 tied to GND (0x50) and drives GBE0,
++			 * D12 has A0/A1 tied to +1V8_CORE (0x53) and drives
++			 * GBE1.  Swap the indices here if a board turns out
++			 * to be wired the other way round.
++			 */
++			mac-eeprom@50 {
++				compatible = "inmys,eui48-eeprom";
++				reg = <0x50>;
++				inmys,eth-index = <0>;
++			};
++
++			mac-eeprom@53 {
++				compatible = "inmys,eui48-eeprom";
++				reg = <0x53>;
++				inmys,eth-index = <1>;
++			};
++		};
++	};
++};
++
++/* PCA9546A (D29): CAM0/CAM1/LCD */
++&i2c3 {
++	status = "okay";
++	clock-frequency = <100000>;
++
++	i2c-switch@77 {
++		compatible = "nxp,pca9546";
++		reg = <0x77>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		i2c@0 {
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <0>;
++		};
++
++		i2c@1 {
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <1>;
++		};
++
++		i2c@2 {
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <2>;
++		};
++	};
++};
++
++&gpio0a {
++	gpio-line-names = "GPIO6", "nSMB_ALERT", "SER0_CTS", "nINT_GPIOEXP",
++		"GPIO11", "nLID", "", "SER0_RTS";
++};
++
++&gpio0b {
++	gpio-line-names = "SER0_RX", "SER0_TX", "", "WDT_TIME_OUT#",
++		"PCIE_A_nRST", "SER3_RX", "SER3_TX", "SER2_RX";
++};
++
++&gpio0c {
++	gpio-line-names = "SPI0_SCK", "SPI0_MOSI", "SPI0_MISO", "SPI0_SS_IN",
++		"SPI0_CS0", "SPI0_CS1", "", "";
++};
++
++&gpio0d {
++	gpio-line-names = "SER2_TX", "GPIO10", "nCARRIER_SHDWN", "I2C_PM_CK",
++		"I2C_PM_DAT", "GPIO1_CAM1_PWR#", "GPIO2_CAM0_RST#", "GPIO12";
++};
++
++&gpio1a {
++	gpio-line-names = "I2C_GP_CK", "I2C_GP_DAT", "I2C2_SCL", "I2C2_SDA",
++		"I2C3_SCL", "I2C3_SDA", "GPIO0_CAM0_PWR#", "GPIO3_CAM1_RST#";
++};
++
++&gpio1b {
++	gpio-line-names = "HDMI_I2S_SCLK", "HDMI_I2S_LRCLK", "HDMI_I2S_D",
++		"", "GPIO7", "GPIO4_HDA_RST#", "SER1_TX", "SER1_RX";
++};

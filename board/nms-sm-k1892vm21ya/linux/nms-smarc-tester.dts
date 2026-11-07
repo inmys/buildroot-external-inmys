@@ -1,0 +1,92 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * NMS_SMARC_TESTER V1 - SMARC test/burn-in carrier
+ *
+ * The tester is a multi-purpose bring-up board (Ethernet, HDMI/DP,
+ * LVDS/eDP converter, M.2 SATA/WiFi, USB, CAN, SD, FPGA GPIO...).
+ * Only the resources needed for bring-up are described here; the
+ * remaining peripherals are added as they are validated.
+ *
+ * Copyright (C) 2026 INMYS
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+
+#include "nms-sm-k1892vm21ya.dtsi"
+
+/ {
+	model = "INMYS NMS-SM-K1892VM21YA V1 on NMS_SMARC_TESTER V1";
+	compatible = "inmys,nms-smarc-tester",
+		     "inmys,nms-sm-k1892vm21ya",
+		     "inmys,nms-sm-k1892",
+		     "elvees,mcom03r";
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	aliases {
+		ethernet0 = &emac0;
+		ethernet1 = &emac1;
+	};
+};
+
+/* SER0 console (RS-232/USB-UART on the tester) */
+&uart3 {
+	status = "okay";
+};
+
+&uart0 {
+	status = "okay";
+};
+
+/* microSD / SDIO socket on the tester */
+&sdhci0 {
+	status = "okay";
+};
+
+/* Ethernet (1000BASE-T magnetics + RJ45) */
+&emac0 {
+	status = "okay";
+	phy-handle = <&ethernet_phy0>;
+};
+
+&emac1 {
+	status = "okay";
+	phy-handle = <&ethernet_phy1>;
+};
+
+/* USB host ports (module hub) and USB-SATA bridge */
+&usb0 {
+	status = "okay";
+};
+
+&usb1 {
+	status = "okay";
+};
+
+/* PCIe slot / M.2 */
+&pcie0 {
+	status = "okay";
+	reset-gpios = <&gpio0b 4 GPIO_ACTIVE_LOW>;
+};
+
+/* HDMI/DP test path */
+&adv7513 {
+	status = "okay";
+};
+
+&de_dpi {
+	status = "okay";
+};
+
+/* CAN bus connectors */
+&mfbsp0_can {
+	status = "okay";
+};
+
+&mfbsp1_can {
+	status = "okay";
+};
