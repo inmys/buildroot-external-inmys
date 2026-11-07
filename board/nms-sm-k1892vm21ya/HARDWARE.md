@@ -181,6 +181,53 @@ Devices:
 `RTC_INT#` from the PCF8523 is connected to the board controller (D41),
 not to the SoC, so the RTC cannot wake the SoC.
 
+#### RTC power tree and the state of D8
+
+```
++1V8_AO --[R58]--> RTC_VCC ---------------------> D8.8 Vcc
++3V3_AO --[VD1]--> RTC_VBAT --+--[C25,C26]-----> D8.3 Vbat
+                              +--[VT1 S]  (P-FET, G = +3V3_AO, D = +VDD_RTC)
++3V3_AO -----------------------> VT1 G
+```
+
+There is **no backup cell** on the module: `Vbat` is fed from the
+always-on 3.3 V rail through `VD1`, and `R55` (the optional link to
+`+VDD_RTC`) is not fitted.  The RTC therefore keeps time only as long as
+`+3V3_AO` is present; there is nothing to buffer a real power cycle.
+Note also that `Vbat` (~2.9 V) sits above `Vcc` (1.8 V), so the chip
+runs permanently in battery-switchover mode.
+
+Kernel support had to be added explicitly: the ELVEES mcom03r defconfig
+enables no RTC at all, so `/sys/class/rtc` was empty.  The fragment now
+sets `CONFIG_RTC_CLASS`, `CONFIG_RTC_DRV_PCF8523`, `CONFIG_RTC_HCTOSYS`
+and `CONFIG_RTC_SYSTOHC`, and the driver binds (`rtc-pcf8523 9-0068:
+registered as rtc0`).
+
+**On the second EVM sample the chip does not answer at all.**  Every
+other device on the same 1.8 V mux channel ACKs, and only `0x68` is
+missing:
+
+```
+$ i2cdetect -y -r 9
+20: UU -- -- -- -- -- -- -- -- -- -- -- -- UU -- --
+30: -- -- -- -- -- -- -- -- UU UU -- -- UU -- -- UU
+50: UU -- -- UU -- -- -- -- -- -- -- -- -- -- -- --
+70: UU -- -- -- -- -- -- --
+```
+
+`i2cget`/`i2cset` return `Read failed`/`Write failed` even with the
+driver unbound, and the probe fails with `-121` (`EREMOTEIO`, i.e. an
+I2C NACK):
+
+```
+rtc-pcf8523 9-0068: failed to set xtal load capacitance: -121
+rtc-pcf8523 9-0068: probe with driver rtc-pcf8523 failed with error -121
+```
+
+So this is a hardware fault (unfitted, dead or unsoldered D8), not a
+software one.  The software side is ready for a board where the chip
+responds.
+
 ### 1.7 Board multiplexers and switches (no kernel driver)
 
 All of these are driven from user space by `/usr/sbin/nms-gpio.sh`, which
