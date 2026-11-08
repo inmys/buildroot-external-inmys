@@ -453,6 +453,175 @@ receivers (7 x 33 = 231 Mbit/s per lane pair).  Only LVDS channel A is
 described; a dual-link panel needs a `port@3` on the bridge and a second
 port on the panel node.
 
+### 1.11 USB: the hub (D14) and the USB-SATA bridge (D16)
+
+#### Topology
+
+The SoC has two USB 3.0 controllers and they are wired very differently:
+
+| SoC | Balls | Goes to |
+|-----|-------|---------|
+| USB0 | BC12/BD12 (D+/D-), BC13/BD13/BA13/BB13 (SS) | upstream of the TUSB8041 hub (D14) |
+| USB1 | BC10/BD10, BC11/BD11/BA11/BB11 | SMARC OTG (X1.S68/S69, S65/S66, P74) |
+
+The module net names are misleading: what the netlist calls `USB2_UP` and
+`USB3_UP` is the hub *upstream* pair and lands on SoC **USB0**, while the
+nets called `USB0_*`/`USB1_*` are the hub *downstream* ports on the SMARC
+connector.
+
+The hub's four downstream ports:
+
+| Port | Module nets | Goes to |
+|------|-------------|---------|
+| 1 | `USB2_DP_0`, `USB3_DP_0` (AC-coupled by C288..C291) | TUSB9261 (D16), the USB-SATA bridge |
+| 2 | `USB2`, `USB2_SS` | SMARC USB2 (X1.P69/P70, S74/S75) |
+| 3 | `USB1` | SMARC USB1 (X1.P65/P66) |
+| 4 | `USB0` | SMARC USB0 (X1.P60/P61) |
+
+The ELV-SMARC-CB puts a VIA VL817 hub (`2109:0817` / `2109:2817`) and its
+billboard device on SMARC USB2, so a working TUSB8041 brings up that whole
+sub-tree as well.
+
+#### The hub does not enumerate until `cfgActive` is cleared
+
+This one cost a long detour and is worth stating plainly.
+
+`SMBUSz` (D14.39) is pulled to GND by R128, which selects **SMBus slave
+mode** instead of the pin-strap defaults.  In that mode the hub sets
+`cfgActive` (Device Status and Command Register, offset `F8h`, bit 0) and
+
+> does not connect on the upstream port while this bit is 1 [...] this bit
+> must be cleared by the SMBus host in order to exit the configuration mode
+> and allow the upstream port to connect.  The bit is cleared by a writing
+> 1.  A write of 0 has no effect.
+
+The symptom is an xHCI root hub with an empty port and no hub anywhere in
+`lsusb`, even though the hub is alive and answers on I2C.
+
+The SMBus slave address is `1000 1x0`, where `x` is the `GANGED`/`SMBA2`
+strap; on this module it is **0x44**.  The hub sits on `I2C_INT`, that is
+channel 0 of the PCA9540B (bus 8 in the running system):
+
+```
+i2cget -y 8 0x44 0x01   # 0x51  \
+i2cget -y 8 0x44 0x02   # 0x04   > TI vendor ID 0x0451
+i2cget -y 8 0x44 0x03   # 0x40  \
+i2cget -y 8 0x44 0x04   # 0x81   > product ID 0x8140
+i2cget -y 8 0x44 0x08   # 0x0f  > all four downstream ports used
+i2cget -y 8 0x44 0xf8   # 0x01  > cfgActive set, hub is waiting
+i2cset -y 8 0x44 0xf8 0x01
+i2cget -y 8 0x44 0xf8   # 0x00  > hub connects, the tree appears
+```
+
+`nms-usbhub` does exactly this and `S04nmsusbhub` runs it at boot.  The
+module device tree carries a `hub@44` node so that the script can find the
+bus without hard-coding a number (it falls back to the EMC2301 node at
+`0x2f`, which lives on the same mux channel, for device trees that predate
+it).  Bit 1 of the same register is `smbusRst` - also write-1-to-act, and
+it reloads the register defaults - which is why the script masks bit 0
+rather than comparing the whole byte.
+
+Clearing `cfgActive` after the hub has already connected does not
+disconnect it: the bit is only consulted on the way up.  Writing
+`0xF8 = 0x02` therefore puts the register back to `0x01` without
+reproducing the original fault, which makes the fix awkward to re-test
+without a power cycle.
+
+#### The TUSB9261 needs firmware, and this module has none
+
+The TUSB9261 is an ARM Cortex-M3 with no application flash of its own.  Its
+boot code loads an image from the attached SPI flash into RAM, and
+
+> In the absence of an attached SPI flash memory or a valid image in the
+> SPI flash memory, the firmware will idle and wait for a connection from a
+> USB host through its HID interface.
+
+That flash is **D15 = Winbond W25X10CLUXIG**, 1 Mbit (128 KiB), USON-8
+3x2 mm, wired to nothing but the bridge:
+
+| D15 | Signal | D16 pin |
+|-----|--------|---------|
+| 1 CS# | `SPI_CS0` | 21 |
+| 6 CLK | `SPI_SCLK` | 17 |
+| 5 DI | `SPI_DATA_O` | 18 |
+| 2 DO | `SPI_DATA_IN` | 20 |
+| 3 WP#, 7 HOLD# | pulled to 3V3 (R139, R138) | - |
+
+On this module it is **empty**.  Once the hub is up, the bridge enumerates
+as
+
+```
+0451:926b  "TUSB9260 Boot Loader", serial TUSB9260BL01
+  interface 0: class 03 (HID)   -> usbhid
+  interface 1: class ff (vendor)
+```
+
+which is precisely the HID boot loader described above.  A programmed part
+would appear as `0451:9261` with a mass-storage interface instead.
+
+#### Flashing it
+
+The SPI flash is reachable from **nothing but the TUSB9261**: not from any
+SoC SPI controller, not from a GPIO, and there are no test points on those
+four nets.  The bridge itself hangs off downstream port 1 of the hub, which
+is not brought out to the SMARC connector, so no external host can reach it
+either.  The only in-circuit path is the HID boot loader, driven by the SoC
+itself:
+
+* `luxonis/tusb926x-flash-burner` - libusb + hidapi, ships
+  `TUSB926x_FW_v1.03.bin` and
+  `TUSB926x_FW_v1.06_SATA_NO_POLARITY_SWAP.bin`;
+* TI's `TUSB926x Flash Burner` is Windows-only and therefore useless here.
+
+Out of circuit it means desoldering D15 and programming it in a USON-8
+adapter; the package is far too small for a clip.
+
+Use the **no-polarity-swap** image.  The datasheet notes that
+
+> the default firmware and reference design for the TUSB9261 have the SATA
+> TXP/TXM swapped for ease of routing,
+
+while this module is straight through - `D16.57 SATA_TXP` -> C19 ->
+`X1.P48 SATA_TX._P`, `D16.56 SATA_TXM` -> C22 -> `X1.P49 SATA_TX._N` - and
+SATA, unlike PCIe, does not negotiate lane polarity.
+
+#### There is no I2C on the TUSB9261
+
+The bridge has no I2C or SMBus interface at all.  Its serial interfaces are
+SPI (`SPI_CS0..2`), a UART on `GPIO8`/`GPIO9`, JTAG and twelve GPIOs, and on
+this module every one of those except `SPI_CS0` is unconnected
+(`NetD16-3/5/6/8..11/14..16/22/23/25..29`).  All of its configuration -
+vendor and product ID, port behaviour, LED mapping - lives in the firmware
+image, not on a bus.  So "I2C to the TUSB9261" is neither needed nor
+possible.
+
+What the straps do say:
+
+| pin | signal | strap |
+|-----|--------|-------|
+| 13 | GPIO4 / `SELF_POWERED` | R145 to 3V3 = 1 |
+| 30, 31 | `FREQSEL[1:0]` | R140 to 3V3 = `11` = 40 MHz, matches B4 DSX321G-40MHz |
+| 50 | `USB_VBUS` | divider R142/R143 |
+| 2 | PWM0 | `SATA_ACT` to X1.S54 |
+| 4 | `GRSTz` | `RESET#` |
+
+#### The shared `RESET#` line
+
+`RESET#` is a wired-OR that resets three parts at once:
+
+| Node | What |
+|------|------|
+| D16.4 | TUSB9261 `GRSTz` |
+| D29.1 | PCA9546A `RESET#` (the camera/LCD I2C mux) |
+| D14.50 | TUSB8041 `GRSTz` output, through R124 (a 0R link) |
+| VT8.3 | NTA4153N open drain, gate on D41.29 = board controller PB11 |
+| R287 | 10K pull-up to +3V3_CORE |
+
+`R284` holds the VT8 gate down, so a board controller that leaves PB11 as
+an input keeps the line released.  Driving PB11 high resets the USB hub,
+the USB-SATA bridge and the camera/LCD I2C mux together - which is exactly
+what `bc-stm32` does *not* do today.
+
 ## 2. NMS-SM-EVM V1 carrier (default)
 
 | Item | Part | Notes |

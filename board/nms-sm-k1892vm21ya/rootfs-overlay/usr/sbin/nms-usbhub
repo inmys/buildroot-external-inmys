@@ -1,0 +1,68 @@
+#!/bin/sh
+#
+# Bring up the TUSB8041 four-port USB 3.0 hub (D14) on I2C_INT.
+#
+# The hub's SMBUSz strap is pulled low by R128, so the hub powers up as an
+# SMBus slave instead of using its pin-strap defaults.  In that mode it sets
+# cfgActive (Device Status and Command Register, offset 0xF8, bit 0) and
+# "does not connect on the upstream port while this bit is 1" - the whole
+# downstream tree (TUSB9261 USB-SATA bridge, the carrier hub and the three
+# SMARC USB ports) stays invisible until a host clears it.
+#
+# cfgActive is clear-by-writing-1, and a write of 0 has no effect, so the
+# value written is 0x01 even though the desired value is 0.  Bit 1 of the
+# same register is smbusRst (also write-1-to-act), which is why the read
+# value is masked rather than compared to 1.
+#
+# Upstream Linux has no driver for the TUSB8041 SMBus interface, so this has
+# to be done from user space.  It only has to happen once per hub reset.
+#
+
+set -u
+
+HUB_ADDR=0x44
+REG_STATUS=0xf8
+REG_VID_LSB=0x01
+REG_VID_MSB=0x02
+
+# Locate the bus from the device tree nodes on the I2C_INT mux channel: the
+# hub itself (0x44) and the EMC2301 fan controller (0x2f).  The second is a
+# fallback for device trees that predate the hub node.  Whatever the anchor,
+# the TI vendor ID is checked before anything is written.
+find_bus() {
+	seen=""
+	for d in /sys/bus/i2c/devices/*-0044 /sys/bus/i2c/devices/*-002f; do
+		[ -d "$d" ] || continue
+		b=${d##*/}
+		b=${b%%-*}
+		case " $seen " in *" $b "*) continue ;; esac
+		seen="$seen $b"
+		[ "$(i2cget -y "$b" $HUB_ADDR $REG_VID_LSB 2>/dev/null)" = "0x51" ] || continue
+		[ "$(i2cget -y "$b" $HUB_ADDR $REG_VID_MSB 2>/dev/null)" = "0x04" ] || continue
+		echo "$b"
+		return 0
+	done
+	return 1
+}
+
+bus=$(find_bus) || {
+	echo "nms-usbhub: TUSB8041 not found on any I2C bus"
+	exit 0
+}
+
+reg=$(i2cget -y "$bus" $HUB_ADDR $REG_STATUS 2>/dev/null) || {
+	echo "nms-usbhub: cannot read register 0xF8 on bus $bus"
+	exit 1
+}
+
+if [ $((reg & 1)) -eq 0 ]; then
+	echo "nms-usbhub: hub on bus $bus already active (0xF8=$reg)"
+	exit 0
+fi
+
+if i2cset -y "$bus" $HUB_ADDR $REG_STATUS 0x01; then
+	echo "nms-usbhub: cleared cfgActive on bus $bus (0xF8 was $reg)"
+else
+	echo "nms-usbhub: write to register 0xF8 failed on bus $bus"
+	exit 1
+fi
