@@ -707,6 +707,91 @@ keep booting without it.
 Once the CLKREQ# pad is wired to the module (a rework on the SoC side, not
 on the carriers) the option can be dropped and ASPM re-tested.
 
+#### The reference clock is gated by the card in slot B
+
+D5 is a Microchip **SY75604B** PCIe clock buffer (16-lead 3x3 VQFN), not a
+switch.  It takes `LPHCSL_100M_A` and fans it out to four outputs, each
+with its own active-low enable:
+
+| Pin | Function | Net |
+|-----|----------|-----|
+| 1,2 | IN_p/n | `LPHCSL_100M_A` |
+| 4,5 | OUT0 | `PCIE_A_REFCLK` -> slot A |
+| 7,8 | OUT1 | `PCIE_B_REFCLK` -> slot B |
+| 10,11 | OUT2 | `PCI0_REF_CLK` -> SoC PCI0 |
+| 14,15 | OUT3 | `PCI1_REF_CLK` -> SoC PCI1 |
+| 3 | OE0b | `PCIE_A_CLKREQ#` |
+| 6 | OE1b | `PCIE_B_CLKREQ#` |
+| 12 | OE2b | `PCIE_A_CLKREQ#` |
+| 16 | OE3b | `PCIE_B_CLKREQ#` |
+
+So the two CLKREQ# lines from the connector gate the outputs in pairs:
+`PCIE_A_CLKREQ#` turns on slot A's clock **and PCI0's**, `PCIE_B_CLKREQ#`
+turns on slot B's clock **and PCI1's**.  `OExb` is active low with an
+internal 100 kOhm pull-down, i.e. an output runs unless something pulls the
+pin high - but `PCIE_B_CLKREQ#` also has `R39` to `+3V3_CORE`, so with an
+empty slot B the pin sits high and OUT3 is off.
+
+The SoC's own `PCI1_CLKREQ` pad (`D2.G15`) is not connected to anything, so
+nothing on the module can turn PCI1's clock on by itself.
+
+That is why `pcie1` used to hang the kernel on ELV-SMARC-CB: no card in
+slot B, no reference clock, the PHY never locks, and the config cycle to a
+non-existent endpoint never returns.  The last line printed was
+`pci 0001:00:00.0: PME# supported from D0 D1 D3hot`.
+
+With a card in slot B the clock is present and PCI1 enumerates normally.
+Verified on NMS_SMARC_TESTER with `num-lanes = <2>`:
+
+```
+mcom03-pcie 2400000.pcie: PCI host bridge to bus 0001:00
+pci 0001:01:00.0: [8086:095a] type 00 class 0x028000 PCIe Endpoint
+```
+
+`pcie1` therefore stays `status = "disabled"` in the module dtsi and is
+enabled only by carriers that are known to have slot B populated.
+
+D6 is a second SY75604B on `LPHCSL_100M_B`.  Its OUT0 (`PCIE_C_REFCLK`,
+slot C) is gated by `PCIE_C_CLKREQ`, a one-pin net that does not reach the
+connector - with no pull resistor the internal pull-down wins and slot C's
+clock is always on.  Its OUT1 is tied off (`OE1b` = `VCC_3V3_FO2`) and
+unused, and OUT2/OUT3 are `USB0_REF_CLK` / `USB1_REF_CLK` with their enables
+left floating, so they run unconditionally.
+
+#### Only two of the three cards can ever be enumerated
+
+SMARC PCIe A/B/C/D are the four lanes of one x4 link, not four links, and
+the SoC has no bifurcation (datasheet ch. 25.1.1: automatic lane reversal
+only; `sdr_pci0_ctl` in table 6.21 has no lane-mode field).  The module
+splits them across two controllers:
+
+| Slot | Lanes | Controller |
+|------|-------|------------|
+| A | `PCI0_TX0/RX0` (C11/B11, C13/B13) | PCI0, direct |
+| B | `PCI0_TX1/RX1` (B10/A10, B12/A12) | PCI0, direct |
+| C | `PCI0_TX2/RX2` or `PCI1_TX0/RX0` | D25/D26 mux |
+| D | `PCI0_TX3/RX3` or `PCI1_TX1/RX1` | D25/D26 mux |
+
+The mux select is `PCIE_SEL` (PCAL6416A P0_6) driving `VT5`, whose drain
+pulls `NetD25-6` low; `R200` holds it at `+3V3_CORE` when `VT5` is off, so
+the default `PCIE_SEL = 0` selects **PCI1** for slots C and D.  Setting it
+to 1 hands C/D back to PCI0 lanes 2/3 and leaves PCI1 with nothing.
+
+A PCIe link is point to point, so a controller that trains to x1 talks to
+one card only - the second lane of that controller reaches a card that is
+not part of any link and can never be enumerated.  With cards in A, B and
+C the result is exactly two devices:
+
+```
+-[0000:00]---00.0-[01-ff]----00.0   8086:095a  (slot A)
+-[0001:00]---00.0-[01-ff]----00.0   8086:095a  (slot C)
+```
+
+The card in slot B is electrically alive - it is the one asserting
+`PCIE_B_CLKREQ#` that makes PCI1 work at all - but it shares PCI0's link
+with slot A and stays invisible.  Three simultaneous cards need a PCIe
+switch on the carrier.
+
 #### The carrier `reset-gpios` that never did anything
 
 All three carrier device trees used to carry
@@ -817,11 +902,23 @@ NMS-SM-RK3568 module) that provides the module's console and network:
 | Module console on the host board | `/dev/ttyS5`, 115200 8N1 |
 | Module Ethernet | wired to the host board's `eth1`, not to the lab LAN |
 | Host board `eth1` | `172.16.147.1/16`, no DHCP server |
-| Module `eth0` | `udhcpc`, so it comes up without an address |
+| Module Ethernet | `udhcpc`, so it comes up without an address |
 
 Reach the module with `ssh -J root@<host> root@<module>`; after every reboot
-`ifconfig eth0 172.16.147.147` has to be typed on the console first, because
-nothing on `eth1` answers DHCP.
+the address has to be typed on the console first, because nothing on the
+host's `eth1` answers DHCP.
+
+**The interface name is not stable.**  The module's own port is
+`10200000.ethernet` and it is normally `eth0`, but when the Realtek USB
+dongle is plugged into the OTG port its `r8152` driver can register first
+and take `eth0`, pushing the SoC ports to `eth1`/`eth2`.  Check with
+
+```
+for i in /sys/class/net/*; do echo "$i $(readlink -f $i/device 2>/dev/null)"; done
+```
+
+before typing the address - `ifconfig eth0 172.16.147.147` on the dongle
+leaves the module unreachable.
 
 Measured on this carrier:
 
@@ -832,7 +929,12 @@ Measured on this carrier:
   with a 128 GB SATA SSD attached it enumerates as `0451:9261` and `sda`
   reports 250069680 sectors;
 * PCIe0 enumerates the M.2 card and `iwlwifi` brings up `wlan0` (see §1.13),
-  with `pcie_aspm=off` because CLKREQ# is not wired (see §1.12).
+  with `pcie_aspm=off` because CLKREQ# is not wired (see §1.12);
+* **PCIe1 works here** because this carrier has a card in SMARC PCIe B, which
+  is what gates `PCI1_REF_CLK` (see §1.12).  With `pcie1` enabled and
+  `num-lanes = <2>` a second card enumerates as `0001:01:00.0` and `wlan1`
+  comes up.  Both links train to x1, so exactly two of the three cards are
+  visible - the one in slot B shares PCI0's link with slot A.
 
 ## 4. NMS-ITX-SM-LC-V4
 

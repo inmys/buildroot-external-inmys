@@ -740,10 +740,22 @@ ser3: &uart1 { };
 };
 
 /*
- * pcie1 hangs the kernel during bus enumeration on every carrier we have
- * tried: the last line printed is "pci 0001:00:00.0: PME# supported from
- * D0 D1 D3hot" and nothing follows.  pcie0 enumerates fine and only says
- * "Phy link never came up".  Keep pcie1 off until the root cause is found.
+ * pcie1 is off by default because its reference clock is gated by the card
+ * plugged into SMARC PCIe B.
+ *
+ * PCI1_REF_CLK is OUT3 of the SY75604B clock buffer (D5, 16-lead VQFN) and
+ * that output's enable, OE3b (pin 16), is tied to PCIE_B_CLKREQ#.  OE3b is
+ * active low with an internal 100k pull-down, so the output only runs while
+ * something on the connector pulls CLKREQ# low.  The SoC's own PCI1_CLKREQ
+ * pad is not connected on this module, so nothing else can turn it on.
+ *
+ * With PCIe B empty the controller gets no reference clock at all, the link
+ * never trains, and the kernel hangs during enumeration - the last line
+ * printed is "pci 0001:00:00.0: PME# supported from D0 D1 D3hot".  pcie0 is
+ * unaffected because PCI0_REF_CLK (OUT2, OE2b pin 12) is gated by
+ * PCIE_A_CLKREQ#, and slot A is where the working card always sits.
+ *
+ * Carriers that are known to have a card in slot B enable pcie1 themselves.
  */
 &pcie1 {
 	status = "disabled";

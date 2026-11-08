@@ -1,9 +1,9 @@
 diff -urN a/arch/arm64/boot/dts/elvees/Makefile b/arch/arm64/boot/dts/elvees/Makefile
 --- a/arch/arm64/boot/dts/elvees/Makefile
 +++ b/arch/arm64/boot/dts/elvees/Makefile
-@@ -26,4 +26,9 @@
- dtb-$(CONFIG_ARCH_MCOM03R) += mcom03r-skifmsb-v2.0-skifmp-v2.0.dtb
- dtb-$(CONFIG_ARCH_MCOM03R) += mcom03r-skifmsb-v2.0-skifmp-v2.0-rpi-dsi-7inch.dtb
+@@ -31,4 +31,9 @@
+ dtb-$(CONFIG_ARCH_MCOM03R) += nms-sm-evm.dtb
+ dtb-$(CONFIG_ARCH_MCOM03R) += nms-smarc-tester.dtb
  
 +dtb-$(CONFIG_ARCH_MCOM03R) += nms-itx-sm-lc-v4.dtb
 +dtb-$(CONFIG_ARCH_MCOM03R) += nms-sm-elvsmarccb.dtb
@@ -124,7 +124,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-itx-sm-lc-v4.dts b/arch/arm64/boot/dt
 diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts
 --- a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts
 +++ b/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,164 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * NMS_SMARC_TESTER V1 - SMARC test/burn-in carrier
@@ -220,6 +220,24 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dt
 + */
 +&pcie0 {
 +	status = "okay";
++};
++
++/*
++ * PCI1 is safe to enable here and nowhere else: its reference clock is gated
++ * by PCIE_B_CLKREQ#, so it only runs while a card sits in SMARC PCIe B.  This
++ * carrier has cards in A, B and C, so the clock is present.  See the comment
++ * on &pcie1 in nms-sm-k1892vm21ya.dtsi for the full story.
++ *
++ * Only two lanes are wired to PCI1 (PCI1x2.0/1) and they reach slots C and D
++ * through the D25/D26 2:1 muxes, which is why num-lanes is 2 and not 4.
++ *
++ * The mux select, PCIE_SEL (PCAL6416A P0_6), is left at its default of 0,
++ * which routes PCI1 to C/D.  Setting it to 1 hands C/D back to PCI0 lanes 2/3
++ * and leaves PCI1 with nothing to talk to.
++ */
++&pcie1 {
++	status = "okay";
++	num-lanes = <2>;
 +};
 +
 +/* HDMI/DP test path */
@@ -841,7 +859,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 --- a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
-@@ -0,0 +1,871 @@
+@@ -0,0 +1,883 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-K1892VM21YA V1
@@ -1584,10 +1602,22 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot
 +};
 +
 +/*
-+ * pcie1 hangs the kernel during bus enumeration on every carrier we have
-+ * tried: the last line printed is "pci 0001:00:00.0: PME# supported from
-+ * D0 D1 D3hot" and nothing follows.  pcie0 enumerates fine and only says
-+ * "Phy link never came up".  Keep pcie1 off until the root cause is found.
++ * pcie1 is off by default because its reference clock is gated by the card
++ * plugged into SMARC PCIe B.
++ *
++ * PCI1_REF_CLK is OUT3 of the SY75604B clock buffer (D5, 16-lead VQFN) and
++ * that output's enable, OE3b (pin 16), is tied to PCIE_B_CLKREQ#.  OE3b is
++ * active low with an internal 100k pull-down, so the output only runs while
++ * something on the connector pulls CLKREQ# low.  The SoC's own PCI1_CLKREQ
++ * pad is not connected on this module, so nothing else can turn it on.
++ *
++ * With PCIe B empty the controller gets no reference clock at all, the link
++ * never trains, and the kernel hangs during enumeration - the last line
++ * printed is "pci 0001:00:00.0: PME# supported from D0 D1 D3hot".  pcie0 is
++ * unaffected because PCI0_REF_CLK (OUT2, OE2b pin 12) is gated by
++ * PCIE_A_CLKREQ#, and slot A is where the working card always sits.
++ *
++ * Carriers that are known to have a card in slot B enable pcie1 themselves.
 + */
 +&pcie1 {
 +	status = "disabled";

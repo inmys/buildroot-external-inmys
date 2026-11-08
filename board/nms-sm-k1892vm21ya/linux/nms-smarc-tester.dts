@@ -95,6 +95,24 @@
 	status = "okay";
 };
 
+/*
+ * PCI1 is safe to enable here and nowhere else: its reference clock is gated
+ * by PCIE_B_CLKREQ#, so it only runs while a card sits in SMARC PCIe B.  This
+ * carrier has cards in A, B and C, so the clock is present.  See the comment
+ * on &pcie1 in nms-sm-k1892vm21ya.dtsi for the full story.
+ *
+ * Only two lanes are wired to PCI1 (PCI1x2.0/1) and they reach slots C and D
+ * through the D25/D26 2:1 muxes, which is why num-lanes is 2 and not 4.
+ *
+ * The mux select, PCIE_SEL (PCAL6416A P0_6), is left at its default of 0,
+ * which routes PCI1 to C/D.  Setting it to 1 hands C/D back to PCI0 lanes 2/3
+ * and leaves PCI1 with nothing to talk to.
+ */
+&pcie1 {
+	status = "okay";
+	num-lanes = <2>;
+};
+
 /* HDMI/DP test path */
 &adv7513 {
 	status = "okay";
