@@ -453,6 +453,58 @@ receivers (7 x 33 = 231 Mbit/s per lane pair).  Only LVDS channel A is
 described; a dual-link panel needs a `port@3` on the bridge and a second
 port on the panel node.
 
+#### The LVDS clock comes out 1% fast, and that is expected
+
+The bridge does not have a fine divider for its LVDS clock: it derives it
+from the DSI clock, and the register that tells it what the DSI clock is,
+`CHA_DSI_CLK_RANGE` (0x12), is quantised to **5 MHz** steps.  For this
+panel the driver computes
+
+```
+DSI_CLK = 33000 kHz * 24 bpp / 4 lanes / 2 (the bus is DDR) = 99 MHz
+0x12    = DIV_ROUND_UP(99 MHz, 5 MHz) = 20  ->  the bridge believes 100 MHz
+0x0b    = 24 / 4 / 2 - 1 = 2                ->  LVDS divider is 3
+LVDS    = 100 MHz / 3 = 33.333 MHz          ->  1.01% above the 33.000 asked
+```
+
+99 MHz is not on the 5 MHz grid and the nearest value below it, 95 MHz,
+would give 31.667 MHz (-4%), so 33.333 is the best the part can do.
+
+What this does **not** do is change the picture's timing.  The bridge
+keeps the line rate tied to the DSI video packets, so the extra 1% shows
+up as nine extra clocks of horizontal blanking per line rather than as a
+shorter line:
+
+| | mode asks | measured |
+|---|---|---|
+| visible area | 800 x 480 | 800 x 480 |
+| htotal in clocks | 928 | 937 (= 928 x 100/99) |
+| line time | 28.12 us | 28.14 us |
+| frame time | 14.764 ms | 14.765 ms |
+| refresh | 67.73 Hz | 67.7 Hz |
+
+The bridge's own timing registers are programmed with the correct values
+(`0x20/0x21` = 800, `0x2c/0x2d` = 48, `0x34` = 40, `0x38` = 40), so the
+928 is what it intends; the ninth extra clock is the clock error, not a
+timing one.  A panel only sees a pixel clock 1% high, which is well
+inside its tolerance.
+
+The SMARC tester's FPGA monitor reports this directly, and its geometry
+test fails on the htotal check for this reason alone - everything else
+in it passes.  Run it with the module's own bus numbers:
+
+```
+LVDS_BUS=1 BRIDGE_BUS=9 BRIDGE_ADDR=0x2d CONN=LVDS-1 sh test_lvds_geom.sh
+LVDS_BUS=1 BRIDGE_BUS=9 BRIDGE_ADDR=0x2d CONN=LVDS-1 sh test_lvds_lanes.sh
+```
+
+The monitor is at `0x26` on `i2c-1` (`I2C_GP`), not on `i2c-2` as on the
+RK3588 module, and the bridge is behind the PCA9540B on `i2c-9`.  The
+lane test passes: clock lane 33299 kHz and all four pairs active on
+S125/S126, S128/S129, S131/S132 and S137/S138, with channel B silent as
+befits a single link.  The bridge's test pattern register (0x3c) takes
+effect without a soft reset on this part.
+
 ### 1.11 USB: the hub (D14) and the USB-SATA bridge (D16)
 
 #### Topology
