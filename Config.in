@@ -27,5 +27,6 @@ source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/ddrinit/Config.in"
 source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/elvees-mcom03-tools/Config.in"
 source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/kconfiglib/Config.in"
 source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/mcom03-sbl/Config.in"
+source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/tusb926x-flash-burner/Config.in"
 
 endif

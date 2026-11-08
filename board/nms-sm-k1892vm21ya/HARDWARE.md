@@ -566,15 +566,52 @@ SoC SPI controller, not from a GPIO, and there are no test points on those
 four nets.  The bridge itself hangs off downstream port 1 of the hub, which
 is not brought out to the SMARC connector, so no external host can reach it
 either.  The only in-circuit path is the HID boot loader, driven by the SoC
-itself:
+itself.  TI's `TUSB926x Flash Burner` is Windows-only and therefore useless
+here; the SDK carries the Linux equivalent:
 
-* `luxonis/tusb926x-flash-burner` - libusb + hidapi, ships
-  `TUSB926x_FW_v1.03.bin` and
-  `TUSB926x_FW_v1.06_SATA_NO_POLARITY_SWAP.bin`;
-* TI's `TUSB926x Flash Burner` is Windows-only and therefore useless here.
+```
+tusb926x-flash-burner -f /usr/share/tusb926x/TUSB926x_FW_v1.06_SATA_NO_POLARITY_SWAP.bin
+```
+
+The package is `package/tusb926x-flash-burner`, built from
+`luxonis/tusb926x-flash-burner`.  Local patch 0001 replaces hidapi with
+direct `/dev/hidraw` access (Buildroot's hidapi hard-depends on libudev and
+this image has no udev), fixes the signed comparison of
+`hidraw_devinfo.product` (0x926b does not fit in `__s16`), claims interface
+1 - the vendor interface that owns the bulk endpoints - instead of
+interface 0, and stops detaching `usbhid` from the HID interface, which
+used to revoke the hidraw handle before the final reset command.
+`CONFIG_HIDRAW=y` is forced in the kernel fragment.
+
+A run looks like this:
+
+```
+Issuing USB_HID_ENABLE_REPROGRAM command      ... sent
+USB_HID_POISON_FLASH                          ... sent
+USB_HID_RESET_FLASH_BURNER_DEVICE             ... sent
+USB_HID_SETUP_DOWNLOAD_DATA                   ... sent
+Sent 52266 bytes to device
+USB_HID_RESET_FLASH_BURNER_DEVICE             ... sent
+```
+
+and the bridge comes back as `0451:9261 "TUSB9260 USB 3 to SATA"` with a
+`TI-DSG TUSB9261` SCSI disk behind it.  The first attempt on this module
+stopped after `Sent 52266 bytes` with `Failed to send
+USB_HID_RESET_FLASH_BURNER_DEVICE command` - the image was already written
+and correct, only the self-reset was missing, so a power cycle brought the
+new firmware up.  The interface/detach fix above addresses that, but it has
+not been re-tested, because the bridge is now programmed and cannot be put
+back into boot loader mode (see below).
 
 Out of circuit it means desoldering D15 and programming it in a USON-8
 adapter; the package is far too small for a clip.
+
+**The HID boot loader only exists while the flash holds no valid image.**
+Once the bridge runs its firmware it enumerates with a single mass-storage
+interface and there is no HID interface left to talk to, so re-flashing
+from Linux is not possible - D15 has to be erased out of circuit first.
+The `-e` option of the burner is for recovering a half-written device, not
+for replacing a working image.
 
 Use the **no-polarity-swap** image.  The datasheet notes that
 

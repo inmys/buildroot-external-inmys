@@ -1,0 +1,177 @@
+diff --git a/src/TUSB9260_FlashBurner.cpp b/src/TUSB9260_FlashBurner.cpp
+index 09978e2..0abf0a1 100644
+--- a/src/TUSB9260_FlashBurner.cpp
++++ b/src/TUSB9260_FlashBurner.cpp
+@@ -34,24 +34,116 @@ SOFTWARE.
+ #include <sys/ioctl.h>
+  #include <fcntl.h>
+ 
+-#include <hidapi/hidapi.h>
+ #include "../include/DescriptorDeclarations.h"
+ 
+ #include <unistd.h>
+ #include <libusb-1.0/libusb.h>
+ 
++#include <linux/hidraw.h>
++
+ #define MAX_STR 255
+ 
+-#ifndef HID_API_MAKE_VERSION
+-#define HID_API_MAKE_VERSION(mj, mn, p) (((mj) << 24) | ((mn) << 8) | (p))
+-#endif
+-#ifndef HID_API_VERSION
+-#define HID_API_VERSION HID_API_MAKE_VERSION(HID_API_VERSION_MAJOR, HID_API_VERSION_MINOR, HID_API_VERSION_PATCH)
+-#endif
++/*
++ * Minimal hidraw stand-in for hidapi.
++ *
++ * The upstream Makefile links against hidapi-hidraw, but Buildroot's hidapi
++ * package hard-depends on libudev, and this image deliberately runs without
++ * udev.  Nothing here needs hidapi: on Linux its hidraw backend is a thin
++ * wrapper over the kernel driver, and the burner only uses
++ *
++ *   hid_open()   -> open("/dev/hidrawN") + HIDIOCGRAWINFO
++ *   hid_write()  -> write(fd, data, length)
++ *
++ * which is exactly what hidapi's hid_write() does.  The kernel's
++ * usbhid_output_report() strips the leading byte only when it is 0x00, so
++ * the nine-byte command buffers below reach the interrupt OUT endpoint
++ * unchanged, byte for byte as they did through hidapi.
++ */
++
++struct hid_device_ {
++	int fd;
++};
++typedef struct hid_device_ hid_device;
++
++struct hid_device_info {
++	unsigned short vendor_id;
++	unsigned short product_id;
++	unsigned short release_number;
++	unsigned short usage;
++	unsigned short usage_page;
++	int interface_number;
++	char *path;
++	wchar_t *serial_number;
++	wchar_t *manufacturer_string;
++	wchar_t *product_string;
++	struct hid_device_info *next;
++};
++
++static inline int hid_init(void) { return 0; }
++static inline int hid_exit(void) { return 0; }
++
++static hid_device *hid_open(unsigned short vendor_id, unsigned short product_id,
++			    const wchar_t *serial_number)
++{
++	char path[64];
++	struct hidraw_devinfo info;
++	hid_device *dev;
++	int fd, i;
++
++	(void)serial_number;
++
++	for (i = 0; i < 64; i++) {
++		snprintf(path, sizeof(path), "/dev/hidraw%d", i);
++		fd = open(path, O_RDWR | O_CLOEXEC);
++		if (fd < 0)
++			continue;
++		/* hidraw_devinfo.vendor/product are __s16, and 0x926b does
++		 * not fit in a signed 16-bit value, so compare unsigned. */
++		if (ioctl(fd, HIDIOCGRAWINFO, &info) == 0 &&
++		    (unsigned short)info.vendor == vendor_id &&
++		    (unsigned short)info.product == product_id) {
++			dev = (hid_device *)calloc(1, sizeof(*dev));
++			if (NULL == dev) {
++				close(fd);
++				return NULL;
++			}
++			dev->fd = fd;
++			return dev;
++		}
++		close(fd);
++	}
++	return NULL;
++}
++
++static int hid_write(hid_device *dev, const unsigned char *data, size_t length)
++{
++	return (int)write(dev->fd, data, length);
++}
++
++static void hid_close(hid_device *dev)
++{
++	if (NULL == dev)
++		return;
++	close(dev->fd);
++	free(dev);
++}
++
++/*
++ * Enumeration only feeds the "Device Found" banner; the burner locates its
++ * device by VID/PID anyway, so there is nothing to report here.
++ */
++static struct hid_device_info *hid_enumerate(unsigned short vendor_id,
++					     unsigned short product_id)
++{
++	(void)vendor_id;
++	(void)product_id;
++	return NULL;
++}
+ 
+-#if defined(USING_HIDAPI_LIBUSB) && HID_API_VERSION >= HID_API_MAKE_VERSION(0, 12, 0)
+-#include <hidapi_libusb.h>
+-#endif
++static void hid_free_enumeration(struct hid_device_info *devs)
++{
++	(void)devs;
++}
+ 
+ #define HID_REPORT_LEN 9u
+ 
+@@ -105,7 +197,7 @@ static libusb_device_handle* get_usb_device(libusb_context **ctx)
+ 		printf("Failed to initialize libusb context wit error code: %d\n", rc);
+ 	}
+ 
+-	libusb_set_option(*ctx, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_DEBUG);
++	libusb_set_option(*ctx, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_WARNING);
+ 
+ 	dev_handle = libusb_open_device_with_vid_pid(*ctx, TUSB9260_VENDOR_ID, TUSB9260_PRODUCT_ID);
+ 	if (!dev_handle) {
+@@ -502,18 +594,15 @@ int program_flash(void)
+       break;
+     }
+ 
+-    if(libusb_kernel_driver_active(usb_handle, 0) == 1){    
+-        printf("\nKernel Driver Active");    
+-        if(libusb_detach_kernel_driver(usb_handle, 0) == 0)    
+-            printf("\nKernel Driver Detached!\n");    
+-        else    
+-        {    
+-            printf("\nCouldn't detach kernel driver!\n");    
+-            break;    
+-        }
+-    }
+-
+-    result = libusb_claim_interface(usb_handle, 0);
++    /*
++     * In boot loader mode interface 0 is the HID boot loader and interface 1
++     * is the vendor-specific interface that carries the bulk endpoints, so
++     * interface 1 is the one to claim.  usbhid is deliberately left alone on
++     * interface 0: hidraw is a child of the hid device, so detaching the
++     * driver revokes the /dev/hidrawN handle that the final reset command
++     * below still needs.
++     */
++    result = libusb_claim_interface(usb_handle, 1);
+     if(result)    {
+       printf("Failed to claim usb device interface: %d\n", result);
+       break;
+@@ -537,7 +626,7 @@ int program_flash(void)
+     hid_close(dev);
+   }
+   if(NULL != usb_handle){
+-      libusb_release_interface(usb_handle, 0);
++      libusb_release_interface(usb_handle, 1);
+       libusb_close(usb_handle);
+       libusb_exit(usb_ctx);
+   }

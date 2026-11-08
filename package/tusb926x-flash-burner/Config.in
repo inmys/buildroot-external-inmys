@@ -1,0 +1,24 @@
+config BR2_PACKAGE_TUSB926X_FLASH_BURNER
+	bool "tusb926x-flash-burner"
+	depends on BR2_INSTALL_LIBSTDCPP
+	select BR2_PACKAGE_LIBUSB
+	help
+	  In-circuit flash programmer for the TI TUSB9260/TUSB9261
+	  USB 3.0 to SATA bridge.
+
+	  The bridge has no application flash of its own: its boot code
+	  loads an image from the attached SPI flash into RAM, and with
+	  no valid image it idles in a HID boot loader.  This tool talks
+	  to that boot loader and writes the image, so the bridge can be
+	  programmed without desoldering the SPI flash.
+
+	  On the NMS-SM-K1892VM21YA the SPI flash (D15) is wired to
+	  nothing but the bridge, and the bridge sits on downstream port
+	  1 of the TUSB8041 hub, which is not brought out to the SMARC
+	  connector.  The SoC is therefore the only host that can reach
+	  it, and this tool has to run on the module itself.
+
+	  Local patch 0001 talks to /dev/hidraw directly instead of
+	  going through hidapi, so no udev is required.
+
+	  https://github.com/luxonis/tusb926x-flash-burner

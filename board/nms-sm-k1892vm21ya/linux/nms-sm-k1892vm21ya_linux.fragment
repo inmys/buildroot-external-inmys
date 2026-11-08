@@ -11,6 +11,13 @@
 CONFIG_I2C_MUX=y
 CONFIG_I2C_MUX_PCA954x=y
 
+# --- USB ----------------------------------------------------------------
+# The TUSB9261 (D16) has no firmware flash of its own and on this module D15
+# is blank, so the bridge sits in its HID boot loader (0451:926b).  hidapi's
+# hidraw backend is what tusb926x-flash-burner uses to reach it, and the
+# ELVEES defconfig has HIDRAW switched off.
+CONFIG_HIDRAW=y
+
 # --- RTC --------------------------------------------------------------
 # D8 PCF8523TK on the 1.8 V branch of the PCA9540B (bus 9, address 0x68).
 # The ELVEES defconfig has no RTC support at all, so /sys/class/rtc is

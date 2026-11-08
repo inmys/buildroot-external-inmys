@@ -126,3 +126,12 @@ BR2_PACKAGE_ALSA_UTILS_APLAY=y
 BR2_PACKAGE_ALSA_UTILS_AMIXER=y
 BR2_PACKAGE_ALSA_UTILS_ALSACTL=y
 BR2_PACKAGE_ALSA_UTILS_SPEAKER_TEST=y
+
+# --- USB-SATA bridge ------------------------------------------------------
+# D16 (TUSB9261) has no firmware in D15 and sits in its HID boot loader.  The
+# SPI flash is reachable from nothing but the bridge, and the bridge is on a
+# hub port that is not on the SMARC connector, so the SoC is the only host
+# that can program it: tusb926x-flash-burner runs on the module and drives the
+# boot loader over /dev/hidraw.  Requires CONFIG_HIDRAW=y (kernel fragment).
+BR2_PACKAGE_LIBUSB=y
+BR2_PACKAGE_TUSB926X_FLASH_BURNER=y
