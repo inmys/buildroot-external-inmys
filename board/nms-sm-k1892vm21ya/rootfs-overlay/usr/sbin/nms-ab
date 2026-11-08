@@ -95,12 +95,54 @@ nms_ab_prepare() {
 }
 
 # Point extlinux.conf at a slot.  /boot must already be mounted.
+# Kernel command line options this hardware cannot do without.  They are
+# re-applied to every extlinux label after an update, because an A/B update
+# replaces the kernel and the rootfs but not the boot configuration on the
+# FAT partition: a board flashed before an option was introduced would
+# otherwise keep booting without it forever.
+#
+#   pcie_aspm=off     PCI0_CLKREQ (D2.G13) and PCI1_CLKREQ (D2.G15) are
+#                     unconnected on this module - the nets NetD2_G13 and
+#                     NetD2_G15 have no other member - while the endpoints
+#                     reach PCIE_A_CLKREQ#/PCIE_B_CLKREQ# only through the
+#                     clock buffer D5 to the SMARC connector.  An Intel WiFi
+#                     card drops CLKREQ# as soon as its firmware is running
+#                     and expects the host to bring the reference clock back;
+#                     the SoC never sees the request, so L1 entry wedges the
+#                     link.  ASPM has to stay off until the pad is wired.
+#   pcie_port_pm=off  keeps the root port out of D3hot for the same reason.
+NMS_CMDLINE="pcie_aspm=off pcie_port_pm=off"
+
+nms_ab_ensure_cmdline() {
+	[ -f /boot/extlinux/extlinux.conf ] || return 1
+	tmp=/boot/extlinux/.extlinux.new
+	awk -v opts="$NMS_CMDLINE" '
+		/^[[:space:]]*append[[:space:]]/ {
+			n = split(opts, want, " ")
+			for (i = 1; i <= n; i++) {
+				present = 0
+				for (j = 2; j <= NF; j++)
+					if ($j == want[i]) present = 1
+				if (!present) $0 = $0 " " want[i]
+			}
+		}
+		{ print }
+	' /boot/extlinux/extlinux.conf > "$tmp" || return 1
+	mv "$tmp" /boot/extlinux/extlinux.conf && sync
+}
+
 nms_ab_set() {
 	[ -f /boot/extlinux/extlinux.conf ] || return 1
 	cur=$(sed -n 's/^default[[:space:]]*//p' /boot/extlinux/extlinux.conf)
 	[ -n "$cur" ] || return 1
-	# Labels are "<carrier>_<slot>"; keep the carrier, swap the suffix.
-	new=${cur%_*}_$1
+	# Labels are "<carrier>_<slot>".  The carrier this image was built for
+	# wins over the one in the current default line: when a module is moved
+	# to a different carrier the FAT partition still carries the labels of
+	# the image that created it, and the update is exactly the moment to
+	# point it at the new device tree.
+	carrier=$(cat /etc/nms-carrier 2>/dev/null)
+	[ -n "$carrier" ] || carrier=${cur%_*}
+	new=${carrier}_$1
 	grep -qx "label $new" /boot/extlinux/extlinux.conf || return 1
 	sed -i "s/^default[[:space:]].*/default $new/" /boot/extlinux/extlinux.conf
 	sync

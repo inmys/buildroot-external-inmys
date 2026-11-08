@@ -16,6 +16,13 @@ if [ -d "$BOARD_DIR/rootfs-overlay-$CARRIER" ]; then
 	cp -a "$BOARD_DIR/rootfs-overlay-$CARRIER/." "$TARGET_DIR/"
 fi
 
+# Record the carrier the image was built for.  nms-ab uses it to pick the
+# right extlinux label: the FAT partition keeps the labels of whatever image
+# created it, so a module moved to a different carrier would otherwise go on
+# booting the old device tree after an A/B update.  Two tokens, no comments -
+# /etc/hwrevision has the same constraint for a different reason.
+echo "$CARRIER" > "$TARGET_DIR/etc/nms-carrier"
+
 # Write the extlinux configuration used by the SD card image and by
 # "bootm" from the U-Boot prompt.
 mkdir -p "$TARGET_DIR/boot/extlinux"
@@ -23,7 +30,7 @@ cat > "$TARGET_DIR/boot/extlinux/extlinux.conf" <<EOF
 label linux
 	linux /boot/Image
 	fdt /boot/$CARRIER.dtb
-	append root=/dev/mmcblk0p2 rootwait rw console=ttyS0,115200 earlycon
+	append root=/dev/mmcblk0p2 rootwait rw console=ttyS0,115200 earlycon pcie_aspm=off pcie_port_pm=off
 EOF
 
 # The kernel device trees are installed by Buildroot with the directory

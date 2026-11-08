@@ -499,8 +499,9 @@ The symptom is an xHCI root hub with an empty port and no hub anywhere in
 `lsusb`, even though the hub is alive and answers on I2C.
 
 The SMBus slave address is `1000 1x0`, where `x` is the `GANGED`/`SMBA2`
-strap; on this module it is **0x44**.  The hub sits on `I2C_INT`, that is
-channel 0 of the PCA9540B (bus 8 in the running system):
+strap.  It is **not the same on every module**: 0x44 has been measured on
+one and **0x47** on another, so nothing may hard-code it.  The hub sits on
+`I2C_INT`, that is channel 0 of the PCA9540B (bus 8 in the running system):
 
 ```
 i2cget -y 8 0x44 0x01   # 0x51  \
@@ -513,13 +514,17 @@ i2cset -y 8 0x44 0xf8 0x01
 i2cget -y 8 0x44 0xf8   # 0x00  > hub connects, the tree appears
 ```
 
-`nms-usbhub` does exactly this and `S04nmsusbhub` runs it at boot.  The
-module device tree carries a `hub@44` node so that the script can find the
-bus without hard-coding a number (it falls back to the EMC2301 node at
-`0x2f`, which lives on the same mux channel, for device trees that predate
-it).  Bit 1 of the same register is `smbusRst` - also write-1-to-act, and
-it reloads the register defaults - which is why the script masks bit 0
-rather than comparing the whole byte.
+`nms-usbhub` does exactly this and `S04nmsusbhub` runs it at boot.  It
+derives the adapter number from the PCA9540B device tree node (the kernel
+names the child adapter `i2c-<parent>-mux (chan_id 0)`) and then probes
+0x44..0x47, confirming the TI vendor and product IDs before writing
+anything.  There is deliberately **no** `hub@NN` node in the device tree: a
+`reg` property would be wrong on half the boards, and the mux node is a
+stable anchor that does not depend on the strap.
+
+Bit 1 of the same register is `smbusRst` - also write-1-to-act, and it
+reloads the register defaults - which is why the script masks bit 0 rather
+than comparing the whole byte.
 
 Clearing `cfgActive` after the hub has already connected does not
 disconnect it: the bit is only consulted on the way up.  Writing
@@ -659,6 +664,128 @@ an input keeps the line released.  Driving PB11 high resets the USB hub,
 the USB-SATA bridge and the camera/LCD I2C mux together - which is exactly
 what `bc-stm32` does *not* do today.
 
+### 1.12 PCIe: why ASPM has to stay off
+
+The SoC has two PCIe root complexes, `PCI0` and `PCI1`, and three SMARC
+slots A/B/C behind them.  The module fans them out through a clock buffer
+(D5) and a set of switches, and it does **not** wire the CLKREQ# side of
+the handshake back to the SoC:
+
+| Signal | Where it goes |
+|--------|---------------|
+| `PCI0_CLKREQ` (D2.G13) | net `NetD2_G13` - **nothing else on it** |
+| `PCI1_CLKREQ` (D2.G15) | net `NetD2_G15` - **nothing else on it** |
+| `PCIE_A_CLKREQ#` | X1.P78, D5.3, D5.12, R49.1 |
+| `PCIE_B_CLKREQ#` | X1.P77, D5.6, D5.16, R39.1 |
+| `PCIE_C_CLKREQ` | D6.3 only - does not even reach the connector |
+
+In an ASPM L1 entry the reference clock is switched off and the endpoint
+asserts CLKREQ# to ask for it back.  Here the request stops at the clock
+buffer, so the SoC never learns that the endpoint wants the clock and the
+link cannot be woken from the endpoint side.
+
+This is invisible with a passive device such as an NVMe drive, but an
+Intel WiFi card drops CLKREQ# as soon as its firmware is running and
+expects the host to bring the clock back - the result is a stream of PCIe
+correctable errors and eventually a dead link.
+
+The workaround is a kernel command line option, applied to every extlinux
+label:
+
+```
+pcie_aspm=off pcie_port_pm=off
+```
+
+`pcie_aspm=off` keeps the link at L0 and stops CLKREQ# from ever being
+deasserted; `pcie_port_pm=off` keeps the root port out of D3hot for the
+same reason.  Both are recorded in `NMS_CMDLINE` in `nms-ab`, and
+`nms-postupdate` re-applies them to `extlinux.conf` after every update -
+the boot configuration lives on the FAT partition, which an A/B update does
+not otherwise touch, so a board flashed before the option existed would
+keep booting without it.
+
+Once the CLKREQ# pad is wired to the module (a rework on the SoC side, not
+on the carriers) the option can be dropped and ASPM re-tested.
+
+#### The carrier `reset-gpios` that never did anything
+
+All three carrier device trees used to carry
+
+```
+&pcie0 {
+	reset-gpios = <&gpio0b 4 GPIO_ACTIVE_LOW>;
+};
+```
+
+which is wrong twice over.  `drivers/pci/controller/dwc/pcie-mcom03.c`
+looks for `reset-gpio`, singular, and warns `'reset-gpio' isn't specified
+in PCIe node` when it is absent - so the property was silently ignored.
+And `GPIO0_PORTB_4` is ball BB34, which is `WDT_TIME_OUT#` on SMARC S145,
+not a PCIe reset: had the property name been right, the driver would have
+driven the carrier watchdog line.  The nodes are now plain
+`status = "okay"` and the controller drives the `PCIx_PERSTN` pad itself.
+
+### 1.13 WiFi in the M.2 slot
+
+The M.2 slot is on PCIe0 and has been seen with two different cards:
+
+| Card | PCI ID | Driver | Firmware |
+|------|--------|--------|----------|
+| Intel AX210 (Typhoon Peak) | `8086:2725` | `iwlmvm` | `iwlwifi-ty-a0-gf-a0-*.ucode` + `.pnvm` |
+| Intel Dual Band Wireless-AC 7265 (Stone Peak 2) | `8086:095a` | `iwlmvm` | `iwlwifi-7265D-29.ucode` |
+
+Both blobs are installed (`BR2_PACKAGE_LINUX_FIRMWARE_IWLWIFI_6E` and
+`..._IWLWIFI_7265D`) and the driver picks by PCI ID, so the slot can be
+swapped without rebuilding.  Note that linux-firmware 20251011 ships only
+`iwlwifi-7265D-29.ucode` for the 7265D; the driver probes 29 down to 22 and
+29 is the one that works.
+
+#### Why the wireless stack is modular
+
+Every other driver in this image is built in, but `cfg80211`, `mac80211`,
+`iwlwifi` and `iwlmvm` are modules.  The reason is purely a boot ordering
+problem:
+
+```
+[    2.861889] iwlwifi 0000:01:00.0: Detected Intel(R) Dual Band Wireless-AC 7265
+[    2.870106] iwlwifi 0000:01:00.0: Direct firmware load for iwlwifi-7265D-29.ucode failed with error -2
+[    3.483063] VFS: Mounted root (ext4 filesystem) on device 179:2.
+```
+
+A built-in `iwlwifi` probes from its PCI driver initcall, which runs before
+the root filesystem is mounted, so the firmware is not reachable yet and no
+`wlan0` appears.  `cfg80211` has exactly the same problem with
+`regulatory.db`.  There is no initramfs, so the only way to have the
+firmware available in time is to load the driver after boot:
+
+```
+/etc/modules-load.d/iwlwifi.conf   ->  iwlmvm
+```
+
+`S11modules` reads that file.  `iwlmvm` is the module that registers the PCI
+driver and `modprobe` pulls in `iwlwifi`, `mac80211` and `cfg80211` through
+`modules.dep`.  With this in place the same card logs
+
+```
+[    5.289027] iwlwifi 0000:01:00.0: loaded firmware version 29.9ef079ed.0 7265D-29.ucode op_mode iwlmvm
+[    5.347688] iwlwifi 0000:01:00.0: base HW address: 4c:34:88:4a:28:83, OTP minor version: 0x0
+```
+
+and `iw dev wlan0 scan` returns access points.
+
+Because `CONFIG_IWLWIFI=m` makes `IWLWIFI_OPMODE_MODULAR` default to `y`,
+`iwlmvm` is a separate `.ko`; it cannot be folded into `iwlwifi.ko` because
+the symbol is not user-selectable.
+
+#### Regulatory domain
+
+`regulatory.db` is installed by `BR2_PACKAGE_WIRELESS_REGDB`, but when
+`cfg80211` was built in it never loaded, for the same boot-ordering reason.
+Now that `cfg80211` is a module it loads after boot and the database is
+picked up.  `CONFIG_CFG80211_REQUIRE_SIGNED_REGDB` stays at its default `y`;
+it cannot be switched off from a fragment because it is only user-visible
+behind `CFG80211_CERTIFICATION_ONUS`.
+
 ## 2. NMS-SM-EVM V1 carrier (default)
 
 | Item | Part | Notes |
@@ -674,13 +801,38 @@ what `bc-stm32` does *not* do today.
 * `GPIO5_PWM_OUT` and `GPIO6_TACHIN` are **not** connected to the SoC;
   the fan is controlled by the ADT7473 over I2C.
 * The carrier DTS adds: `pca9535@0x20` on `i2c0`, `adt7473@0x2e` and
-  `pca9546@0x70` on `i2c1`, the ADV7513 HDMI output and the PCIe0
-  reset GPIO (`GPIO0_B4`).
+  `pca9546@0x70` on `i2c1` and the ADV7513 HDMI output.  There is no PCIe0
+  reset GPIO - see §1.12.
 
 ## 3. NMS_SMARC_TESTER V1
 
 Bring-up carrier with a single GbE port, HDMI, USB and a set of
 test points. See `linux/nms-smarc-tester.dts`.
+
+The tester is driven by a separate board (an NMS-SM-EVM with an
+NMS-SM-RK3568 module) that provides the module's console and network:
+
+| Item | Value |
+|------|-------|
+| Module console on the host board | `/dev/ttyS5`, 115200 8N1 |
+| Module Ethernet | wired to the host board's `eth1`, not to the lab LAN |
+| Host board `eth1` | `172.16.147.1/16`, no DHCP server |
+| Module `eth0` | `udhcpc`, so it comes up without an address |
+
+Reach the module with `ssh -J root@<host> root@<module>`; after every reboot
+`ifconfig eth0 172.16.147.147` has to be typed on the console first, because
+nothing on `eth1` answers DHCP.
+
+Measured on this carrier:
+
+* the TUSB8041 hub answers at **0x47**, not at the 0x44 seen on other
+  modules - the address is strap-dependent and `nms-usbhub` probes the whole
+  0x44..0x47 window (see §1.11);
+* the TUSB9261 boot loader is reachable and the bridge flashes normally;
+  with a 128 GB SATA SSD attached it enumerates as `0451:9261` and `sda`
+  reports 250069680 sectors;
+* PCIe0 enumerates the M.2 card and `iwlwifi` brings up `wlan0` (see §1.13),
+  with `pcie_aspm=off` because CLKREQ# is not wired (see §1.12).
 
 ## 4. NMS-ITX-SM-LC-V4
 

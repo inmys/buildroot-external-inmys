@@ -14,7 +14,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/Makefile b/arch/arm64/boot/dts/elvees/Mak
 diff -urN a/arch/arm64/boot/dts/elvees/nms-itx-sm-lc-v4.dts b/arch/arm64/boot/dts/elvees/nms-itx-sm-lc-v4.dts
 --- a/arch/arm64/boot/dts/elvees/nms-itx-sm-lc-v4.dts
 +++ b/arch/arm64/boot/dts/elvees/nms-itx-sm-lc-v4.dts
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,106 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * NMS-ITX-SM-LC-V4 - mini-ITX SMARC carrier
@@ -87,9 +87,16 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-itx-sm-lc-v4.dts b/arch/arm64/boot/dt
 +};
 +
 +/* PCIe / M.2 SATA */
++/*
++ * No reset-gpio here.  The controller drives the PCIx_PERSTN pad itself and
++ * only falls back to that when the property is absent.  The
++ * `reset-gpios = <&gpio0b 4 GPIO_ACTIVE_LOW>` that used to sit here was
++ * doubly wrong: the driver looks for "reset-gpio" (singular), and
++ * GPIO0_PORTB_4 is ball BB34 = WDT_TIME_OUT# on SMARC S145, not a PCIe
++ * reset at all.
++ */
 +&pcie0 {
 +	status = "okay";
-+	reset-gpios = <&gpio0b 4 GPIO_ACTIVE_LOW>;
 +};
 +
 +/* HDMI */
@@ -117,7 +124,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-itx-sm-lc-v4.dts b/arch/arm64/boot/dt
 diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts
 --- a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts
 +++ b/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,146 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * NMS_SMARC_TESTER V1 - SMARC test/burn-in carrier
@@ -203,10 +210,16 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dt
 +	status = "okay";
 +};
 +
-+/* PCIe slot / M.2 */
++/*
++ * PCIe slot / M.2.  No reset-gpio: the controller drives the
++ * PCIx_PERSTN pad itself, and the driver only falls back to that when the
++ * property is absent.  The previous `reset-gpios = <&gpio0b 4 ...>` was
++ * doubly wrong - the driver looks for "reset-gpio" (singular), and
++ * GPIO0_PORTB_4 is ball BB34 = WDT_TIME_OUT# on SMARC S145, not a PCIe
++ * reset at all.
++ */
 +&pcie0 {
 +	status = "okay";
-+	reset-gpios = <&gpio0b 4 GPIO_ACTIVE_LOW>;
 +};
 +
 +/* HDMI/DP test path */
@@ -592,7 +605,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts b/arch/arm64/boot/d
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elvees/nms-sm-evm.dts
 --- a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-evm.dts
-@@ -0,0 +1,225 @@
+@@ -0,0 +1,232 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-EVM V1 - default carrier board for NMS-SM-K1892VM21YA
@@ -813,15 +826,22 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 +/* PCIe (X33 x4 slot on PCIe0, X19 miniPCIe on PCIe1)                 */
 +/* ------------------------------------------------------------------ */
 +
++/*
++ * No reset-gpio here.  The controller drives the PCIx_PERSTN pad itself and
++ * only falls back to that when the property is absent.  The
++ * `reset-gpios = <&gpio0b 4 GPIO_ACTIVE_LOW>` that used to sit here was
++ * doubly wrong: the driver looks for "reset-gpio" (singular), and
++ * GPIO0_PORTB_4 is ball BB34 = WDT_TIME_OUT# on SMARC S145, not a PCIe
++ * reset at all.
++ */
 +&pcie0 {
 +	status = "okay";
-+	reset-gpios = <&gpio0b 4 GPIO_ACTIVE_LOW>;
 +};
 +
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 --- a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
-@@ -0,0 +1,873 @@
+@@ -0,0 +1,871 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-K1892VM21YA V1
@@ -1231,19 +1251,17 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot
 +			};
 +
 +			/*
-+			 * TUSB8041 four-port USB 3.0 hub (D14).  SMBUSz is
-+			 * strapped low by R128, so the hub comes up as an
-+			 * SMBus slave: it sets cfgActive (register 0xF8, bit
-+			 * 0) and refuses to connect to the upstream port until
-+			 * a host clears that bit.  Upstream Linux has no driver
-+			 * for this, so S04nmsusbhub does the one-byte write.
-+			 * The node itself exists only so that the script has a
-+			 * stable /sys/bus/i2c/devices/<bus>-0044 to find.
++			 * TUSB8041 four-port USB 3.0 hub (D14) lives here too,
++			 * but it has no node: its SMBus slave address is set by
++			 * the GANGED/SMBA2 strap and differs between modules
++			 * (0x44 and 0x47 have both been seen), so a reg
++			 * property would be wrong on half the boards.  SMBUSz
++			 * is strapped low by R128, so the hub comes up as an
++			 * SMBus slave, sets cfgActive (register 0xF8, bit 0)
++			 * and refuses to connect to the upstream port until a
++			 * host clears that bit; nms-usbhub probes the whole
++			 * 0x44..0x47 window and S04nmsusbhub runs it at boot.
 +			 */
-+			hub: hub@44 {
-+				compatible = "ti,tusb8041";
-+				reg = <0x44>;
-+			};
 +		};
 +
 +		/*

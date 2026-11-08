@@ -70,9 +70,16 @@
 };
 
 /* PCIe / M.2 SATA */
+/*
+ * No reset-gpio here.  The controller drives the PCIx_PERSTN pad itself and
+ * only falls back to that when the property is absent.  The
+ * `reset-gpios = <&gpio0b 4 GPIO_ACTIVE_LOW>` that used to sit here was
+ * doubly wrong: the driver looks for "reset-gpio" (singular), and
+ * GPIO0_PORTB_4 is ball BB34 = WDT_TIME_OUT# on SMARC S145, not a PCIe
+ * reset at all.
+ */
 &pcie0 {
 	status = "okay";
-	reset-gpios = <&gpio0b 4 GPIO_ACTIVE_LOW>;
 };
 
 /* HDMI */

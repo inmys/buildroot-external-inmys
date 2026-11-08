@@ -18,6 +18,32 @@ CONFIG_I2C_MUX_PCA954x=y
 # ELVEES defconfig has HIDRAW switched off.
 CONFIG_HIDRAW=y
 
+# --- WiFi (PCIe) --------------------------------------------------------
+# The M.2 slot has been seen with an Intel AX210 (8086:2725, Typhoon Peak,
+# iwlwifi-ty-*) and with a Dual Band Wireless-AC 7265 (8086:095a, Stone Peak
+# 2, iwlwifi-7265D-*); both are driven by iwlmvm.
+#
+# The whole stack is modular on purpose.  Built in, iwlwifi probes from its
+# PCI driver initcall at 2.86 s and asks for its firmware before the root
+# filesystem is mounted at 3.48 s - "Direct firmware load ... failed with
+# error -2" and no wlan0.  cfg80211 has the same problem with
+# regulatory.db.  There is no initramfs, so the only way to have the
+# firmware available in time is to load the driver after boot, which is what
+# /etc/init.d/S11modules does with /etc/modules-load.d/iwlwifi.conf.
+#
+# IWLWIFI=m makes IWLWIFI_OPMODE_MODULAR default to y, so iwlmvm is a
+# separate module and that is the one to load; modprobe pulls in iwlwifi,
+# mac80211 and cfg80211 through modules.dep.
+CONFIG_CFG80211=m
+CONFIG_MAC80211=m
+CONFIG_CFG80211_CRDA_SUPPORT=y
+CONFIG_IWLWIFI=m
+CONFIG_IWLMVM=m
+# CONFIG_IWLDVM is not set
+CONFIG_IWLWIFI_LEDS=y
+# CONFIG_IWLWIFI_DEBUGFS is not set
+# CONFIG_IWLWIFI_DEVICE_TRACING is not set
+
 # --- RTC --------------------------------------------------------------
 # D8 PCF8523TK on the 1.8 V branch of the PCA9540B (bus 9, address 0x68).
 # The ELVEES defconfig has no RTC support at all, so /sys/class/rtc is

@@ -13,6 +13,8 @@ set -eu
 slot=$(cat /run/swupdate/.target-slot 2>/dev/null) || slot=""
 [ -n "$slot" ] || exit 0
 
+nms_ab_ensure_cmdline || echo "nms-postupdate: cannot refresh the kernel command line" >&2
+
 if nms_ab_set "$slot"; then
 	echo "nms-postupdate: extlinux.conf now defaults to $slot, reboot to switch"
 else

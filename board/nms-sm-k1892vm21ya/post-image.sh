@@ -47,6 +47,10 @@ cp "$BINARIES_DIR/Image" "$BINARIES_DIR/Image.B"
 # carrier this image was built for is the default.
 # One label per carrier and slot, so a single image boots on any carrier;
 # the carrier this image was built for, slot A, is the default.
+# Must stay in sync with NMS_CMDLINE in rootfs-overlay/usr/sbin/nms-ab, which
+# re-applies these to boards that were flashed before they were introduced.
+NMS_CMDLINE="pcie_aspm=off pcie_port_pm=off"
+
 write_extlinux() {
 	root_a=$1
 	root_b=$2
@@ -67,7 +71,7 @@ write_extlinux() {
 				echo "\tmenu label $name ($slot)"
 				echo "\tlinux /Image.$slot"
 				echo "\tfdt /$name.$slot.dtb"
-				echo "\tappend root=$root rootwait rw console=ttyS0,115200 earlycon"
+				echo "\tappend root=$root rootwait rw console=ttyS0,115200 earlycon $NMS_CMDLINE"
 			done
 		done
 	} > "$BINARIES_DIR/extlinux/extlinux.conf"

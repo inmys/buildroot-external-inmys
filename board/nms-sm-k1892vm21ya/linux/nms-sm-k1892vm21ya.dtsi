@@ -407,19 +407,17 @@ ser3: &uart1 { };
 			};
 
 			/*
-			 * TUSB8041 four-port USB 3.0 hub (D14).  SMBUSz is
-			 * strapped low by R128, so the hub comes up as an
-			 * SMBus slave: it sets cfgActive (register 0xF8, bit
-			 * 0) and refuses to connect to the upstream port until
-			 * a host clears that bit.  Upstream Linux has no driver
-			 * for this, so S04nmsusbhub does the one-byte write.
-			 * The node itself exists only so that the script has a
-			 * stable /sys/bus/i2c/devices/<bus>-0044 to find.
+			 * TUSB8041 four-port USB 3.0 hub (D14) lives here too,
+			 * but it has no node: its SMBus slave address is set by
+			 * the GANGED/SMBA2 strap and differs between modules
+			 * (0x44 and 0x47 have both been seen), so a reg
+			 * property would be wrong on half the boards.  SMBUSz
+			 * is strapped low by R128, so the hub comes up as an
+			 * SMBus slave, sets cfgActive (register 0xF8, bit 0)
+			 * and refuses to connect to the upstream port until a
+			 * host clears that bit; nms-usbhub probes the whole
+			 * 0x44..0x47 window and S04nmsusbhub runs it at boot.
 			 */
-			hub: hub@44 {
-				compatible = "ti,tusb8041";
-				reg = <0x44>;
-			};
 		};
 
 		/*
