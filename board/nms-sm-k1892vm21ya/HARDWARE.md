@@ -505,6 +505,92 @@ S125/S126, S128/S129, S131/S132 and S137/S138, with channel B silent as
 befits a single link.  The bridge's test pattern register (0x3c) takes
 effect without a soft reset on this part.
 
+#### Dual link on the tester: the wiring is proven, the picture is not
+
+The module wires **both** SN65DSI84 channels to the connector - A to SMARC
+LVDS0 (S125..S138), B to LVDS1 (S108..S121) - and the tester has a FIN1032
+receiver on every pair of both, feeding the FPGA:
+
+| | channel A | channel B |
+|---|---|---|
+| CLK | S134/S135 -> D32 RIN9 | S108/S109 -> D31 RIN6 |
+| Y0 | S125/S126 -> D30 RIN1 | S120/S121 -> D30 RIN2 |
+| Y1 | S128/S129 -> D30 RIN3 | S111/S112 -> D31 RIN5 |
+| Y2 | S131/S132 -> D32 RIN10 | S117/S118 -> D31 RIN7 |
+| Y3 | S137/S138 -> D32 RIN11 | S114/S115 -> D31 RIN8 |
+
+So the tester enables dual link in its device tree: the bridge gets a
+`port@3`, the panel a `port@1`, and the two ports carry the
+`dual-lvds-odd-pixels` / `dual-lvds-even-pixels` markers that
+`drm_of_lvds_get_dual_link_pixel_order()` reads.  Channel A carries the odd
+pixels, as in the freescale dual-link panels.  This lives in the carrier
+and not in the module dtsi because the 7" panel the other carriers drive
+is a single-link part.
+
+**What is verified** (`test_lvds_lanes.sh` and the FPGA counters):
+
+* both clock lanes run: `A_CLK = B_CLK = 33300 kHz`;
+* all eight data lanes are active with the bridge's test pattern;
+* both deserialisers lock, and each channel measures `512` of `1024`
+  pixels per line and a DE run of `512` independently;
+* the frame is `806` lines at `60.9 Hz`, and the two channels' clocks agree.
+
+The lane test passes.  That is the answer to "does channel B reach the
+far end" - it does.
+
+**What does not work** is the picture:
+
+* with `CHA_ACTIVE_LINE_LENGTH` (0x20/0x21) set to the mode's `1024`, the
+  split is correct - `512` per channel, `htotal 678`, `806` lines - but DE
+  is high for exactly **one line per frame**, so the monitor reads
+  `vact = 1` and `de_count = 512`;
+* with `512` programmed the vertical comes right (`vact = 768`) but each
+  channel carries only `256` pixels, i.e. half the picture is dropped;
+* the bridge latches `CHA_SYNCH_ERR` (0xe5 bit 7) throughout and the driver
+  resets the pipe every few seconds.
+
+Neither value gives both the right width and the right height, so the
+bridge is not assembling dual-link frames from this DSI stream.  The
+burst-mode question was checked and is not it: dropping
+`MIPI_DSI_MODE_VIDEO_BURST` and the `NO_HFP/HBP/HSA` flags changes nothing.
+
+To fall back to a working picture, take the dual-link block out of
+`nms-smarc-tester.dts` - the `port@3` on the bridge, the `port@1` and the
+two markers on the panel - and drop the `panel-timing` override so the
+module's 800x480 at 33 MHz comes back.  Single link measures correctly:
+`800x480`, `DE 384000`, no errors at all.
+
+#### The LVDS clock must stay above 25 MHz
+
+`LVDS_CLK_RANGE` (0x0a bits 3:1) has no setting below 25 MHz - `000` is
+25..37.5 MHz - and `sn65dsi83_get_lvds_range()` computes it from
+`mode_clock / 2` in dual link.  An 800x480 mode at 33 MHz therefore asks
+for **16.5 MHz per channel**, below what the part can generate: the PLL
+never settles, `PLL_UNLOCK` latches in 0xe5, and the frame comes out as a
+single line.  The driver does not check this - `sn65dsi83_mode_valid()`
+limits the mode clock to 25..154 MHz but not the halved one.
+
+The tester therefore runs 1024x768 at **66 MHz**, which gives 33.3 MHz per
+channel.  The pixel clock is not free to be chosen either: `disp_pxlclk`
+is `media_pll1` (594 MHz) over an integer UCG divider, so only 594/N
+exists - 148.5, 118.8, 99, 74.25, 66, 59.4, 54, 49.5, 33 - and
+`mcom03_dsi_mode_valid()` demands an exact match.  65 MHz, the obvious
+choice, is simply not producible: the mode is rejected and `crtc-0` is
+left with an empty mode.
+
+#### The sn65dsi83 reset loop
+
+`REG_IRQ_STAT` (0xe5) is RW1C - the bits stay set until a one is written
+back - and `sn65dsi83_handle_errors()` acted on the first read without
+clearing it.  The bridge latches `CHA_SYNCH_ERR` while the DSI link starts
+up, and resetting the pipe latches another, so one start-up glitch became
+an endless loop: `sn65dsi83 9-002d: reset the pipe` every 1.1 s, forever.
+
+Patch `0002-drm-bridge-sn65dsi83-clear-the-latched-error-status-b.patch`
+clears what was latched and only resets if it comes back, which is what
+the datasheet's init sequence prescribes (write 0xff to 0xe5, wait 1 ms,
+re-initialise if it is still not zero).
+
 ### 1.11 USB: the hub (D14) and the USB-SATA bridge (D16)
 
 #### Topology
@@ -982,6 +1068,11 @@ Measured on this carrier:
   reports 250069680 sectors;
 * PCIe0 enumerates the M.2 card and `iwlwifi` brings up `wlan0` (see §1.13),
   with `pcie_aspm=off` because CLKREQ# is not wired (see §1.12);
+* LVDS runs as a **dual link** here, which is the only way to exercise
+  channel B: both clock lanes measure 33300 kHz and all eight data lanes
+  are active, but the bridge does not assemble a correct frame from this
+  DSI stream yet - see §1.10 for what works, what does not, and how to fall
+  back to single link;
 * **PCIe1 works here** because this carrier has a card in SMARC PCIe B, which
   is what gates `PCI1_REF_CLK` (see §1.12).  With `pcie1` enabled and
   `num-lanes = <2>` a second card enumerates as `0001:01:00.0` and `wlan1`

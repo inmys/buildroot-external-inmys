@@ -1,0 +1,58 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] drm/bridge: sn65dsi83: clear the latched error status before
+ resetting the pipe
+
+REG_IRQ_STAT (CSR 0xe5) is RW1C: the bits stay set until a one is written
+back.  sn65dsi83_handle_errors() reads it and, on any bit other than
+CHA_PLL_UNLOCK, schedules a pipe reset - but it never clears the bit.
+
+The SN65DSI84 latches a CHA_SYNCH_ERR while the DSI link starts up, and
+resetting the pipe latches another one.  So a single start-up glitch turns
+into an endless reset loop: the pipe is reset roughly once a second and
+never gets a chance to run.  On the ELVEES MCom-03R with the bridge in
+dual-link mode this showed up as
+
+    sn65dsi83 9-002d: reset the pipe
+
+repeating forever, while the LVDS clocks and all eight data lanes were
+measuring correctly on the far end.  Clearing CSR 0xe5 from user space
+stopped the loop and the status then stayed at zero for as long as it was
+watched, which is what identifies the bit as a start-up transient rather
+than a live fault.
+
+Clear what was latched and only reset if it comes back.  That is what the
+datasheet's own init sequence prescribes: write 0xff to CSR 0xe5, wait
+1 ms, and re-initialise if CSR 0xe5 is still not zero.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+--- a/drivers/gpu/drm/bridge/ti-sn65dsi83.c
++++ b/drivers/gpu/drm/bridge/ti-sn65dsi83.c
+@@ -436,6 +436,27 @@
+ 	 * problems. In lack of a reliable way to discriminate such cases
+ 	 * from user-visible PLL_UNLOCK cases, ignore that bit entirely.
+ 	 */
++	if (!ret && irq_stat & ~REG_IRQ_STAT_CHA_PLL_UNLOCK) {
++		/*
++		 * REG_IRQ_STAT is RW1C, so the bits stay set until a one is
++		 * written back.  The bridge latches a CHA_SYNCH_ERR while the
++		 * DSI link starts up, and resetting the pipe latches another
++		 * one, so acting on the first read turns a single start-up
++		 * glitch into an endless reset loop - the pipe is reset every
++		 * second and never gets a chance to run.  Seen on the ELVEES
++		 * MCom-03R with the SN65DSI84 in dual-link mode.
++		 *
++		 * Clear what was latched and only reset if it comes back,
++		 * which is what the datasheet's init sequence does: write
++		 * 0xff to CSR 0xe5, then re-initialise if it is still not
++		 * zero.
++		 */
++		regmap_write(ctx->regmap, REG_IRQ_STAT, irq_stat);
++		usleep_range(1000, 2000);
++
++		ret = regmap_read(ctx->regmap, REG_IRQ_STAT, &irq_stat);
++	}
++
+ 	if (ret || irq_stat & ~REG_IRQ_STAT_CHA_PLL_UNLOCK) {
+ 		/*
+ 		 * IRQ acknowledged is not always possible (the bridge can be in

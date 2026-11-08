@@ -1,9 +1,9 @@
 diff -urN a/arch/arm64/boot/dts/elvees/Makefile b/arch/arm64/boot/dts/elvees/Makefile
 --- a/arch/arm64/boot/dts/elvees/Makefile
 +++ b/arch/arm64/boot/dts/elvees/Makefile
-@@ -31,4 +31,9 @@
- dtb-$(CONFIG_ARCH_MCOM03R) += nms-sm-evm.dtb
- dtb-$(CONFIG_ARCH_MCOM03R) += nms-smarc-tester.dtb
+@@ -26,4 +26,9 @@
+ dtb-$(CONFIG_ARCH_MCOM03R) += mcom03r-skifmsb-v2.0-skifmp-v2.0.dtb
+ dtb-$(CONFIG_ARCH_MCOM03R) += mcom03r-skifmsb-v2.0-skifmp-v2.0-rpi-dsi-7inch.dtb
  
 +dtb-$(CONFIG_ARCH_MCOM03R) += nms-itx-sm-lc-v4.dtb
 +dtb-$(CONFIG_ARCH_MCOM03R) += nms-sm-elvsmarccb.dtb
@@ -124,7 +124,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-itx-sm-lc-v4.dts b/arch/arm64/boot/dt
 diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts
 --- a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts
 +++ b/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,258 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * NMS_SMARC_TESTER V1 - SMARC test/burn-in carrier
@@ -250,14 +250,41 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dt
 +};
 +
 +/*
-+ * LVDS test path: Mali-DP -> DSI -> SN65DSI84 -> SMARC LVDS0.  The panel
-+ * power and backlight enables are the standard SMARC LCD0_VDD_EN (S133)
-+ * and LCD0_BKLT_EN (S127) lines; the tester schematic has not been checked
-+ * pin by pin, so if the converter is powered from a fixed rail instead,
-+ * drop the two power-supply properties.
++ * LVDS test path: Mali-DP -> DSI -> SN65DSI84 -> SMARC LVDS0 + LVDS1.  The
++ * panel power and backlight enables are the standard SMARC LCD0_VDD_EN
++ * (S133) and LCD0_BKLT_EN (S127) lines; the tester schematic has not been
++ * checked pin by pin, so if the converter is powered from a fixed rail
++ * instead, drop the two power-supply properties.
++ *
++ * The link is dual on this carrier.  The module wires both SN65DSI84
++ * channels to the connector - A to LVDS0 (S125..S138), B to LVDS1
++ * (S108..S121) - and the tester has a FIN1032 receiver on every pair of
++ * both, feeding the FPGA:
++ *
++ *   channel A  CLK S134/S135 -> D32   Y0 S125/S126 -> D30
++ *              Y1  S128/S129 -> D30   Y2 S131/S132 -> D32
++ *              Y3  S137/S138 -> D32
++ *   channel B  CLK S108/S109 -> D31   Y0 S120/S121 -> D30
++ *              Y1  S111/S112 -> D31   Y2 S117/S118 -> D31
++ *              Y3  S114/S115 -> D31
++ *
++ * A single link leaves channel B silent, so dual is the only way to prove
++ * that B reaches the far end at all.  It is also why this stays here and
++ * not in the module dtsi: the 7" panel the other carriers drive is a
++ * single-link part and would get half a picture per channel.
 + */
 +&lvds_bridge {
 +	status = "okay";
++
++	ports {
++		/* LVDS channel B -> panel port 1 */
++		port@3 {
++			reg = <3>;
++			lvds_out_b: endpoint {
++				remote-endpoint = <&panel_in_b>;
++			};
++		};
++	};
 +};
 +
 +/*
@@ -275,10 +302,77 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dt
 +	pinctrl-0 = <&pwm_oenb0_mux>;
 +};
 +
++/*
++ * The bridge works out dual link from drm_of_lvds_get_dual_link_pixel_order()
++ * over its port@2 and port@3, which reads the markers on the panel's port
++ * nodes: one has to say dual-lvds-odd-pixels and the other
++ * dual-lvds-even-pixels.  Channel A carries the odd pixels, the arrangement
++ * the freescale dual-link panels use.
++ *
++ * Nothing here is a real panel - the "panel" is the tester's FPGA - so the
++ * timings stay the module's 800x480 at 33 MHz and the bridge halves them
++ * itself: each channel then carries 400 pixels per line at 16.5 MHz.
++ */
 +&lvds_panel {
 +	status = "okay";
 +	backlight = <&backlight>;
 +	power-supply = <&lcd0_vdd_en>;
++
++	/*
++	 * A different mode than the module's 7" panel, and only because a dual
++	 * link halves the LVDS clock: the SN65DSI84's LVDS_CLK_RANGE starts at
++	 * 25 MHz, so 800x480 at 33 MHz would ask for 16.5 MHz per channel,
++	 * below what the part can generate.  The bridge then never settles -
++	 * it latches PLL_UNLOCK and CHA_SYNCH_ERR, the driver resets the pipe
++	 * in a loop, and the frame comes out as a single line.
++	 *
++	 * 1024x768 at 66 MHz gives 33.3 MHz per channel, inside the
++	 * 25..37.5 MHz range.  The pixel clock is not free to be chosen
++	 * either: disp_pxlclk is media_pll1 (594 MHz) over an integer UCG
++	 * divider, so only 594/N exists - 148.5, 118.8, 99, 74.25, 66, 59.4,
++	 * 54, 49.5, 33 - and mcom03_dsi_mode_valid() demands an exact match.
++	 * 65 MHz, the obvious choice, is simply not producible and the mode
++	 * gets rejected with an empty crtc.
++	 *
++	 *   DSI clock     = 66 * 24 bpp / 4 lanes / 2 = 198 MHz
++	 *   DSI_CLK_RANGE = 198 / 5 = 39.6 -> 40, so the bridge runs 200 MHz
++	 *   LVDS divider  = 24 / 4 - 1 = 5, so 200 / 6 = 33.3 MHz
++	 *
++	 * The 1% the 5 MHz DSI grid adds is the same one the single-link mode
++	 * has (see HARDWARE.md); it only lengthens the blanking.  The tester's
++	 * FPGA measures whatever it is given and nothing here is a real panel,
++	 * so the mode is free to be chosen for the bridge, not for a display.
++	 */
++	panel-timing {
++		clock-frequency = <66000000>;
++		hactive = <1024>;
++		vactive = <768>;
++		hfront-porch = <24>;
++		hback-porch = <160>;
++		hsync-len = <136>;
++		vfront-porch = <3>;
++		vback-porch = <29>;
++		vsync-len = <6>;
++		hsync-active = <1>;
++		vsync-active = <1>;
++		de-active = <1>;
++		pixelclk-active = <0>;
++	};
++
++	ports {
++		port@0 {
++			dual-lvds-odd-pixels;
++		};
++
++		port@1 {
++			reg = <1>;
++			dual-lvds-even-pixels;
++
++			panel_in_b: endpoint {
++				remote-endpoint = <&lvds_out_b>;
++			};
++		};
++	};
 +};
 +
 +/* CAN bus connectors */
