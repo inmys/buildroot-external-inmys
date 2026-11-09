@@ -79,12 +79,21 @@ nms_ab_prepare() {
 	rm -rf /run/swupdate
 	mkdir -p /run/swupdate
 	ln -sfn "$dev" "/run/swupdate/rootfs-$slot"
+
+	# swupdate's raw handler opens the target with O_RDWR and no O_TRUNC
+	# (handlers/raw_handler.c), so a new image shorter than the old one
+	# leaves its tail behind: a rebuilt DTB that shrank by a few bytes
+	# still reports the old size and carries stale data past the end of
+	# the new blob.  Empty the files of the slot being written first; it
+	# is the inactive one, so nothing can be booting from them.
+	: > "/boot/Image.$slot"
 	ln -sfn "/boot/Image.$slot" "/run/swupdate/Image-$slot"
 	for dtb in /boot/nms-*.dtb; do
 		[ -f "$dtb" ] || continue
 		name=$(basename "$dtb")
 		case "$name" in
 		*."$slot".dtb)
+			: > "$dtb"
 			ln -sfn "$dtb" "/run/swupdate/${name%.$slot.dtb}-$slot.dtb"
 			;;
 		esac

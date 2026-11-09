@@ -209,7 +209,7 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pwm_oenb0_mux>;
 };
-#endfi
+#endif
 
 &lvds_panel {
 	status = "okay";
