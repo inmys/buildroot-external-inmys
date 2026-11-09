@@ -975,7 +975,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 --- a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
-@@ -0,0 +1,903 @@
+@@ -0,0 +1,921 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-K1892VM21YA V1
@@ -1850,6 +1850,24 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot
 +
 +&de_dpi {
 +	status = "okay";
++
++	/*
++	 * mcom03_dpi_enable() enables "pxlclk" unconditionally but treats
++	 * "cmos0_clk" as optional (`if (cmos0_clk)`), and mcom03r.dtsi lists
++	 * only pxlclk/pclk/disp_aclk.  cmos0_clk is the clock of the parallel
++	 * video pads themselves: with it off the pixel clock runs, the display
++	 * engine reports no errors and the frame counter advances, but nothing
++	 * ever appears on VDATA0..23/PIXCLK/DE/HSYNC/VSYNC and the encoder on
++	 * the other end sees no TMDS at all.  It is UCG3 channel 5 off
++	 * media_pll3 (2376 MHz), so 2376/16 gives exactly the 148.5 MHz that
++	 * 1920x1080@60 needs.  The three original clocks have to be repeated
++	 * because a clocks property overrides the inherited one wholesale.
++	 */
++	clocks = <&media_clocks CLK_MEDIA_UCG1_DISP_PXL>,
++		 <&media_clocks CLK_MEDIA_UCG0_SYSA>,
++		 <&media_clocks CLK_MEDIA_UCG1_DISP_A>,
++		 <&media_clocks CLK_MEDIA_UCG3_CMOS0>;
++	clock-names = "pxlclk", "pclk", "disp_aclk", "cmos0_clk";
 +
 +	ports {
 +		port@1 {

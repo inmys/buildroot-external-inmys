@@ -873,6 +873,24 @@ ser3: &uart1 { };
 &de_dpi {
 	status = "okay";
 
+	/*
+	 * mcom03_dpi_enable() enables "pxlclk" unconditionally but treats
+	 * "cmos0_clk" as optional (`if (cmos0_clk)`), and mcom03r.dtsi lists
+	 * only pxlclk/pclk/disp_aclk.  cmos0_clk is the clock of the parallel
+	 * video pads themselves: with it off the pixel clock runs, the display
+	 * engine reports no errors and the frame counter advances, but nothing
+	 * ever appears on VDATA0..23/PIXCLK/DE/HSYNC/VSYNC and the encoder on
+	 * the other end sees no TMDS at all.  It is UCG3 channel 5 off
+	 * media_pll3 (2376 MHz), so 2376/16 gives exactly the 148.5 MHz that
+	 * 1920x1080@60 needs.  The three original clocks have to be repeated
+	 * because a clocks property overrides the inherited one wholesale.
+	 */
+	clocks = <&media_clocks CLK_MEDIA_UCG1_DISP_PXL>,
+		 <&media_clocks CLK_MEDIA_UCG0_SYSA>,
+		 <&media_clocks CLK_MEDIA_UCG1_DISP_A>,
+		 <&media_clocks CLK_MEDIA_UCG3_CMOS0>;
+	clock-names = "pxlclk", "pclk", "disp_aclk", "cmos0_clk";
+
 	ports {
 		port@1 {
 			reg = <1>;
