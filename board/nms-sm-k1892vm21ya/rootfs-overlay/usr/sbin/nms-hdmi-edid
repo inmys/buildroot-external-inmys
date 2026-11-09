@@ -51,6 +51,16 @@ fi
 
 [ -s "$EDID" ] || { echo "nms-hdmi-edid: $EDID is missing" >&2; exit 1; }
 
+# The blob is the tester's grabber, not a generic 1080p EDID.  If the sink
+# already answers DDC on its own there is nothing to fix, and overriding a
+# real monitor with the grabber's description would be actively wrong.
+if [ -s "/sys/class/drm/card0-$conn/edid" ] &&
+   [ "$(wc -c < "/sys/class/drm/card0-$conn/edid")" -ge 128 ] &&
+   [ "$(cat "$force" 2>/dev/null)" != "on" ]; then
+	echo "nms-hdmi-edid: $conn already reports its own EDID, nothing to do"
+	exit 0
+fi
+
 cat "$EDID" > "$ovr" || { echo "nms-hdmi-edid: cannot set $ovr" >&2; exit 1; }
 echo on > "$force" || { echo "nms-hdmi-edid: cannot set $force" >&2; exit 1; }
 
