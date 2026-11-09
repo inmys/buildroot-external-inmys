@@ -32,7 +32,8 @@ DBG=/sys/kernel/debug/dri/0
 conn=""
 for c in /sys/class/drm/card*-HDMI-A-*; do
 	[ -e "$c/status" ] || continue
-	conn=${c##*/card[0-9]*-}
+	conn=${c##*/}		# card0-HDMI-A-1
+	conn=${conn#card*-}	# HDMI-A-1  (# is shortest match, ## would eat "-HDMI-A")
 	break
 done
 [ -n "$conn" ] || { echo "nms-hdmi-edid: no HDMI connector" >&2; exit 1; }
@@ -53,5 +54,5 @@ fi
 cat "$EDID" > "$ovr" || { echo "nms-hdmi-edid: cannot set $ovr" >&2; exit 1; }
 echo on > "$force" || { echo "nms-hdmi-edid: cannot set $force" >&2; exit 1; }
 
-n=$(modetest -M mali-dp -c 2>/dev/null | sed -n "/$conn/,/^Connectors:/p" | grep -c '^  #')
+n=$(modetest -M mali-dp -c 2>/dev/null | sed -n "/$conn/,/^Connectors:/p" | grep -c '^  #[0-9]')
 echo "nms-hdmi-edid: $conn has $n modes, preferred $(modetest -M mali-dp -c 2>/dev/null | sed -n "/$conn/,/^Connectors:/p" | grep -m1 '^  #0' | awk '{print $2"@"$3}')"
