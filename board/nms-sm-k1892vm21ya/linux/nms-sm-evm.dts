@@ -56,7 +56,7 @@
 			};
 		};
 	};
-
+#if 0
 	/*
 	 * Backlight for the X24 panel.  SMARC LCD0_BKLT_EN (S127) -> R98 ->
 	 * D20 level shifter -> X24.17, and LCD0_BKLT_PWM (S141) -> D20 ->
@@ -70,6 +70,7 @@
 		brightness-levels = <100 90 80 70 60 50 40 30 20 10 1 0>;
 		default-brightness-level = <10>;
 	};
+#endif
 };
 
 /* ------------------------------------------------------------------ */
@@ -193,6 +194,7 @@
 	status = "okay";
 };
 
+#if 0
 /*
  * Backlight PWM.  SMARC LCD0_BKLT_PWM (S141) is D2.AW17 = GPIO1_PORTD_3,
  * whose alternate function is PWM_OENB0 - port 0 output B of the
@@ -207,10 +209,13 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pwm_oenb0_mux>;
 };
+#endfi
 
 &lvds_panel {
 	status = "okay";
+#if 0
 	backlight = <&backlight>;
+#endif
 	power-supply = <&lcd0_vdd_en>;
 };
 

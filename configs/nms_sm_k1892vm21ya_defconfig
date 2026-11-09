@@ -108,6 +108,11 @@ BR2_PACKAGE_PCIUTILS=y
 # which comes back as a UVC device on the module's own USB.
 BR2_PACKAGE_LIBV4L=y
 BR2_PACKAGE_LIBV4L_UTILS=y
+# modetest, to move the single mali-dp CRTC between LVDS and HDMI at runtime.
+# The SoC has one CRTC and no cloning, so the two connectors are exclusive and
+# which one is driven is a KMS decision, not a device-tree one.
+BR2_PACKAGE_LIBDRM=y
+BR2_PACKAGE_LIBDRM_INSTALL_TESTS=y
 BR2_PACKAGE_MTD=y
 BR2_PACKAGE_MTD_MKFSJFFS2=y
 BR2_PACKAGE_E2FSPROGS=y

@@ -953,7 +953,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 --- a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
-@@ -0,0 +1,883 @@
+@@ -0,0 +1,896 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-K1892VM21YA V1
@@ -1536,7 +1536,20 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot
 +		adi,input-colorspace = "rgb";
 +		adi,input-clock = "1x";
 +		adi,clock-delay = <0>;
-+		powerdown-gpios = <&gpio_expander 8 GPIO_ACTIVE_LOW>;
++		/*
++		 * Property name matters: this kernel's adv7511 driver asks for
++		 * "pd-gpios" (devm_gpiod_get_optional(dev, "pd", ...)), and the
++		 * binding says the same.  It used to be "powerdown-gpios" here,
++		 * which the driver never matched, so the line stayed at R192's
++		 * pull-down to GND - and that is the powered-down state of the
++		 * part (0x41 bit 6 reads back set).  The encoder then sent no
++		 * TMDS at all and a capture device on the other end just
++		 * free-ran, which looks like a picture made of noise.
++		 *
++		 * R192 pulls HDMI_PD low, the driver drives it high to wake the
++		 * part up, so the line is active low.
++		 */
++		pd-gpios = <&gpio_expander 8 GPIO_ACTIVE_LOW>;
 +		avdd-supply = <&hdmi_1v8>;
 +		dvdd-supply = <&hdmi_1v8>;
 +		pvdd-supply = <&hdmi_1v8>;
