@@ -103,6 +103,11 @@ BR2_PACKAGE_IPROUTE2=y
 BR2_PACKAGE_CAN_UTILS=y
 BR2_PACKAGE_USBUTILS=y
 BR2_PACKAGE_PCIUTILS=y
+# v4l2-ctl, so the HDMI loop through the tester's MS2130 grabber can be
+# captured and not only reported: the module's ADV7513 feeds the grabber,
+# which comes back as a UVC device on the module's own USB.
+BR2_PACKAGE_LIBV4L=y
+BR2_PACKAGE_LIBV4L_UTILS=y
 BR2_PACKAGE_MTD=y
 BR2_PACKAGE_MTD_MKFSJFFS2=y
 BR2_PACKAGE_E2FSPROGS=y
