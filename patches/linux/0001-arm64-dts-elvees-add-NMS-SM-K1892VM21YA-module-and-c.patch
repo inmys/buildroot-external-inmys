@@ -386,7 +386,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-smarc-tester.dts b/arch/arm64/boot/dt
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts b/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts
 --- a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts
-@@ -0,0 +1,327 @@
+@@ -0,0 +1,344 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-K1892VM21YA V1 on ELV-SMARC-CB r3.3.0
@@ -609,16 +609,33 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts b/arch/arm64/boot/d
 + * SMARC LCD0_VDD_EN (S133) = PCAL6416A P0_1, which is why the panel takes
 + * lcd0_vdd_en as its supply rather than being switched by a boot script.
 + */
++/*
++ * LVDS is disabled on this carrier so that HDMI owns the display pipeline.
++ *
++ * Mali-DP550 has a single CRTC and no cloning, so LVDS and HDMI are
++ * mutually exclusive: with both connectors enabled the atomic commit for
++ * HDMI fails with "kms: can't enable cloning when we probably wanted to"
++ * and the CRTC stays where fbdev put it.  Nothing in userspace can break
++ * that tie, because whichever connector fbdev emulation picked at boot is
++ * restored as soon as the last DRM master goes away.
++ *
++ * All three nodes have to go together.  Disabling only the bridge and the
++ * panel leaves de_dsi with a dangling output endpoint and mcom03_dpi_probe
++ * then fails with "failed to find endpoints, errno -517", which takes the
++ * whole DRM device down - /dev/dri never appears at all.
++ *
++ * To bring the 7" panel back, flip the three status values below.
++ */
 +&de_dsi {
-+	status = "okay";
++	status = "disabled";
 +};
 +
 +&lvds_bridge {
-+	status = "okay";
++	status = "disabled";
 +};
 +
 +&lvds_panel {
-+	status = "okay";
++	status = "disabled";
 +	backlight = <&backlight>;
 +	power-supply = <&lcd0_vdd_en>;
 +};
