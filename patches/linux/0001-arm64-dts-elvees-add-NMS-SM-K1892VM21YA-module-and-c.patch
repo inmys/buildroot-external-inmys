@@ -717,7 +717,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-elvsmarccb.dts b/arch/arm64/boot/d
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elvees/nms-sm-evm.dts
 --- a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-evm.dts
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,237 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-EVM V1 - default carrier board for NMS-SM-K1892VM21YA
@@ -776,7 +776,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 +			};
 +		};
 +	};
-+
++#if 0
 +	/*
 +	 * Backlight for the X24 panel.  SMARC LCD0_BKLT_EN (S127) -> R98 ->
 +	 * D20 level shifter -> X24.17, and LCD0_BKLT_PWM (S141) -> D20 ->
@@ -790,6 +790,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 +		brightness-levels = <100 90 80 70 60 50 40 30 20 10 1 0>;
 +		default-brightness-level = <10>;
 +	};
++#endif
 +};
 +
 +/* ------------------------------------------------------------------ */
@@ -913,6 +914,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 +	status = "okay";
 +};
 +
++#if 0
 +/*
 + * Backlight PWM.  SMARC LCD0_BKLT_PWM (S141) is D2.AW17 = GPIO1_PORTD_3,
 + * whose alternate function is PWM_OENB0 - port 0 output B of the
@@ -927,10 +929,13 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&pwm_oenb0_mux>;
 +};
++#endif
 +
 +&lvds_panel {
 +	status = "okay";
++#if 0
 +	backlight = <&backlight>;
++#endif
 +	power-supply = <&lcd0_vdd_en>;
 +};
 +
@@ -953,7 +958,7 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-evm.dts b/arch/arm64/boot/dts/elve
 diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 --- a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
 +++ b/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi
-@@ -0,0 +1,896 @@
+@@ -0,0 +1,903 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * INMYS NMS-SM-K1892VM21YA V1
@@ -1540,16 +1545,23 @@ diff -urN a/arch/arm64/boot/dts/elvees/nms-sm-k1892vm21ya.dtsi b/arch/arm64/boot
 +		 * Property name matters: this kernel's adv7511 driver asks for
 +		 * "pd-gpios" (devm_gpiod_get_optional(dev, "pd", ...)), and the
 +		 * binding says the same.  It used to be "powerdown-gpios" here,
-+		 * which the driver never matched, so the line stayed at R192's
-+		 * pull-down to GND - and that is the powered-down state of the
-+		 * part (0x41 bit 6 reads back set).  The encoder then sent no
-+		 * TMDS at all and a capture device on the other end just
-+		 * free-ran, which looks like a picture made of noise.
++		 * which the driver never matched, so the line was left alone.
 +		 *
-+		 * R192 pulls HDMI_PD low, the driver drives it high to wake the
-+		 * part up, so the line is active low.
++		 * Polarity matters just as much, and the obvious reading is the
++		 * wrong one.  HDMI_PD is the part's active-high power-down input
++		 * and R192 pulls it to GND, so the default state of an unclaimed
++		 * line is powered *up*.  The GPIO exists to switch the encoder
++		 * off, not on: the driver requests the line already asserted
++		 * (GPIOD_OUT_HIGH) and then deasserts it to wake the part
++		 * ("toggle it from active to inactive to wake up the encoder").
++		 * Declaring it GPIO_ACTIVE_LOW inverts that - the driver ends up
++		 * driving the pin high, which holds the ADV7513 powered down.
++		 * The part still answers I2C in that state, so it looks alive:
++		 * register 0x41 reads back 0x10 after a modeset, but there is no
++		 * TMDS on the wires and the sink's DDC never answers, so the
++		 * connector reports no EDID and no modes.
 +		 */
-+		pd-gpios = <&gpio_expander 8 GPIO_ACTIVE_LOW>;
++		pd-gpios = <&gpio_expander 8 GPIO_ACTIVE_HIGH>;
 +		avdd-supply = <&hdmi_1v8>;
 +		dvdd-supply = <&hdmi_1v8>;
 +		pvdd-supply = <&hdmi_1v8>;

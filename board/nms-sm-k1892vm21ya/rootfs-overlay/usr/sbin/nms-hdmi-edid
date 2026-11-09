@@ -1,0 +1,57 @@
+#!/bin/sh
+#
+# Give the HDMI connector an EDID it can keep.
+#
+# The NMS_SMARC_TESTER has no monitor: HDMI_A goes to a MACROSILICON MS2130
+# USB capture dongle (USB 345f:2130, EDID vendor 0x5721 product 0x2130).
+# That dongle only answers DDC and only asserts HPD while a host is
+# streaming from it, so at rest the connector comes up with no EDID, no
+# modes and status "disconnected" - and modetest then has nothing to set.
+#
+# Two debugfs knobs fix that without needing the dongle to cooperate:
+#
+#   edid_override   hand the DRM core a copy of the dongle's EDID, so the
+#                   connector reports its 12 modes whether or not anything
+#                   is streaming.  The blob was captured once from
+#                   /sys/class/drm/*/edid during a live capture and is
+#                   shipped in /lib/firmware/edid/.
+#   force           "on" makes the connector count as connected regardless
+#                   of HPD, which is what the dongle drops when idle.
+#
+# Both are runtime state and are lost on reboot; run this again when HDMI
+# is wanted.  "reset" puts the connector back under the dongle's control.
+#
+#   nms-hdmi-edid [reset]
+#
+set -u
+
+EDID=/lib/firmware/edid/nms-tester-hdmi.bin
+DBG=/sys/kernel/debug/dri/0
+
+# The connector name is not fixed across kernels/carriers, so look it up.
+conn=""
+for c in /sys/class/drm/card*-HDMI-A-*; do
+	[ -e "$c/status" ] || continue
+	conn=${c##*/card[0-9]*-}
+	break
+done
+[ -n "$conn" ] || { echo "nms-hdmi-edid: no HDMI connector" >&2; exit 1; }
+
+ovr=$DBG/$conn/edid_override
+force=$DBG/$conn/force
+[ -e "$ovr" ] || { echo "nms-hdmi-edid: no $ovr - is debugfs mounted?" >&2; exit 1; }
+
+if [ "${1:-}" = "reset" ]; then
+	echo reset > "$ovr" || exit 1
+	echo detect > "$force" || exit 1
+	echo "nms-hdmi-edid: $conn back to the sink's own EDID/HPD"
+	exit 0
+fi
+
+[ -s "$EDID" ] || { echo "nms-hdmi-edid: $EDID is missing" >&2; exit 1; }
+
+cat "$EDID" > "$ovr" || { echo "nms-hdmi-edid: cannot set $ovr" >&2; exit 1; }
+echo on > "$force" || { echo "nms-hdmi-edid: cannot set $force" >&2; exit 1; }
+
+n=$(modetest -M mali-dp -c 2>/dev/null | sed -n "/$conn/,/^Connectors:/p" | grep -c '^  #')
+echo "nms-hdmi-edid: $conn has $n modes, preferred $(modetest -M mali-dp -c 2>/dev/null | sed -n "/$conn/,/^Connectors:/p" | grep -m1 '^  #0' | awk '{print $2"@"$3}')"

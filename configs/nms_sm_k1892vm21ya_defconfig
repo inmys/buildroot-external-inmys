@@ -113,6 +113,10 @@ BR2_PACKAGE_LIBV4L_UTILS=y
 # which one is driven is a KMS decision, not a device-tree one.
 BR2_PACKAGE_LIBDRM=y
 BR2_PACKAGE_LIBDRM_INSTALL_TESTS=y
+# iperf3, to measure the two GbE ports against something other than a ping.
+# The module's PHYs are DAP8211 on both ports and the SMARC connector brings
+# them out separately, so throughput has to be measured per port.
+BR2_PACKAGE_IPERF3=y
 BR2_PACKAGE_MTD=y
 BR2_PACKAGE_MTD_MKFSJFFS2=y
 BR2_PACKAGE_E2FSPROGS=y
