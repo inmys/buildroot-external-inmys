@@ -17,10 +17,10 @@
 #   USB1_ID0_GPIO   1 = OTG_ID low = host mode (VT3)
 #   BC_BOOT         STM32 BOOT0
 #
-# BC_RST is special: it is never held.  Resetting the STM32 also resets the
-# SoC (the board controller drives RESET_OUT# / the carrier's RESET_IN#), so
-# "bcreset" only emits a short pulse and lets the SoC come back on its own.
-# R272 pulls the line down, so releasing it is enough to leave reset.
+# BC_RST is special: it is asserted only for the requested pulse duration.
+# Application startup asserts CPU_RESET# through PB9 and restarts the SoC;
+# factory ROM entry leaves the SoC running with the R291 assembly option.
+# The PCAL6416 preserves output levels on release: drive reset low explicitly.
 #   CAM_SEL0/1      camera clock/FSYNC mux A/B (D1 RS2255)
 #   UART_0_1_CROSS# which UART reaches SER3/BC and which reaches SER1_DBG
 #
@@ -47,9 +47,8 @@
 # 1 is the default because UART0 is not reachable from CPU0 once the SoC
 # security is enabled, so Linux always talks over UART1.
 #
-# libgpiod releases a line when the process that requested it exits and the
-# pin then falls back to its pull resistor, so the state is held by detached
-# "gpioset --mode=wait" processes, one per gpiochip.
+# Keep requests alive with signal mode, one process per gpiochip. Wait mode
+# waits on stdin and exits immediately under nohup with stdin redirected.
 #
 # Copyright (C) 2026 INMYS
 
@@ -84,7 +83,7 @@ usage: $(basename "$0") status
                                             2 = CMOS0_CLK,   3 = CMOS1_CLK
        $(basename "$0") lcd <bklt> <power>  LCD1_BKLT_EN, LCD1_VDD_EN
        $(basename "$0") bcreset [ms]      pulse BC_RST (default 50 ms);
-                                           the SoC restarts, this shell dies
+                                           application startup restarts the SoC
 EOF
 	exit 1
 }
@@ -130,7 +129,7 @@ apply() {
 		while read -r c l v _; do
 			[ "$c" = "$chip" ] && args="$args $l=$v"
 		done < "$STATE"
-		nohup gpioset -m wait "$chip" $args >/dev/null 2>&1 &
+		nohup gpioset -m signal "$chip" $args </dev/null >/dev/null 2>&1 &
 		echo $! >> "$PIDFILE"
 	done
 	sleep 0.1
@@ -169,7 +168,17 @@ bcreset)
 	ms=${2:-50}
 	set -- $(gpiofind "BC_RST" 2>/dev/null) || true
 	[ $# -eq 2 ] || { echo "no such gpio line: BC_RST" >&2; exit 1; }
-	gpioset -m time -s 0 -u "$((ms * 1000))" "$1" "$2=1" ;;
+	bc_rst_chip=$1
+	bc_rst_line=$2
+	trap 'gpioset "$bc_rst_chip" "$bc_rst_line=0" >/dev/null 2>&1 || true' EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
+	gpioset -m time -s 0 -u "$((ms * 1000))" "$1" "$2=1"
+	gpioset "$bc_rst_chip" "$bc_rst_line=0"
+	trap - EXIT INT TERM
+	# Keep other holders running, especially BC_BOOT while the MCU samples
+	# it on reset release. Reapplying them here creates a BOOT0 glitch.
+	exit 0 ;;
 status)
 	apply
 	while read -r _ _ v n; do

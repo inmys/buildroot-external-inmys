@@ -1,130 +1,58 @@
 #!/bin/sh
-#
-# bc-flash.sh - update the board controller firmware over the BC UART.
-#
-# Runs on the Elvees SoC, where the BC UART is /dev/ttyS1 once the crossbar
-# is switched:
-#
-#     nms-gpio.sh uart01 1
-#     nms-gpio.sh bcuart
-#     bc-flash.sh /dev/ttyS1 /root/bc.bin 7835ca90
-#
-# The third argument is the CRC-32 of the padded image, printed by
-# "make crc" on the build host.  It is optional but strongly recommended:
-# without it a corrupted transfer is only caught by the MCU's own read-back
-# check, which happens after the erase.
-#
-# The STM32 ROM bootloader is not used.  Entering it needs a reset, and a
-# reset of the MCU drops DCDC_EN and takes the SoC down (see README).  The
-# application instead buffers the image in RAM, reports its CRC, and only
-# erases and programs on "flash commit".
-#
-# When the update finishes the MCU restarts, and its board_early_init()
-# pulses CPU_RESET#: the SoC reboots too.  That is expected - it is the last
-# step, and the script will not get to print anything after it.
-#
-# Note on reading the replies: busybox "read" does not work reliably on a
-# tty in raw mode, so the port is drained by a background dd into a file and
-# the file is polled.  conv=fsync keeps it durable across the final reboot.
-
-set -e
-
+# Program D41 STM32L052C8 through its factory USART1 ROM bootloader.
+# Run on the ELVEES SoC. Requires R290 omitted, R291 fitted, and working
+# BC_BOOT/BC_RST GPIOs. Hardware reset is used; no application flash code.
+# Usage: bc-flash.sh [/dev/ttyS1] firmware.bin
+set -eu
 PORT=${1:-/dev/ttyS1}
 IMG=${2:-/root/bc.bin}
-WANT=${3:-}
-
+[ $# -le 2 ] || { echo "usage: $0 [/dev/ttyS1] firmware.bin" >&2; exit 1; }
+[ -c "$PORT" ] || { echo "no such serial port: $PORT" >&2; exit 1; }
 [ -f "$IMG" ] || { echo "no such image: $IMG" >&2; exit 1; }
-[ -c "$PORT" ] || { echo "no such port: $PORT" >&2; exit 1; }
-
+command -v stm32flash >/dev/null
+command -v nms-gpio.sh >/dev/null
 size=$(wc -c < "$IMG")
-pad=$(( (4 - size % 4) % 4 ))
-total=$(( size + pad ))
-
-echo "image : $IMG"
-echo "size  : $size bytes (+$pad padding = $total)"
-echo "port  : $PORT"
-
-# busybox stty returns 0 but leaves ICANON/ECHO set, and the echoed bytes go
-# straight back into the MCU as image data.  tty-raw is a 20-line termios
-# tool that actually does it (tools/tty-raw.c, installed as /usr/sbin/tty-raw).
-if command -v tty-raw >/dev/null 2>&1; then
-    tty-raw "$PORT" 115200
-else
-    echo "warning: tty-raw not found, falling back to stty" >&2
-    stty -F "$PORT" 115200 raw -echo -crtscts
-fi
-
-# Bring the MCU to a known idle state: an earlier session may have left it
-# waiting for image data.  "flash abort" is harmless when nothing is buffered.
-printf 'flash abort\r\n' > "$PORT"
-# If a previous session died mid-transfer the MCU is still in its receive
-# loop and swallows "flash abort" as image data; it only comes back when its
-# own per-byte timeout expires.  That timeout is uart_getc_to() in
-# src/main.c; older builds used 2000000 (~10 s), current ones 200000 (~1 s).
-# Wait long enough for the slowest build we might be recovering from.
-sleep 12
-timeout 1 cat "$PORT" > /dev/null 2>&1 || true
-
-RESP=$(mktemp /tmp/bc-flash.XXXXXX)
-dd if="$PORT" of="$RESP" bs=64 conv=fsync &
-CATPID=$!
-trap 'kill $CATPID 2>/dev/null; rm -f "$RESP"' EXIT INT TERM
-
-# wait_for <extended-regexp> <seconds>
-wait_for() {
-    n=0
-    while [ "$n" -lt $(( $2 * 10 )) ]; do
-        if grep -qE "$1" "$RESP" 2>/dev/null; then
-            return 0
-        fi
-        sleep 0.1
-        n=$(( n + 1 ))
-    done
-    return 1
+[ "$size" -ge 192 ] && [ "$size" -le 65536 ] || {
+    echo "invalid STM32L052C8 image size: $size" >&2; exit 1;
 }
-
-printf 'flash %d\r\n' "$total" > "$PORT"
-
-if ! wait_for 'READY [0-9]+' 10; then
-    echo "no READY from the board controller, got:" >&2
-    cat "$RESP" >&2
-    cp "$RESP" /tmp/bc-resp.log 2>/dev/null || true
-    exit 1
+sp=$(od -An -tu4 -N4 "$IMG" | tr -d ' ')
+rv=$(od -An -tu4 -j4 -N4 "$IMG" | tr -d ' ')
+[ "$sp" -gt $((0x20000000)) ] && [ "$sp" -le $((0x20002000)) ] &&
+[ $((sp & 7)) -eq 0 ] && [ "$rv" -ge $((0x08000001)) ] &&
+[ "$rv" -lt $((0x08000000 + size)) ] && [ $((rv & 1)) -eq 1 ] || {
+    echo "invalid STM32L052C8 vector table" >&2; exit 1;
+}
+cleanup() {
+    # On failure, leave the MCU in ROM for recovery. Do not jump into a
+    # partially programmed application. BOOT0 may safely be deasserted.
+    nms-gpio.sh set BC_BOOT 0 >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# Remove consumers before unbinding the virtual GPIO/IRQ controller. This
+# does not affect the physical PCAL6416 at 0x20 which routes BC_BOOT/BC_RST.
+for dev in /sys/bus/platform/drivers/gpio-keys/*; do
+    [ -L "$dev/of_node" ] || continue
+    [ "${dev##*/}" = power-keys ] || continue
+    echo "${dev##*/}" > /sys/bus/platform/drivers/gpio-keys/unbind
+done
+if [ -L /sys/bus/i2c/devices/9-0068/driver ]; then
+    echo 9-0068 > /sys/bus/i2c/devices/9-0068/driver/unbind
 fi
-echo "board : $(grep -oE 'READY [0-9]+' "$RESP" | tail -1)"
-
-{
-    dd if="$IMG" bs=512 2>/dev/null
-    if [ "$pad" -gt 0 ]; then
-        head -c "$pad" /dev/zero | tr '\000' '\377'
-    fi
-} > "$PORT"
-
-if ! wait_for 'CRC [0-9a-f]{8}' 20; then
-    echo "no CRC from the board controller, got:" >&2
-    cat "$RESP" >&2
-    exit 1
+if [ -L /sys/bus/i2c/devices/9-002a/driver ]; then
+    echo 9-002a > /sys/bus/i2c/devices/9-002a/driver/unbind
 fi
-got=$(grep -oE 'CRC [0-9a-f]{8}' "$RESP" | tail -1 | cut -d' ' -f2)
-echo "board : CRC $got"
-
-if [ -n "$WANT" ]; then
-    if [ "$got" != "$WANT" ]; then
-        echo "CRC mismatch: board got $got, expected $WANT" >&2
-        printf 'flash abort\r\n' > "$PORT"
-        exit 1
-    fi
-    echo "crc   : matches"
-else
-    echo "crc   : not checked - pass it as the third argument"
-fi
-
-echo "commit: erasing and writing, the SoC will reboot"
-printf 'flash commit\r\n' > "$PORT"
-
-if wait_for 'DONE|ERR' 20; then
-    echo "board : $(grep -oE 'DONE.*|ERR.*' "$RESP" | tail -1)"
-fi
-
-# give the MCU time to restart and pulse CPU_RESET#
-sleep 2
+nms-gpio.sh uart01 1
+nms-gpio.sh bcuart
+nms-gpio.sh set BC_BOOT 1
+nms-gpio.sh bcreset 50
+sleep 1
+# stm32flash configures 8E1 itself. No erase/program command is sent until
+# it has synchronized with, and identified, the ROM bootloader.
+stm32flash -b 115200 -m 8e1 -w "$IMG" -v "$PORT"
+nms-gpio.sh set BC_BOOT 0
+trap - EXIT INT TERM
+echo "Verified. Resetting STM32; the new application will restart the SoC."
+sync
+nms-gpio.sh bcreset 50
