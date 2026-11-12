@@ -1,0 +1,247 @@
+From: INMYS
+Subject: [PATCH] plat: mcom03: send NMS board-controller poweroff over I2C
+
+Opt in with NMS_BC_PCAL_POWEROFF=1 for STM32 firmware 0.9+ using
+the PCAL6416 register interface. Use bounded polling and a 27 MHz
+I2C2 clock independent of the Linux runtime-PM state. Retain the
+existing watchdog-servicing halt loop when the controller is unavailable.
+
+--- a/plat/elvees/mcom03/include/plat_private.h
++++ b/plat/elvees/mcom03/include/plat_private.h
+@@ -65,4 +65,6 @@
+ 
+ uint32_t mcom03_get_apb_clk(void);
+ 
++int nms_bc_poweroff(void);
++
+ #endif /* PLAT_PRIVATE_H */
+--- /dev/null
++++ b/plat/elvees/mcom03/nms_bc.c
+@@ -0,0 +1,190 @@
++/*
++ * Copyright (c) 2026 INMYS
++ * SPDX-License-Identifier: BSD-3-Clause
++ *
++ * Final poweroff for NMS-SM-K1892VM21YA with STM32 firmware 0.9+.
++ * Linux has quiesced its devices before PSCI SYSTEM_OFF. Take ownership of
++ * I2C2 here; do not depend on Linux IRQs, runtime PM or its mux cache.
++ */
++#include <errno.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#include <common/debug.h>
++#include <drivers/delay_timer.h>
++#include <lib/mmio.h>
++#include <lib/utils_def.h>
++
++#include <plat_private.h>
++
++#define I2C_BASE			UL(0x01720000)
++#define I2C_UCG_CTRL		UL(0x017c0008)
++#define I2C_UCG_BYPASS		UL(0x017c0040)
++#define UCG_CLK_EN		BIT(1)
++#define UCG_LPI_EN		BIT(0)
++#define UCG_STATE_MASK		GENMASK(9, 7)
++#define UCG_STATE_RUN		(6U << 7)
++#define I2C_BYPASS_BIT		BIT(2)
++
++#define IC_CON			0x00U
++#define IC_TAR			0x04U
++#define IC_DATA_CMD		0x10U
++#define IC_SS_SCL_HCNT		0x14U
++#define IC_SS_SCL_LCNT		0x18U
++#define IC_INTR_MASK		0x30U
++#define IC_RAW_INTR_STAT		0x34U
++#define IC_CLR_INTR		0x40U
++#define IC_CLR_STOP_DET		0x60U
++#define IC_ENABLE		0x6cU
++#define IC_STATUS		0x70U
++#define IC_SDA_HOLD		0x7cU
++#define IC_TX_ABRT_SOURCE		0x80U
++#define IC_DMA_CR		0x88U
++#define IC_ENABLE_STATUS		0x9cU
++#define IC_COMP_TYPE		0xfcU
++#define IC_COMP_TYPE_VALUE	U(0x44570140)
++#define IC_CMD_STOP		BIT(9)
++#define IC_INTR_TX_ABRT		BIT(6)
++#define IC_INTR_STOP_DET		BIT(9)
++#define IC_STATUS_ACTIVITY	BIT(0)
++#define IC_STATUS_TFNF		BIT(1)
++#define IC_STATUS_TFE		BIT(2)
++#define POLL_TIMEOUT_US		20000U
++
++#define MUX_ADDRESS		0x70U
++#define BC_ADDRESS		0x2aU
++#define BC_OUTPUT1		0x03U
++#define BC_CONFIG1		0x07U
++#define BC_OFF_PORT1		0xbfU /* GPIO14 low/output, GPIO15 high/input */
++
++static int poll_register(uintptr_t address, uint32_t mask, uint32_t expected)
++{
++	for (unsigned int us = 0U; us < POLL_TIMEOUT_US; ++us) {
++		if ((mmio_read_32(address) & mask) == expected)
++			return 0;
++		udelay(1);
++	}
++	return -ETIMEDOUT;
++}
++
++static int i2c_disable(void)
++{
++	mmio_write_32(I2C_BASE + IC_ENABLE, 0U);
++	return poll_register(I2C_BASE + IC_ENABLE_STATUS, BIT(0), 0U);
++}
++
++static int i2c_init(void)
++{
++	int ret;
++
++	/* Only UCG0 channel 2 changes. Leave UART/timer clocks and the PLL alone.
++	 * Switch the disabled channel to the known 27 MHz XTI input, since Linux
++	 * may have gated it and may have changed its divider or parent PLL.
++	 */
++	mmio_clrbits_32(I2C_UCG_CTRL, UCG_CLK_EN | UCG_LPI_EN);
++	ret = poll_register(I2C_UCG_CTRL, UCG_STATE_MASK, 0U);
++	if (ret != 0)
++		return ret;
++	mmio_setbits_32(I2C_UCG_BYPASS, I2C_BYPASS_BIT);
++	mmio_setbits_32(I2C_UCG_CTRL, UCG_CLK_EN);
++	ret = poll_register(I2C_UCG_CTRL, UCG_STATE_MASK, UCG_STATE_RUN);
++	if (ret != 0)
++		return ret;
++	if (mmio_read_32(I2C_BASE + IC_COMP_TYPE) != IC_COMP_TYPE_VALUE)
++		return -ENODEV;
++	ret = i2c_disable();
++	if (ret != 0)
++		return ret;
++
++	mmio_write_32(I2C_BASE + IC_INTR_MASK, 0U);
++	mmio_write_32(I2C_BASE + IC_DMA_CR, 0U);
++	/* Master, standard speed, repeated START, slave disabled. At 27 MHz
++	 * 135 cycles per half-period give at least 5 us high and low.
++	 */
++	mmio_write_32(I2C_BASE + IC_CON, 0x63U);
++	mmio_write_32(I2C_BASE + IC_SS_SCL_HCNT, 135U);
++	mmio_write_32(I2C_BASE + IC_SS_SCL_LCNT, 135U);
++	mmio_write_32(I2C_BASE + IC_SDA_HOLD, 9U);
++	(void)mmio_read_32(I2C_BASE + IC_CLR_INTR);
++	return 0;
++}
++
++static int i2c_write(unsigned int address, const uint8_t *bytes, size_t count)
++{
++	int ret;
++
++	ret = i2c_disable();
++	if (ret != 0)
++		return ret;
++	mmio_write_32(I2C_BASE + IC_TAR, address);
++	(void)mmio_read_32(I2C_BASE + IC_CLR_INTR);
++	mmio_write_32(I2C_BASE + IC_ENABLE, 1U);
++	ret = poll_register(I2C_BASE + IC_ENABLE_STATUS, BIT(0), BIT(0));
++	if (ret != 0)
++		goto out;
++
++	for (size_t i = 0U; i < count; ++i) {
++		ret = poll_register(I2C_BASE + IC_STATUS, IC_STATUS_TFNF,
++				    IC_STATUS_TFNF);
++		if (ret != 0)
++			goto out;
++		mmio_write_32(I2C_BASE + IC_DATA_CMD, bytes[i] |
++			     (i + 1U == count ? IC_CMD_STOP : 0U));
++	}
++
++	ret = -ETIMEDOUT;
++	for (unsigned int us = 0U; us < POLL_TIMEOUT_US; ++us) {
++		uint32_t status = mmio_read_32(I2C_BASE + IC_RAW_INTR_STAT);
++
++		if ((status & IC_INTR_TX_ABRT) != 0U) {
++			ERROR("NMS BC: I2C address 0x%x abort 0x%x\n", address,
++			      mmio_read_32(I2C_BASE + IC_TX_ABRT_SOURCE));
++			ret = -EIO;
++			break;
++		}
++		if ((status & IC_INTR_STOP_DET) != 0U) {
++			ret = poll_register(I2C_BASE + IC_STATUS,
++					    IC_STATUS_ACTIVITY | IC_STATUS_TFE,
++					    IC_STATUS_TFE);
++			(void)mmio_read_32(I2C_BASE + IC_CLR_STOP_DET);
++			break;
++		}
++		udelay(1);
++	}
++out:
++	/* Even a stuck bus must not trap SYSTEM_OFF in an unbounded wait. */
++	if (i2c_disable() != 0 && ret == 0)
++		ret = -ETIMEDOUT;
++	return ret;
++}
++
++static int bc_write(unsigned int reg, unsigned int value)
++{
++	const uint8_t bytes[] = {reg, value};
++
++	return i2c_write(BC_ADDRESS, bytes, sizeof(bytes));
++}
++
++int nms_bc_poweroff(void)
++{
++	const uint8_t mux_channel = 0x05U; /* PCA9540B: channel 1 enabled */
++	int ret;
++
++	ret = i2c_init();
++	if (ret != 0)
++		return ret;
++	ret = i2c_write(MUX_ADDRESS, &mux_channel, sizeof(mux_channel));
++	if (ret != 0)
++		return ret;
++	/* Deassert both commands before changing direction. All other port-1
++	 * lines are board-status inputs. Only GPIO14 becomes an output.
++	 */
++	ret = bc_write(BC_OUTPUT1, 0xffU);
++	if (ret != 0)
++		return ret;
++	ret = bc_write(BC_CONFIG1, BC_OFF_PORT1);
++	if (ret != 0)
++		return ret;
++	/* STOP commits the request; STM32 waits 100 ms before entering OFF. */
++	return bc_write(BC_OUTPUT1, BC_OFF_PORT1);
++}
+--- a/plat/elvees/mcom03/platform.mk
++++ b/plat/elvees/mcom03/platform.mk
+@@ -23,6 +23,13 @@
+ 
+ PLAT_PATH		:=	plat/elvees/mcom03
+ PLAT_INCLUDES		:=	-I$(PLAT_PATH) -I$(PLAT_PATH)/include
++
++# Opt in only on modules whose board controller implements this protocol.
++NMS_BC_PCAL_POWEROFF ?= 0
++ifeq (${NMS_BC_PCAL_POWEROFF},1)
++$(eval $(call add_define,NMS_BC_PCAL_POWEROFF))
++BL31_SOURCES += $(PLAT_PATH)/nms_bc.c
++endif
+ 
+ PLAT_BL_COMMON_SOURCES	+=	$(PLAT_PATH)/helpers.S			\
+ 				drivers/ti/uart/aarch64/16550_console.S \
+--- a/plat/elvees/mcom03/psci.c
++++ b/plat/elvees/mcom03/psci.c
+@@ -115,6 +115,18 @@
+ 
+ 	INFO("MCom-03 System Off\n");
+ 
++#ifdef NMS_BC_PCAL_POWEROFF
++	int ret = nms_bc_poweroff();
++
++	if (ret != 0) {
++		ERROR("NMS BC: poweroff request failed (%d)\n", ret);
++	} else {
++		NOTICE("NMS BC: poweroff request sent\n");
++		mdelay(500);
++		ERROR("NMS BC: controller did not enter OFF\n");
++	}
++#endif
++
+ 	wdt_max_timeout = mcom03_sip_wdt_handler(MCOM03_SIP_WDT_GET_MAX_TIMEOUT_S, 0, 0, 0);
+ 	mcom03_sip_wdt_handler(MCOM03_SIP_WDT_SET_TIMEOUT_S, wdt_max_timeout, 0, 0);
+ 	mcom03_gic_cpuif_disable();
