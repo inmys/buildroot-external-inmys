@@ -1,0 +1,36 @@
+#!/bin/sh
+PIDFILE=/run/inmys-vision.pid
+VISION_ARGS='--sensor auto --width 1280 --height 720 --fps 15'
+[ ! -f /etc/default/inmys-vision ] || . /etc/default/inmys-vision
+running() {
+    [ -s "$PIDFILE" ] || return 1
+    pid=$(cat "$PIDFILE")
+    [ "$(readlink "/proc/$pid/exe" 2>/dev/null)" = /usr/libexec/inmys-vision ]
+}
+case "${1:-}" in
+start)
+    [ -e /dev/imgfelix0 ] && [ -f /run/inmys-camera.conf ] || exit 0
+    csi=$(awk '$1 == "csi" { print $2 }' /run/inmys-camera.conf)
+    [ -e "/dev/sensor_phy$csi" ] || exit 0
+    running && exit 0
+    printf 'Starting camera video: '
+    start-stop-daemon -S -b -m -p "$PIDFILE" -x /bin/sh -- -c \
+        'exec /usr/sbin/inmys-vision "$@" >>/var/log/inmys-vision.log 2>&1' sh $VISION_ARGS
+    sleep 1
+    if ! running; then echo "FAILED (see /var/log/inmys-vision.log)"; exit 1; fi
+    echo OK
+    ;;
+stop)
+    printf 'Stopping camera video: '
+    if running; then
+        kill -TERM "$pid" 2>/dev/null || true
+        n=0
+        while running && [ "$n" -lt 5 ]; do sleep 1; n=$((n+1)); done
+        if running; then kill -KILL "$pid" 2>/dev/null || true; fi
+    fi
+    rm -f "$PIDFILE"
+    echo OK
+    ;;
+restart) "$0" stop; "$0" start ;;
+*) echo "Usage: $0 {start|stop|restart}" >&2; exit 1 ;;
+esac

@@ -1,0 +1,8 @@
+CFLAGS_elcore50-trace.o := -I$(src)
+obj-m += elcore50.o elcore50-mmualloc.o
+elcore50-objs := elcore50-base.o elcore50-core.o elcore50-coredump.o \
+				 elcore50-dmabuf.o elcore50-job.o elcore50-job-instance.o \
+				 elcore50-kretprobes.o elcore50-mmu.o elcore50-mapper.o \
+				 elcore50-syscall.o elcore50-reset.o elcore50-debug.o \
+				 elcore50-trace.o elcore50-pm.o elcore50-bus.o elcore50-proc.o
+elcore50-mmualloc-objs := mmu-alloc.o

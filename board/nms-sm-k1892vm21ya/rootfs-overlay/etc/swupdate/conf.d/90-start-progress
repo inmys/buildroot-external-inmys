@@ -1,0 +1,2 @@
+# Use orderly init shutdown when the standard progress client requests reboot.
+exec /usr/bin/swupdate-progress -w --reboot=/sbin/reboot &

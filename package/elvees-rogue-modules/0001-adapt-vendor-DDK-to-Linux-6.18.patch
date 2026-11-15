@@ -1,0 +1,473 @@
+--- a/build/linux/kbuild/Makefile.template
++++ b/build/linux/kbuild/Makefile.template
+@@ -103,3 +103,13 @@
+ $(PVRSRVKM_NAME)-y += $(foreach _m,$(INTERNAL_EXTRA_KBUILD_OBJECTS:.o=),$($(_m)-y))
+ 
+ obj-m += $(INTERNAL_KBUILD_OBJECTS)
++
++# Linux 6.13+ builds external modules with relative source/object paths.
++# Explicit source targets avoid implicit-rule chaining through generated links.
++pvr_sources := $(sort $(patsubst %.o,%.c,$($(PVRSRVKM_NAME)-y)))
++$(filter-out generated/% external/%,$(pvr_sources)): %.c: $(TOP)/%.c
++	$(symlink-source-file)
++$(filter generated/%,$(pvr_sources)): generated/%.c: $(bridge_base)/%.c
++	$(symlink-source-file)
++$(filter external/%,$(pvr_sources)): external/%.c: $(abspath $(srctree))/%.c
++	$(symlink-source-file)
+--- a/include/pvrmodule.h
++++ b/include/pvrmodule.h
+@@ -47,7 +47,9 @@
+ MODULE_AUTHOR("Imagination Technologies Ltd. <gpl-support@imgtec.com>");
+ MODULE_LICENSE("Dual MIT/GPL");
+ 
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 16, 0))
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
++MODULE_IMPORT_NS("DMA_BUF");
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 16, 0))
+ MODULE_IMPORT_NS(DMA_BUF);
+ #endif
+ 
+--- a/kernel/drivers/staging/imgtec/pvr_counting_timeline.c
++++ b/kernel/drivers/staging/imgtec/pvr_counting_timeline.c
+@@ -43,6 +43,7 @@
+ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */ /**************************************************************************/
+ 
++#include "kernel_compatibility.h"
+ #include <linux/kernel.h>
+ #include <linux/slab.h>
+ #include <linux/kref.h>
+@@ -99,8 +100,12 @@
+ 				  value, timeline->current_value);
+ 		list_for_each_entry(obj, &timeline->active_fences,
+ 				    active_list_entry) {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
++			snprintf(value, sizeof(value), "%llu", (unsigned long long)obj->fence->seqno);
++#else
+ 			obj->fence->ops->fence_value_str(obj->fence,
+ 							 value, sizeof(value));
++#endif
+ 			PVR_DUMPDEBUG_LOG(pfnDumpDebugPrintf, pvDumpDebugFile,
+ 					  " @%s: val=%llu", value, obj->value);
+ 		}
+--- a/kernel/drivers/staging/imgtec/pvr_drm.c
++++ b/kernel/drivers/staging/imgtec/pvr_drm.c
+@@ -43,6 +43,10 @@
+ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */ /**************************************************************************/
+ 
++#include <linux/version.h>
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
++#define DRM_UNLOCKED 0
++#endif
+ #include <drm/drm.h>
+ #include <linux/version.h>
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 5, 0))
+@@ -297,6 +301,9 @@
+ #endif /* defined(CONFIG_COMPAT) */
+ 
+ static const struct file_operations pvr_drm_fops = {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
++	.fop_flags = FOP_UNSIGNED_OFFSET,
++#endif
+ 	.owner			= THIS_MODULE,
+ 	.open			= drm_open,
+ 	.release		= drm_release,
+@@ -329,7 +336,9 @@
+ 
+ 	.name			= PVR_DRM_DRIVER_NAME,
+ 	.desc			= PVR_DRM_DRIVER_DESC,
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 18, 0)
+ 	.date			= PVR_DRM_DRIVER_DATE,
++#endif
+ 	.major			= PVRVERSION_MAJ,
+ 	.minor			= PVRVERSION_MIN,
+ 	.patchlevel		= PVRVERSION_BUILD,
+--- a/kernel/drivers/staging/imgtec/pvr_fence.c
++++ b/kernel/drivers/staging/imgtec/pvr_fence.c
+@@ -148,6 +148,10 @@
+ 	PVR_DUMPDEBUG_LOG(pfnDumpDebugPrintf, pvDumpDebugFile,
+ 			 "hw: %s @%s", fctx->name, value);
+ 	list_for_each_entry(pvr_fence, &fctx->fence_list, fence_head) {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
++		snprintf(value, sizeof(value), "%llu", (unsigned long long)pvr_fence->fence->seqno);
++		PVR_DUMPDEBUG_LOG(pfnDumpDebugPrintf, pvDumpDebugFile, " @%s", value);
++#else
+ 		if (is_pvr_fence(pvr_fence->fence)) {
+ 			pvr_fence->fence->ops->fence_value_str(pvr_fence->fence,
+ 				value, sizeof(value));
+@@ -179,6 +183,7 @@
+ 					value);
+ 			}
+ 		}
++#endif
+ 	}
+ 	spin_unlock_irqrestore(&fctx->list_lock, flags);
+ }
+@@ -628,8 +633,10 @@
+ const struct dma_fence_ops pvr_fence_ops = {
+ 	.get_driver_name = pvr_fence_get_driver_name,
+ 	.get_timeline_name = pvr_fence_get_timeline_name,
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 18, 0)
+ 	.fence_value_str = pvr_fence_fence_value_str,
+ 	.timeline_value_str = pvr_fence_timeline_value_str,
++#endif
+ 	.enable_signaling = pvr_fence_enable_signaling,
+ 	.signaled = pvr_fence_is_signaled,
+ 	.wait = dma_fence_default_wait,
+@@ -835,7 +842,7 @@
+ 	INIT_LIST_HEAD(&pvr_fence->signal_head);
+ 	pvr_fence->fctx = fctx;
+ 	pvr_fence->fence = dma_fence_get(fence);
+-	strlcpy(pvr_fence->name, name, sizeof(pvr_fence->name));
++	pvr_strlcpy(pvr_fence->name, name, sizeof(pvr_fence->name));
+ 	/*
+ 	 * We use the base fence to refcount the PVR fence and to do the
+ 	 * necessary clean up once the refcount drops to 0.
+--- a/kernel/drivers/staging/imgtec/pvr_platform_drv.c
++++ b/kernel/drivers/staging/imgtec/pvr_platform_drv.c
+@@ -220,7 +220,11 @@
+ #endif
+ }
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++static void pvr_remove(struct platform_device *pdev)
++#else
+ static int pvr_remove(struct platform_device *pdev)
++#endif
+ {
+ 	struct drm_device *ddev = platform_get_drvdata(pdev);
+ 
+@@ -230,7 +234,9 @@
+ 	pm_runtime_disable(&pdev->dev);
+ 	drm_put_dev(ddev);
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
+ 	return 0;
++#endif
+ }
+ 
+ static void pvr_shutdown(struct platform_device *pdev)
+--- a/kernel/drivers/staging/imgtec/pvr_sw_fence.c
++++ b/kernel/drivers/staging/imgtec/pvr_sw_fence.c
+@@ -42,6 +42,7 @@
+ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */ /**************************************************************************/
+ 
++#include "kernel_compatibility.h"
+ #include <linux/kernel.h>
+ #include <linux/spinlock_types.h>
+ #include <linux/atomic.h>
+@@ -144,8 +145,10 @@
+ const struct dma_fence_ops pvr_sw_fence_ops = {
+ 	.get_driver_name = pvr_sw_fence_get_driver_name,
+ 	.get_timeline_name = pvr_sw_fence_get_timeline_name,
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 18, 0)
+ 	.fence_value_str = pvr_sw_fence_value_str,
+ 	.timeline_value_str = pvr_sw_fence_timeline_value_str,
++#endif
+ 	.enable_signaling = pvr_sw_fence_enable_signaling,
+ 	.wait = dma_fence_default_wait,
+ 	.release = pvr_sw_fence_release,
+--- a/kernel/drivers/staging/imgtec/pvr_sync2.c
++++ b/kernel/drivers/staging/imgtec/pvr_sync2.c
+@@ -1963,7 +1963,7 @@
+ 	}
+ 
+ 	data.szName[sizeof(data.szName) - 1] = '\0';
+-	strlcpy(timeline->obj->name, data.szName, sizeof(timeline->obj->name));
++	pvr_strlcpy(timeline->obj->name, data.szName, sizeof(timeline->obj->name));
+ err:
+ 	return err;
+ }
+--- a/kernel/drivers/staging/imgtec/pvr_sync_file.c
++++ b/kernel/drivers/staging/imgtec/pvr_sync_file.c
+@@ -43,6 +43,7 @@
+ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */ /**************************************************************************/
+ 
++#include "kernel_compatibility.h"
+ #include <linux/version.h>
+ 
+ #include "pvr_sync.h"
+@@ -145,7 +146,7 @@
+ 	if (!timeline)
+ 		goto err_out;
+ 
+-	strlcpy(timeline->name, task_comm, sizeof(timeline->name));
++	pvr_strlcpy(timeline->name, task_comm, sizeof(timeline->name));
+ 	timeline->file = file;
+ 	timeline->is_sw = false;
+ 
+@@ -280,7 +281,7 @@
+ 		err = PVRSRV_ERROR_OUT_OF_MEMORY;
+ 		goto err_destroy_fence;
+ 	}
+-	strlcpy(sync_file_user_name(sync_file),
++	pvr_strlcpy(sync_file_user_name(sync_file),
+ 		pvr_fence->name,
+ 		sizeof(sync_file_user_name(sync_file)));
+ 	dma_fence_put(&pvr_fence->base);
+@@ -457,9 +458,9 @@
+ 	}
+ 
+ 	data.szName[sizeof(data.szName) - 1] = '\0';
+-	strlcpy(timeline->name, data.szName, sizeof(timeline->name));
++	pvr_strlcpy(timeline->name, data.szName, sizeof(timeline->name));
+ 	if (timeline->hw_fence_context)
+-		strlcpy(timeline->hw_fence_context->name, data.szName,
++		pvr_strlcpy(timeline->hw_fence_context->name, data.szName,
+ 			sizeof(timeline->hw_fence_context->name));
+ 
+ err:
+--- a/services/server/env/linux/kernel_compatibility.h
++++ b/services/server/env/linux/kernel_compatibility.h
+@@ -236,4 +236,31 @@
+ #define pvr_vm_flags_clear vm_flags_clear
+ #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)) */
+ 
++/* APIs removed after the vendor's Linux 6.6 baseline. */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
++#include <linux/string.h>
++static inline size_t pvr_strlcpy(char *dst, const char *src, size_t size)
++{
++	size_t length = strlen(src);
++	strscpy(dst, src, size);
++	return length;
++}
++#else
++#define pvr_strlcpy strlcpy
++#endif
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
++#include <linux/mm.h>
++#include <linux/pfn.h>
++#define del_timer_sync timer_delete_sync
++#define from_timer timer_container_of
++/* All vendor uses pass zero PFN flags; modern VM APIs take a plain PFN. */
++typedef unsigned long pfn_t;
++#define phys_to_pfn_t(address, flags) PHYS_PFN(address)
++#define page_to_pfn_t(page) page_to_pfn(page)
++#define pfn_t_to_pfn(pfn) (pfn)
++#define pfn_t_to_page(pfn) pfn_to_page(pfn)
++#define pfn_t_valid(pfn) pfn_valid(pfn)
++#endif
++
+ #endif /* __KERNEL_COMPATIBILITY_H__ */
+--- a/services/server/env/linux/km_apphint.c
++++ b/services/server/env/linux/km_apphint.c
+@@ -41,6 +41,7 @@
+ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */ /**************************************************************************/
+ 
++#include "kernel_compatibility.h"
+ #include "pvr_debugfs.h"
+ #include "pvr_uaccess.h"
+ #include <linux/moduleparam.h>
+@@ -577,7 +578,7 @@
+ 			goto err_exit;
+ 		}
+ 
+-		strlcpy(value->STRING, string, len);
++		pvr_strlcpy(value->STRING, string, len);
+ 		break;
+ 	}
+ 	default:
+@@ -751,7 +752,7 @@
+ 	int result;
+ 
+ 	/* need to discard const in case of string comparison */
+-	result = strlcpy(val_copy, val, APPHINT_BUFFER_SIZE);
++	result = pvr_strlcpy(val_copy, val, APPHINT_BUFFER_SIZE);
+ 
+ 	get_apphint_id_from_action_addr(kp->arg, &id);
+ 	if (result < APPHINT_BUFFER_SIZE) {
+@@ -1279,7 +1280,7 @@
+ {
+ 	int error = -ERANGE;
+ 	if (ue < APPHINT_ID_MAX && apphint.val[ue].stored.STRING) {
+-		if (strlcpy(pBuffer, apphint.val[ue].stored.STRING, size) < size) {
++		if (pvr_strlcpy(pBuffer, apphint.val[ue].stored.STRING, size) < size) {
+ 			error = 0;
+ 		}
+ 	}
+--- a/services/server/env/linux/osfunc.c
++++ b/services/server/env/linux/osfunc.c
+@@ -72,7 +72,9 @@
+ #include <linux/kthread.h>
+ #include <asm/atomic.h>
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0))
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 18, 0)
+ #include <linux/pfn_t.h>
++#endif
+ #include <linux/pfn.h>
+ #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0)) */
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0))
+--- a/services/server/env/linux/physmem_osmem_linux.c
++++ b/services/server/env/linux/physmem_osmem_linux.c
+@@ -431,7 +431,13 @@
+ 	return IMG_TRUE;
+ }
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 7, 0)
++static struct shrinker *g_psShrinker;
++#define PVR_PAGE_POOL_SHRINKER g_psShrinker
++#else
+ static struct shrinker g_sShrinker;
++#define PVR_PAGE_POOL_SHRINKER (&g_sShrinker)
++#endif
+ 
+ /* Returning the number of pages that still reside in the page pool. */
+ static unsigned long
+@@ -447,7 +453,7 @@
+ {
+ 	int remain;
+ 
+-	PVR_ASSERT(psShrinker == &g_sShrinker);
++	PVR_ASSERT(psShrinker == PVR_PAGE_POOL_SHRINKER);
+ 	(void)psShrinker;
+ 	(void)psShrinkControl;
+ 
+@@ -469,7 +475,7 @@
+ 	LinuxUnpinEntry *psUnpinEntry, *psTempUnpinEntry;
+ 	IMG_UINT32 uiPagesFreed;
+ 
+-	PVR_ASSERT(psShrinker == &g_sShrinker);
++	PVR_ASSERT(psShrinker == PVR_PAGE_POOL_SHRINKER);
+ 	(void)psShrinker;
+ 
+ 	/* In order to avoid possible deadlock use mutex_trylock in place of mutex_lock */
+@@ -554,6 +560,7 @@
+ #endif
+ }
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 7, 0)
+ #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,12,0))
+ static int
+ _ShrinkPagePool(struct shrinker *psShrinker, struct shrink_control *psShrinkControl)
+@@ -583,6 +590,8 @@
+ };
+ #endif
+ 
++#endif /* static shrinker API */
++
+ /* Register the shrinker so Linux can reclaim cached pages */
+ void LinuxInitPhysmem(void)
+ {
+@@ -593,7 +602,17 @@
+ 	if (g_psLinuxPagePoolCache)
+ 	{
+ 		/* Only create the shrinker if we created the cache OK */
+-#if (LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 0))
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 7, 0)
++		g_psShrinker = shrinker_alloc(0, "rogue");
++		if (g_psShrinker) {
++			g_psShrinker->count_objects = _CountObjectsInPagePool;
++			g_psShrinker->scan_objects = _ScanObjectsInPagePool;
++			g_psShrinker->seeks = DEFAULT_SEEKS;
++			shrinker_register(g_psShrinker);
++		} else {
++			PVR_DPF((PVR_DBG_WARNING, "Page-pool shrinker allocation failed"));
++		}
++#elif (LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 0))
+ 		register_shrinker(&g_sShrinker, "rogue");
+ #else
+ 		register_shrinker(&g_sShrinker);
+@@ -608,6 +627,13 @@
+ void LinuxDeinitPhysmem(void)
+ {
+ 	IMG_UINT32 uiPagesFreed;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 7, 0)
++	/* Drain callbacks before taking the pool lock and destroying its cache. */
++	if (g_psShrinker) {
++		shrinker_free(g_psShrinker);
++		g_psShrinker = NULL;
++	}
++#endif
+ 
+ 	if (OSAtomicRead(&g_iPoolCleanTasks) > 0)
+ 	{
+@@ -628,7 +654,9 @@
+ 	/* Free the page cache */
+ 	kmem_cache_destroy(g_psLinuxPagePoolCache);
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 7, 0)
+ 	unregister_shrinker(&g_sShrinker);
++#endif
+ 	_PagePoolUnlock();
+ 
+ 	kmem_cache_destroy(g_psLinuxPageArray);
+--- a/services/server/env/linux/pmr_os.c
++++ b/services/server/env/linux/pmr_os.c
+@@ -49,7 +49,9 @@
+ #endif
+ #include <linux/version.h>
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0))
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 18, 0)
+ #include <linux/pfn_t.h>
++#endif
+ #include <linux/pfn.h>
+ #endif
+ 
+--- a/services/server/env/linux/rogue_trace_events.h
++++ b/services/server/env/linux/rogue_trace_events.h
+@@ -45,6 +45,13 @@
+ #define _ROGUE_TRACE_EVENTS_H
+ 
+ #include <linux/version.h>
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
++#define pvr_assign_str(dst, src) __assign_str(dst)
++#else
++#define pvr_assign_str(dst, src) __assign_str(dst, src)
++#endif
++
++#include <linux/version.h>
+ #include <linux/tracepoint.h>
+ #include <linux/time.h>
+ 
+@@ -88,9 +95,9 @@
+ 	),
+ 
+ 	TP_fast_assign(
+-		__assign_str(comm, comm);
+-		__assign_str(cmd, cmd);
+-		__assign_str(dm, dm);
++		pvr_assign_str(comm, comm);
++		pvr_assign_str(cmd, cmd);
++		pvr_assign_str(dm, dm);
+ 		__entry->ctx_id = ctx_id;
+ 		__entry->offset = offset;
+ 		__entry->sync_fwaddr = sync_fwaddr;
+@@ -135,9 +142,9 @@
+ 	),
+ 
+ 	TP_fast_assign(
+-		__assign_str(comm, comm);
+-		__assign_str(cmd, cmd);
+-		__assign_str(dm, dm);
++		pvr_assign_str(comm, comm);
++		pvr_assign_str(cmd, cmd);
++		pvr_assign_str(dm, dm);
+ 		__entry->ctx_id = ctx_id;
+ 		__entry->offset = offset;
+ 		__entry->sync_fwaddr = sync_fwaddr;
+@@ -170,8 +177,8 @@
+ 	),
+ 
+ 	TP_fast_assign(
+-		__assign_str(comm, comm);
+-		__assign_str(dm, dm);
++		pvr_assign_str(comm, comm);
++		pvr_assign_str(dm, dm);
+ 		__entry->ctx_id = ctx_id;
+ 	),
+ 
+@@ -419,7 +426,7 @@
+ 
+ 	TP_fast_assign(
+ 		__entry->timestamp = timestamp;
+-		__assign_str(task, task);
++		pvr_assign_str(task, task);
+ 		__entry->fw_event = fw_event;
+ 	),
+ 

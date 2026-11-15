@@ -1,0 +1,180 @@
+From: INMYS <info@inmys.ru>
+Subject: [PATCH] SBL-S2: add RAM-backed firmware variant for SD boot
+
+Upstream-Status: Inappropriate [NMS module SD boot layout]
+
+---
+--- a/sbl-s2/main.c
++++ b/sbl-s2/main.c
+@@ -25,6 +25,20 @@
+ #include <third-party/libfdt/libfdt.h>
+ 
+ #include "platform-def.h"
++
++/* SD images carry the next firmware image in DDR, loaded by BootROM. */
++#ifdef SBL_RAM_BOOT
++#undef RECOVERY_ENABLE
++#define SD_FW_BASE 0x4c000000u
++#define SD_FW_MAX_SIZE 0x400000u
++struct sd_fw_header {
++	char magic[4];
++	uint32_t version;
++	uint32_t size;
++	uint32_t reserved;
++};
++static uint32_t sd_fw_size;
++#endif
+ 
+ #ifdef UART_ENABLE
+ #include <drivers/uart/uart.h>
+@@ -119,12 +133,23 @@
+ 
+ static int read_image(void *dst, signed long offset, size_t size)
+ {
++#ifdef SBL_RAM_BOOT
++	if (offset < PLAT_OFFSET_FIRMWARE_A ||
++	    (unsigned long)(offset - PLAT_OFFSET_FIRMWARE_A) > sd_fw_size ||
++	    size > sd_fw_size - (unsigned long)(offset - PLAT_OFFSET_FIRMWARE_A))
++		return -EINVALIDPARAM;
++
++	memcpy(dst, (const void *)(SD_FW_BASE + sizeof(struct sd_fw_header) +
++				 offset - PLAT_OFFSET_FIRMWARE_A), size);
++	return 0;
++#else
+ 	uint32_t flash_size = spi_nor_get_size();
+ 
+ 	if (offset < 0)
+ 		offset = (signed long)flash_size + offset;
+ 
+ 	return spi_nor_read(dst, (uint32_t)offset, size);
++#endif
+ }
+ 
+ #ifdef RECOVERY_ENABLE
+@@ -174,6 +199,7 @@
+ }
+ #endif
+ 
++#ifndef SBL_RAM_BOOT
+ static int prepare_env(env_ctx_t *sbl)
+ {
+ 	bool need_export = false;
+@@ -258,6 +284,8 @@
+ 	return 0;
+ }
+ 
++#endif
++
+ static int secure_setup(void)
+ {
+ 	// Setup Secure Mode TOP Subsystem
+@@ -287,7 +315,9 @@
+ int main(void)
+ {
+ 	int ret;
++#ifndef SBL_RAM_BOOT
+ 	env_ctx_t sbl;
++#endif
+ 	int use_slot_b = 0;
+ 	sb_mem_t sbmem;
+ 
+@@ -363,9 +393,19 @@
+ 		panic_handler("WDT0 is failed to start, ret=%d\n", ret);
+ #endif
+ 
++#ifdef SBL_RAM_BOOT
++	const struct sd_fw_header *fw = (const void *)SD_FW_BASE;
++
++	if (memcmp(fw->magic, "NMSD", 4) || fw->version != 1 ||
++	    !fw->size || fw->size > SD_FW_MAX_SIZE || fw->reserved)
++		panic_handler("Invalid RAM firmware capsule\n");
++	sd_fw_size = fw->size;
++	NOTICE("SD boot: firmware in RAM, QSPI disabled\n");
++#else
+ 	ret = spi_nor_init();
+ 	if (ret)
+ 		panic_handler("SPI NOR init failed, ret=%d\n", ret);
++#endif
+ 
+ #if defined(BOOTSTAGE_ENABLE)
+ 	bootstage_mark(BOOTSTAGE_ID_SBL_S2_LOAD_START);
+@@ -400,7 +440,9 @@
+ 	if (ret)
+ 		panic_handler("Failed to setup secure regions, ret=%d\n", ret);
+ 
++#ifndef SBL_RAM_BOOT
+ 	prepare_env(&sbl);
++#endif
+ 
+ 	memset((void *)&sbmem, 0, sizeof(sbmem));
+ 	sbmem.chck_laddr_func = (chck_laddr_t)check_load_address;
+@@ -410,7 +452,9 @@
+ 	sbmem.chck_img = NULL;
+ 
+ 	if (recovery_mode == 0) {
++#ifndef SBL_RAM_BOOT
+ 		select_slot(&sbl, &use_slot_b);
++#endif
+ 
+ 		sbmem.image_offset =
+ 			(uintptr_t)(PLAT_OFFSET_FIRMWARE_A +
+--- a/sbl-s2/CMakeLists.txt
++++ b/sbl-s2/CMakeLists.txt
+@@ -2,35 +2,40 @@
+ 
+ project(sbl-s2 ASM C)
+ 
+-add_executable(${PROJECT_NAME}.elf
++foreach(S2_NAME sbl-s2 sbl-s2-sd)
++add_executable(${S2_NAME}.elf
+                startup.S
+                vectors.S
+                main.c)
+ 
+ # Link static libraries
+-target_link_libraries(${PROJECT_NAME}.elf ${MipsCSP_LIBRARIES})
++target_link_libraries(${S2_NAME}.elf ${MipsCSP_LIBRARIES})
+ 
+-target_compile_definitions(${PROJECT_NAME}.elf PRIVATE
++target_compile_definitions(${S2_NAME}.elf PRIVATE
+                            -D_GNU_SOURCE)
++if(S2_NAME STREQUAL "sbl-s2-sd")
++    target_compile_definitions(${S2_NAME}.elf PRIVATE SBL_RAM_BOOT)
++endif()
+ 
+-target_link_options(${PROJECT_NAME}.elf PRIVATE
+-                    -T ${CMAKE_CURRENT_BINARY_DIR}/link.ld
+-                    -Wl,-Map=${PROJECT_NAME}.map -Wl,--cref)
++target_link_options(${S2_NAME}.elf PRIVATE
++                    -T ${CMAKE_CURRENT_BINARY_DIR}/${S2_NAME}.ld
++                    -Wl,-Map=${S2_NAME}.map -Wl,--cref)
+ 
+-generate_and_add_as_dependency(${PROJECT_NAME}.elf
++generate_and_add_as_dependency(${S2_NAME}.elf
+                                ${CMAKE_CURRENT_SOURCE_DIR}/link.ld.S
+-                               ${CMAKE_CURRENT_BINARY_DIR}/link.ld)
++                               ${CMAKE_CURRENT_BINARY_DIR}/${S2_NAME}.ld)
+ 
+-add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
++add_custom_command(TARGET ${S2_NAME}.elf POST_BUILD
+                    COMMAND ${CMAKE_OBJDUMP}
+-                   -dx ${PROJECT_NAME}.elf > ${PROJECT_NAME}.dump
+-                   BYPRODUCTS ${PROJECT_NAME}.dump)
++                   -dx ${S2_NAME}.elf > ${S2_NAME}.dump
++                   BYPRODUCTS ${S2_NAME}.dump)
+ 
+-add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
++add_custom_command(TARGET ${S2_NAME}.elf POST_BUILD
+                    COMMAND ${CMAKE_OBJCOPY}
+-                   -O binary ${PROJECT_NAME}.elf ${PROJECT_NAME}.bin
+-                   COMMAND truncate -s %${IMG_ALIGN} ${PROJECT_NAME}.bin
+-                   BYPRODUCTS ${PROJECT_NAME}.bin)
++                   -O binary ${S2_NAME}.elf ${S2_NAME}.bin
++                   COMMAND truncate -s %${IMG_ALIGN} ${S2_NAME}.bin
++                   BYPRODUCTS ${S2_NAME}.bin)
+ 
+-install(TARGETS ${PROJECT_NAME}.elf DESTINATION ./sbl)
+-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.bin DESTINATION ./sbl)
++install(TARGETS ${S2_NAME}.elf DESTINATION ./sbl)
++install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${S2_NAME}.bin DESTINATION ./sbl)
++endforeach()

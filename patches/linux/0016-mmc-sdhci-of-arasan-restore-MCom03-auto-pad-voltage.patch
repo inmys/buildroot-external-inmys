@@ -1,0 +1,82 @@
+Subject: [PATCH] mmc: sdhci-of-arasan: restore MCom03 automatic pad voltage
+
+MCom03 BootROM initializes SD/MMC with URB.use_sw_v18 set, forcing the
+pads to the selected boot voltage. The SDHCI voltage-switch implementation
+changes HOST_CONTROL2, but the override prevents the pads from following.
+After a 3.3 V SD boot CMD11 succeeds, then CMD2 times out; a later scan
+falls back to High Speed at 3.3 V despite the card supporting UHS.
+
+Use an MCom03-specific signal-voltage callback which performs the normal
+SDHCI voltage selection first, then clears only the URB pad override.
+This also restores automatic selection during initial power-up and leaves
+the pad enable and voltage-settling delay unchanged. Check the controller
+index and syscon before installing the callback.
+
+---
+--- a/drivers/mmc/host/sdhci-of-arasan.c
++++ b/drivers/mmc/host/sdhci-of-arasan.c
+@@ -248,6 +248,9 @@
+ 	.hiword_update = false,
+ };
+ 
++#define MCOM03_SDMMC_PADCFG(x) (0x2c + (x) * 0x3c)
++#define MCOM03_SDMMC_PADCFG_USE_SW_V18 BIT(3)
++
+ #define MCOM03_SDMMC_CORECFG7(x) (0x58 + (x) * 0x3c)
+ #define MCOM03_SDMMC_CORECFG7_ASYNCWKUPENA BIT(19)
+ #define MCOM03_SDMMC_CORECFG7_TUNINGCOUNT  GENMASK(18, 13)
+@@ -1280,6 +1283,35 @@
+ 		      clk_data->clk_phase_out[host->timing]);
+ }
+ 
++static int sdhci_arasan_mcom03_voltage_switch(struct mmc_host *mmc,
++					    struct mmc_ios *ios)
++{
++	struct sdhci_host *host = mmc_priv(mmc);
++	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
++	struct sdhci_arasan_data *sdhci_arasan = sdhci_pltfm_priv(pltfm_host);
++	int ret;
++
++	ret = sdhci_start_signal_voltage_switch(mmc, ios);
++	if (ret)
++		return ret;
++
++	/*
++	 * BootROM forces the pad voltage through URB when booting from SD/MMC.
++	 * Set HOST_CONTROL2 first, then let its voltage selection control the
++	 * pads as well. Otherwise CMD11 changes the external supply but leaves
++	 * the pads at their boot voltage, and the subsequent CMD2 times out.
++	 * Preserve the pad enable, voltage-switch delay and all other fields.
++	 */
++	ret = regmap_update_bits(sdhci_arasan->soc_ctl_base,
++				MCOM03_SDMMC_PADCFG(sdhci_arasan->ctrl_id),
++				MCOM03_SDMMC_PADCFG_USE_SW_V18, 0);
++	if (ret)
++		dev_err(mmc->parent, "Failed to enable automatic pad voltage: %d\n",
++			ret);
++
++	return ret;
++}
++
+ /* TODO: Despite Arasan documentation states that OTAPSELENA should not be
+  *       asserted when operating in DS mode it seems it doesn't harm. But still
+  *       consider disabling it in DS mode. Driver for MCom-02 SDMMC disables
+@@ -2100,8 +2132,18 @@
+ 		if (ret)
+ 			goto reset_assert;
+ 
++		if (!sdhci_arasan->soc_ctl_base ||
++		    (unsigned int)sdhci_arasan->ctrl_id >=
++					ARRAY_SIZE(mcom03_soc_ctl_map)) {
++			dev_err(dev, "Invalid MCom03 controller or missing syscon\n");
++			ret = -EINVAL;
++			goto reset_assert;
++		}
++
+ 		sdhci_arasan->soc_ctl_map =
+ 			&mcom03_soc_ctl_map[sdhci_arasan->ctrl_id];
++		host->mmc_host_ops.start_signal_voltage_switch =
++			sdhci_arasan_mcom03_voltage_switch;
+ 	}
+ 
+ 	if (of_device_is_compatible(np, "intel,keembay-sdhci-5.1-emmc") ||

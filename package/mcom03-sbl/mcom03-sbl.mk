@@ -27,11 +27,9 @@ MCOM03_SBL_CONF_OPTS = \
 	-DUART_ENABLE=ON \
 	-DBOOTSTAGE_ENABLE=ON
 
-MCOM03_SBL_CONFIG_TOML = \
-	$(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/board/nms-sm-k1892vm21ya/nms-sm-k1892vm21ya-sbl-config.toml
-# The JSON is generated into the package build directory so that the
-# source tree stays clean.
-MCOM03_SBL_CONFIG_JSON = $(@D)/$(notdir $(basename $(MCOM03_SBL_CONFIG_TOML))).json
+# Native SBL JSON: no intermediate format or configuration generator.
+MCOM03_SBL_CONFIG_JSON = \
+	$(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/board/nms-sm-k1892vm21ya/nms-sm-k1892vm21ya-sbl-config.json
 
 MCOM03_SBL_MAKE_ENV = \
 	PATH=$(HOST_DIR)/opt/bootrom-tools/mksbimage:$(HOST_DIR)/opt/bootrom-tools/otpcreator:$(BR_PATH)
@@ -41,17 +39,15 @@ MCOM03_SBL_MAKE_ENV = \
 # U-Boot package does not install the DTBs itself (the ELVEES fork of
 # Buildroot adds BR2_TARGET_UBOOT_INSTALL_DTB for that), so they are
 # copied out of the U-Boot build directory here.
-MCOM03_SBL_UBOOT_DTBS = \
-	mcom03r-nms-sm-evm \
-	mcom03r-nms-smarc-tester \
-	mcom03r-nms-itx-sm-lc-v4 \
-	mcom03r-nms-sm-elvsmarccb
+MCOM03_SBL_UBOOT_DTBS = $(basename $(notdir $(wildcard \
+	$(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/board/nms-sm-k1892vm21ya/uboot/*.dts)))
 
 define MCOM03_SBL_INSTALL_UBOOT_DTBS
 	mkdir -p $(BINARIES_DIR)/uboot-dtb
+	rm -f $(BINARIES_DIR)/uboot-dtb/mcom03r-nms-*.dtb
 	for dtb in $(MCOM03_SBL_UBOOT_DTBS); do \
-		src=$$(ls $(BUILD_DIR)/uboot-*/arch/arm/dts/$$dtb.dtb 2>/dev/null | head -n1); \
-		if [ -z "$$src" ]; then \
+		src=$(UBOOT_DIR)/arch/arm/dts/$$dtb.dtb; \
+		if [ ! -f "$$src" ]; then \
 			echo "ERROR: $$dtb.dtb was not built by U-Boot" >&2; \
 			exit 1; \
 		fi; \
@@ -59,19 +55,32 @@ define MCOM03_SBL_INSTALL_UBOOT_DTBS
 	done
 endef
 
-# The SBL config TOML uses the U-Boot DTB names without the .dtb suffix;
-# make sure the file names in BINARIES_DIR/uboot-dtb match the TOML.
-define MCOM03_SBL_GENERATE_CONFIG
-	$(HOST_DIR)/bin/python3 \
-		$(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/support/gen_sbl_config.py \
-		-i $(MCOM03_SBL_CONFIG_TOML) -o $(MCOM03_SBL_CONFIG_JSON)
+MCOM03_SBL_PRE_CONFIGURE_HOOKS += MCOM03_SBL_INSTALL_UBOOT_DTBS
+MCOM03_SBL_PRE_BUILD_HOOKS += MCOM03_SBL_INSTALL_UBOOT_DTBS
+
+define MCOM03_SBL_APPLY_SD_BOOT_PATCH
+	$(APPLY_PATCHES) $(@D) \
+		$(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/patches/mcom03-sbl '*.patch'
 endef
-MCOM03_SBL_PRE_CONFIGURE_HOOKS += MCOM03_SBL_INSTALL_UBOOT_DTBS \
-	MCOM03_SBL_GENERATE_CONFIG
+MCOM03_SBL_POST_PATCH_HOOKS += MCOM03_SBL_APPLY_SD_BOOT_PATCH
+
+# The module now has one bootloader DTB. Remove earlier per-carrier output
+# files before installing, so glob-based image consumers cannot reuse them.
+define MCOM03_SBL_CLEAN_OLD_BOOT_IMAGES
+	rm -f $(BINARIES_DIR)/sbl/sbl-xip-nms-sm-k1892vm21ya-*.bin
+	rm -f $(BINARIES_DIR)/tl-sbimg/nms-sm-k1892vm21ya-*.tl-image
+	rm -f $(BINARIES_DIR)/sd-boot/nms-*.sbimg
+	rm -f $(BINARIES_DIR)/qspi-full-nms-*.bin $(BINARIES_DIR)/qspi-full-nms-*.bin.sha256 \
+		$(BINARIES_DIR)/qspi-full-nms-*.layout.txt
+endef
+MCOM03_SBL_PRE_INSTALL_TARGET_HOOKS += MCOM03_SBL_CLEAN_OLD_BOOT_IMAGES
 
 define MCOM03_SBL_INSTALL_TARGET_CMDS
 	$(MCOM03_SBL_MAKE_ENV) $(MCOM03_SBL_BUILD_ENV) DESTDIR=$(BINARIES_DIR) \
 		$(BR2_CMAKE) --install $(MCOM03_SBL_BUILDDIR)
+	$(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/support/make-sdboot.sh \
+		$(@D) $(BINARIES_DIR) $(HOST_DIR) \
+		$(MCOM03_SBL_UBOOT_DTBS) $(DDRINIT_DEFCONFIGS)-bootrom
 endef
 
 $(eval $(cmake-package))

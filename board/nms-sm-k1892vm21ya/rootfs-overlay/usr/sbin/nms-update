@@ -1,34 +1,35 @@
 #!/bin/sh
-#
-# Install a SWUpdate package into the inactive A/B slot.
-#
-#   nms-update /path/to/firmware.swu
-#
-# The running slot is never touched.  The package carries the root
-# filesystem plus the kernel and the device tree; sw-description writes
-# them to the symlinks prepared below, and the extlinux.conf "default"
-# line is flipped only after swupdate has succeeded.
+# One update path for CLI and SWUpdate web uploads.
 set -eu
-
-. /usr/sbin/nms-ab
-
-SWU=${1:-}
-[ -n "$SWU" ] || { echo "usage: nms-update <firmware.swu>" >&2; exit 1; }
-[ -f "$SWU" ] || { echo "nms-update: no such file: $SWU" >&2; exit 1; }
-
-cur=$(nms_ab_slot)      || { echo "nms-update: cannot tell the running slot" >&2; exit 1; }
-nxt=$(nms_ab_other_slot) || { echo "nms-update: cannot tell the other slot" >&2; exit 1; }
-dev=$(nms_ab_other_root_dev) || { echo "nms-update: cannot find the other rootfs" >&2; exit 1; }
-[ -b "$dev" ] || { echo "nms-update: $dev is not a block device" >&2; exit 1; }
-
-# Mounts /boot if needed and points the sw-description device paths at the
-# inactive slot, so the same package works on the SD card and on the eMMC.
-nms_ab_prepare "$nxt" || {
-	echo "nms-update: cannot prepare the inactive slot" >&2; exit 1; }
-
-echo "nms-update: slot $cur -> $nxt ($dev)"
-swupdate -v -e "stable,$nxt" -i "$SWU"
-
-# Only reached when swupdate succeeded.
-nms_ab_set "$nxt"
-echo "nms-update: extlinux.conf now defaults to $nxt, reboot to switch"
+[ -r /run/nms-boot ] || { echo 'NMS boot setup is unavailable' >&2; exit 1; }
+. /run/nms-boot
+case "${1:-}" in
+target)
+    echo "$next" ;;
+status)
+    echo "Running: $slot ($root); update target: $next ($nextdev)"
+    fw_printenv active_slot fdtfile upgrade_available bootcount ;;
+prepare)
+    [ -b "$nextdev" ] && [ "$nextdev" != "$root" ]
+    if awk -v dev="$nextdev" '$1 == dev { found=1 } END { exit !found }' /proc/mounts; then
+        echo "Refusing to overwrite mounted $nextdev" >&2
+        exit 1
+    fi
+    mountpoint -q /data
+    fw_printenv active_slot fdtfile >/dev/null
+    mkdir -p /run/swupdate
+    rm -f /run/swupdate/rootfs-A /run/swupdate/rootfs-B
+    ln -s "$nextdev" "/run/swupdate/rootfs-$next"
+    echo "NMS: updating slot $next ($nextdev)" ;;
+confirm)
+    mountpoint -q /data
+    if [ "$(fw_printenv -n upgrade_available)" = 1 ]; then
+        printf 'active_slot %s\nupgrade_available 0\nbootcount 0\nustate 0\n' "$slot" | fw_setenv -s -
+        echo "NMS: confirmed slot $slot"
+    fi ;;
+'')
+    echo 'usage: nms-update <firmware.swu> | status' >&2; exit 1 ;;
+*)
+    [ -f "$1" ] || { echo "No such update: $1" >&2; exit 1; }
+    exec swupdate-client "$1" ;;
+esac

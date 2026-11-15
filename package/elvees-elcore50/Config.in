@@ -1,0 +1,5 @@
+config BR2_PACKAGE_ELVEES_ELCORE50
+	bool "ELVEES ELcore50 DSP kernel driver"
+	depends on BR2_LINUX_KERNEL
+	help
+	  Build elcore50 and elcore50-mmualloc for MCom-03 from source.

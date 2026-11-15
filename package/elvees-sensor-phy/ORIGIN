@@ -1,0 +1,6 @@
+Source: https://dist.elvees.com/mcom03/altlinux/repo/p11/linux-6.6-mcom03r/SRPMS.linux-6.6-mcom03r/sensor-phy-mcom03r-0-202607.1.g889ee62.k6.6.143.419.g01fda366d7b0.elv.alt1.src.rpm
+Imported .c/.h/Kbuild without functional changes.
+
+Local correction (2026-11-10): derive the hardware CSI index from DT clock names,
+not the order in which receivers probe. Required when only CSI1 is enabled
+(NMS-SM-EVM X12). CSI0 behavior and userspace ioctl ABI are unchanged.

@@ -1,0 +1,77 @@
+#!/bin/sh
+# Mount persistent data and describe the running slot/environment to Linux.
+[ "${1:-}" = start ] || exit 0
+set -eu
+uuid=$(sed -n 's/.*root=PARTUUID=\([^ ]*\).*/\1/p' /proc/cmdline)
+root=
+for u in /sys/class/block/mmcblk*p*/uevent; do
+    if grep -qx "PARTUUID=$uuid" "$u"; then
+        root=/dev/$(basename "$(dirname "$u")")
+        break
+    fi
+done
+case "$root" in
+/dev/mmcblk*p1) slot=A; next=B; nextpart=2 ;;
+/dev/mmcblk*p2) slot=B; next=A; nextpart=1 ;;
+*) echo 'NMS: cannot identify A/B root' >&2; exit 1 ;;
+esac
+disk=${root%p*}
+block=/sys/class/block/${disk##*/}
+# Reject the previous data/A/B layout before touching any partition.
+[ "$(cat "${block}p1/start")" = 8192 ] &&
+[ "$(cat "${block}p1/size")" = 1048576 ] &&
+[ "$(cat "${block}p2/size")" = 1048576 ] &&
+[ "$(cat "${block}p3/start")" = 2105344 ] || {
+    echo 'NMS: expected A/B/data layout; write a complete factory image' >&2
+    exit 1
+}
+printf 'slot=%s\nnext=%s\nroot=%s\nnextdev=%sp%s\n' \
+    "$slot" "$next" "$root" "$disk" "$nextpart" > /run/nms-boot
+
+mkdir -p /data /root/.ssh /etc/dropbear
+if ! mountpoint -q /data; then
+    # genimage reserves a small p3 without writing it. Grow only this last
+    # partition; parted updates the kernel view while the root stays mounted.
+    if [ "$(cat "${block}p3/size")" -lt "$(( $(cat "$block/size") - $(cat "${block}p3/start") ))" ]; then
+        parted -s "$disk" resizepart 3 100%
+    fi
+    # A short image leaves previous media contents beyond its EOF. Only a
+    # filesystem labelled data is retained; other contents are initialized.
+    if blkid "${disk}p3" | grep -q 'LABEL="data"'; then
+        fs_sectors=$(LC_ALL=C tune2fs -l "${disk}p3" | awk '
+            /^Block count:/ { count=$3 }
+            /^Block size:/ { size=$3 }
+            END { if (count && size) printf "%.0f\n", count*size/512; else exit 1 }')
+        if [ "$fs_sectors" -lt "$(cat "${block}p3/size")" ]; then
+            e2fsck -fp "${disk}p3" || [ "$?" = 1 ]
+            resize2fs "${disk}p3"
+        else
+            e2fsck -p "${disk}p3" || [ "$?" = 1 ]
+        fi
+    else
+        mkfs.ext4 -F -L data -m 0 -E nodiscard "${disk}p3"
+    fi
+    mount -t ext4 "${disk}p3" /data
+fi
+mkdir -p /data/root/.ssh /data/dropbear
+chmod 700 /data/root/.ssh /data/dropbear
+mount --bind /data/root/.ssh /root/.ssh
+mount --bind /data/dropbear /etc/dropbear
+
+medium=$(tr -d '\000' < /proc/device-tree/chosen/inmys,boot-medium)
+case "$medium" in
+sd) dev=/dev/mmcblk0 ;;
+emmc) dev=/dev/mmcblk1 ;;
+qspi0)
+    mtd=$(sed -n 's/^\(mtd[0-9]*\):.*"uboot-env"$/\1/p' /proc/mtd)
+    [ -n "$mtd" ] || { echo 'NMS: no U-Boot environment MTD' >&2; exit 1; }
+    dev=/dev/$mtd ;;
+*) echo "NMS: unknown U-Boot medium '$medium'" >&2; exit 1 ;;
+esac
+case "$medium" in
+qspi0) printf '%s 0x0 0x10000 0x10000\n%s 0x10000 0x10000 0x10000\n' "$dev" "$dev" ;;
+*) printf '%s 0x300000 0x10000\n%s 0x310000 0x10000\n' "$dev" "$dev" ;;
+esac > /run/fw_env.config
+ln -snf /run/fw_env.config /etc/fw_env.config
+fw_printenv active_slot fdtfile >/dev/null
+printf 'NMS: slot %s, data on %sp3, environment on %s\n' "$slot" "$disk" "$medium"

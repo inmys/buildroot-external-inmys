@@ -9,7 +9,7 @@
 # The package builds one image per entry of DDRINIT_DEFCONFIGS (plus the
 # "-bootrom" variant used when ddrinit is started by the BootROM) and
 # installs it to BINARIES_DIR/ddrinit-<defconfig>/, which is the layout
-# expected by the SBL build (see the SBL config TOML).
+# expected by the SBL build (see the SBL JSON configuration).
 #
 ################################################################################
 

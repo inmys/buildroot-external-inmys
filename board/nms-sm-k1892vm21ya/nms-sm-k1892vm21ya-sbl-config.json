@@ -1,0 +1,19 @@
+[
+  {
+    "ddrinit_defconfig": "nms-sm-k1892vm21ya",
+    "ddrinit_name": "nms-sm-k1892vm21ya",
+    "boot_type": "xip",
+    "uboot_dtb": "mcom03r-nms-sm-k1892vm21ya",
+    "ddrinit_uboot_dtb": "nms-sm-k1892vm21ya-mcom03r-nms-sm-k1892vm21ya",
+    "ddrinit_build_fragments": "",
+    "sbl_xip_name": "sbl-xip-nms-sm-k1892vm21ya-mcom03r-nms-sm-k1892vm21ya"
+  },
+  {
+    "ddrinit_defconfig": "nms-sm-k1892vm21ya",
+    "ddrinit_name": "nms-sm-k1892vm21ya-bootrom",
+    "boot_type": "bootrom",
+    "uboot_dtb": "mcom03r-nms-sm-k1892vm21ya",
+    "ddrinit_uboot_dtb": "nms-sm-k1892vm21ya-mcom03r-nms-sm-k1892vm21ya",
+    "ddrinit_build_fragments": "bootrom"
+  }
+]

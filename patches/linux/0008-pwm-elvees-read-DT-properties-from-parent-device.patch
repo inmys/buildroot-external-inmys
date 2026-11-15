@@ -1,0 +1,44 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] pwm: elvees: read device tree properties from parent device
+
+After conversion to devm_pwmchip_alloc(), pwm_chip.dev is the PWM class
+device, not the platform device carrying the OF node. Reading properties
+from it always fails, leaving output-channel and state-on-disable zero.
+
+On NMS-SM-K1892VM21YA with ELVEES-SMARC-CB the counter and compare
+registers were correct, but EMCTLA was 0x84 and EMCTLB stayed zero even
+though the DT selected output B. LCD0_BKLT_PWM is GPIO1_PORTD_3,
+PWM_OENB0, so the pad had no PWM signal. The boot log reported both DT
+properties missing despite their presence in the live tree.
+
+Read the OF node and issue diagnostics through pwmchip_parent(). This
+restores the selected output and the configured disabled level.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+--- a/drivers/pwm/pwm-elvees.c
++++ b/drivers/pwm/pwm-elvees.c
+@@ -239,19 +239,20 @@
+ 
+ static int elvees_pwm_parse_dt(struct pwm_chip *pwm_chip)
+ {
+-	struct device_node *node = dev_of_node(&pwm_chip->dev);
++	struct device *dev = pwmchip_parent(pwm_chip);
++	struct device_node *node = dev_of_node(dev);
+ 	int ret;
+ 	struct elvees_pwm_chip *elvees_pwm_chip = pwmchip_get_drvdata(pwm_chip);
+ 
+ 	ret = of_property_read_u32_array(node, "elvees,output-channel",
+ 				   elvees_pwm_chip->out_channel, NUM_PWM_CHANNEL);
+ 	if (ret < 0)
+-		dev_warn(&pwm_chip->dev, "elvees,output-channel DT property missing\n");
++		dev_warn(dev, "elvees,output-channel DT property missing\n");
+ 
+ 	ret = of_property_read_u32_array(node, "elvees,state-on-disable",
+ 				   elvees_pwm_chip->state_on_disable, NUM_PWM_CHANNEL);
+ 	if (ret < 0)
+-		dev_warn(&pwm_chip->dev, "elvees,state-on-disable DT property missing\n");
++		dev_warn(dev, "elvees,state-on-disable DT property missing\n");
+ 
+ 	return 0;
+ }

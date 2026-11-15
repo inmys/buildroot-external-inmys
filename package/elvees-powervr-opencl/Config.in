@@ -1,0 +1,17 @@
+config BR2_PACKAGE_ELVEES_POWERVR_OPENCL
+	bool "PowerVR GE8300 OpenCL 1.2 runtime"
+	depends on BR2_LINUX_KERNEL && BR2_TOOLCHAIN_USES_GLIBC
+	depends on BR2_INSTALL_LIBSTDCPP && !BR2_STATIC_LIBS
+	select BR2_PACKAGE_ELVEES_ROGUE_MODULES
+	select BR2_PACKAGE_LIBDRM
+	select BR2_PACKAGE_OPENCL_HEADERS
+	select BR2_PACKAGE_HAS_LIBOPENCL
+	help
+	  Pinned ELVEES SDK PowerVR OpenCL runtime, online compiler and
+	  GPU firmware. Source-built kernel module is loaded at boot.
+	  Provides GPU OpenCL 1.2 Embedded Profile, without taking HDMI.
+
+if BR2_PACKAGE_ELVEES_POWERVR_OPENCL
+config BR2_PACKAGE_PROVIDES_LIBOPENCL
+	default "elvees-powervr-opencl"
+endif

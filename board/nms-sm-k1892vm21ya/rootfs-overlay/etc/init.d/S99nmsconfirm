@@ -1,0 +1,8 @@
+#!/bin/sh
+# Reaching the end of normal startup confirms the trial slot.
+[ "${1:-}" = start ] || exit 0
+# Booting the tester's SD must not confirm an update on the tested module.
+case " $(cat /proc/cmdline) " in
+*' nms.factory=1 '*) exit 0 ;;
+esac
+exec /usr/sbin/nms-update confirm

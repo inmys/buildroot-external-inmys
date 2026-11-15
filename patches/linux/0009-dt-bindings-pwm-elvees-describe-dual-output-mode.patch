@@ -1,0 +1,46 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] dt-bindings: pwm: elvees: describe dual-output mode
+
+Describe the optional fixed eight-output interface and shared periods.
+Retain the existing four-output interface by default. Also list the
+compatible used by the driver and the binding example.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+--- a/Documentation/devicetree/bindings/pwm/pwm-elvees.yaml
++++ b/Documentation/devicetree/bindings/pwm/pwm-elvees.yaml
+@@ -12,14 +12,18 @@
+ description: |+
+   Bindings for the ELVEES PWM controller.
+ 
+-  ELVEES PWM controller supports 4 channels and only one output for
+-  each channel.
++  ELVEES PWM controller supports 4 timers with two outputs each.
++  By default, one output per timer is exposed. With elvees,dual-output,
++  PWM indices 0..3 select OUTA0..3 and 4..7 select OUTB0..3.
++  Outputs A and B of each timer share their period, but have independent
++  duty cycles. Conflicting periods on enabled outputs are rejected.
+ 
+ 
+ properties:
+   compatible:
+     enum:
+       - elvees,mcom-pwm
++      - elvees,elvees-pwm
+ 
+   "#pwm-cells":
+     const: 2
+@@ -29,6 +33,13 @@
+ 
+   clocks:
+     maxItems: 1
++
++  elvees,dual-output:
++    type: boolean
++    description: |
++      Expose all eight outputs with fixed numbering as described above.
++      elvees,output-channel and elvees,state-on-disable are ignored in this
++      mode. Disabled outputs are driven to the inactive polarity level.
+ 
+   elvees,output-channel:
+     description: |+

@@ -4,13 +4,16 @@
 # BC_BOOT/BC_RST GPIOs. Hardware reset is used; no application flash code.
 # Usage: bc-flash.sh [/dev/ttyS1] firmware.bin
 set -eu
-PORT=${1:-/dev/ttyS1}
-IMG=${2:-/root/bc.bin}
-[ $# -le 2 ] || { echo "usage: $0 [/dev/ttyS1] firmware.bin" >&2; exit 1; }
+case $# in
+1) PORT=/dev/ttyS1; IMG=$1 ;;
+2) PORT=$1; IMG=$2 ;;
+*) echo "usage: $0 [/dev/ttyS1] firmware.bin" >&2; exit 1 ;;
+esac
 [ -c "$PORT" ] || { echo "no such serial port: $PORT" >&2; exit 1; }
 [ -f "$IMG" ] || { echo "no such image: $IMG" >&2; exit 1; }
 command -v stm32flash >/dev/null
-command -v nms-gpio.sh >/dev/null
+command -v gpiofind >/dev/null
+command -v gpioset >/dev/null
 size=$(wc -c < "$IMG")
 [ "$size" -ge 192 ] && [ "$size" -le 65536 ] || {
     echo "invalid STM32L052C8 image size: $size" >&2; exit 1;
@@ -22,10 +25,24 @@ rv=$(od -An -tu4 -j4 -N4 "$IMG" | tr -d ' ')
 [ "$rv" -lt $((0x08000000 + size)) ] && [ $((rv & 1)) -eq 1 ] || {
     echo "invalid STM32L052C8 vector table" >&2; exit 1;
 }
+# GPIO names are stable; gpiochip numbers may change between kernels.
+set -- $(gpiofind BC_UART_SEL); chip=$1; uart_sel=$2
+set -- $(gpiofind BC_BOOT); [ "$1" = "$chip" ]; boot=$2
+set -- $(gpiofind BC_RST); [ "$1" = "$chip" ]; reset=$2
+holder=
 cleanup() {
-    # On failure, leave the MCU in ROM for recovery. Do not jump into a
-    # partially programmed application. BOOT0 may safely be deasserted.
-    nms-gpio.sh set BC_BOOT 0 >/dev/null 2>&1 || true
+    if [ -n "$holder" ]; then
+        kill "$holder" 2>/dev/null || true
+        wait "$holder" 2>/dev/null || true
+        holder=
+    fi
+    # D34 retains output registers on release; external pull-downs also
+    # keep all three lines low. A failed flash stays in ROM: no reset pulse.
+    gpioset "$chip" "$boot=0" "$uart_sel=0" "$reset=0" || true
+}
+pulse_reset() {
+    gpioset -m time -u 50000 "$chip" "$reset=1"
+    gpioset "$chip" "$reset=0"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -43,16 +60,19 @@ fi
 if [ -L /sys/bus/i2c/devices/9-002a/driver ]; then
     echo 9-002a > /sys/bus/i2c/devices/9-002a/driver/unbind
 fi
-nms-gpio.sh uart01 1
-nms-gpio.sh bcuart
-nms-gpio.sh set BC_BOOT 1
-nms-gpio.sh bcreset 50
+# UART_0_1_CROSS# is held high by the DTS debug-console hog.
+# Hold the route and BOOT0 throughout the ROM transaction.
+gpioset -m signal "$chip" "$uart_sel=1" "$boot=1" &
+holder=$!
+sleep 0.1
+kill -0 "$holder"
+pulse_reset
 sleep 1
 # stm32flash configures 8E1 itself. No erase/program command is sent until
 # it has synchronized with, and identified, the ROM bootloader.
 stm32flash -b 115200 -m 8e1 -w "$IMG" -v "$PORT"
-nms-gpio.sh set BC_BOOT 0
+cleanup
 trap - EXIT INT TERM
 echo "Verified. Resetting STM32; the new application will restart the SoC."
 sync
-nms-gpio.sh bcreset 50
+pulse_reset

@@ -1,0 +1,9 @@
+ELVEES_ELCORE50_VERSION = 202608-g209ee24
+ELVEES_ELCORE50_SITE = $(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/package/elvees-elcore50/src
+ELVEES_ELCORE50_SITE_METHOD = local
+ELVEES_ELCORE50_LICENSE = GPL-2.0+
+# Mandatory SoC selection, exactly as in ELVEES's source RPM spec.
+ELVEES_ELCORE50_MODULE_MAKE_OPTS = CFLAGS_MODULE="-DELCORE50_MCOM03 -DELCORE50_DUMP"
+
+$(eval $(kernel-module))
+$(eval $(generic-package))

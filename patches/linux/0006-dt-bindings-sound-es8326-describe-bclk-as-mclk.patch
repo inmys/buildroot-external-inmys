@@ -1,0 +1,26 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] dt-bindings: sound: es8326: describe BCLK as main clock
+
+Describe the optional BCLK main-clock source for boards without MCLK.
+The machine driver supplies the BCLK rate as codec sysclk.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+--- a/Documentation/devicetree/bindings/sound/everest,es8326.yaml
++++ b/Documentation/devicetree/bindings/sound/everest,es8326.yaml
+@@ -23,6 +23,15 @@
+   clock-names:
+     items:
+       - const: mclk
++
++  everest,bclk-as-mclk:
++    type: boolean
++    description: |
++      Use the external BCLK input as the codec main clock instead of MCLK.
++      The codec must consume BCLK and LRCK. The machine driver must pass
++      the BCLK frequency as the codec sysclk and provide a BCLK/sample-rate
++      ratio supported by the codec clock table, for example 64 with two
++      32-bit I2S slots. An external MCLK is not required in this mode.
+ 
+   interrupts:
+     maxItems: 1

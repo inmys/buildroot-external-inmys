@@ -1,0 +1,4 @@
+config BR2_PACKAGE_ELVEES_YOLOV8N
+	bool "YOLOv8n COCO model converted by ELVEES"
+	help
+	  640x640 FP16 ElcoreNN model and bicycle smoke-test image.

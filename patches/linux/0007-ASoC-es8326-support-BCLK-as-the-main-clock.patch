@@ -1,0 +1,81 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] ASoC: es8326: support BCLK as the main clock
+
+Add opt-in everest,bclk-as-mclk. Select the BCLK pad as main clock
+(reg 02 bit 3) after programming clock coefficients from codec sysclk.
+Require the codec to consume BCLK/LRCK and reject clock/rate pairs not
+present in the silicon revision clock table instead of running silently
+with stale coefficients. MCLK-based boards keep their existing behavior.
+
+On NMS-SM-K1892VM21YA with ELVEES-SMARC-CB, SMARC AUDIO_MCK is
+unconnected on the module and the carrier oscillator link R12 is marked
+DNP. Playback DMA and DAC power were active, but the output was silent.
+Using BCLK with the existing v0 64-fs coefficient row and 32-bit stereo
+slots restored audible 48 kHz S16_LE playback.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+--- a/sound/soc/codecs/es8326.c
++++ b/sound/soc/codecs/es8326.c
+@@ -37,6 +37,7 @@
+ 	u8 hpl_vol;
+ 	u8 hpr_vol;
+ 	bool jd_inverted;
++	bool bclk_as_mclk;
+ 	unsigned int sysclk;
+ 
+ 	bool calibrated;
+@@ -499,7 +500,12 @@
+ static int es8326_set_dai_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
+ {
+ 	struct snd_soc_component *component = codec_dai->component;
++	struct es8326_priv *es8326 = snd_soc_component_get_drvdata(component);
+ 	u8 iface = 0;
++
++	if (es8326->bclk_as_mclk &&
++	    (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) != SND_SOC_DAIFMT_CBC_CFC)
++		return -EINVAL;
+ 
+ 	switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
+ 	case SND_SOC_DAIFMT_CBC_CFP:
+@@ -555,6 +561,11 @@
+ 		array = ARRAY_SIZE(coeff_div_v3);
+ 	}
+ 	coeff = get_coeff(es8326->sysclk, params_rate(params), array, coeff_div);
++	if (es8326->bclk_as_mclk && coeff < 0) {
++		dev_err(component->dev, "Unsupported BCLK %u for sample rate %u\n",
++			es8326->sysclk, params_rate(params));
++		return coeff;
++	}
+ 	/* bit size */
+ 	switch (params_format(params)) {
+ 	case SNDRV_PCM_FORMAT_S16_LE:
+@@ -599,6 +610,10 @@
+ 	} else {
+ 		dev_warn(component->dev, "Clock coefficients do not match");
+ 	}
++
++	if (es8326->bclk_as_mclk)
++		return regmap_update_bits(es8326->regmap, ES8326_CLK_INV,
++					  ES8326_BCLK_AS_MCLK, ES8326_BCLK_AS_MCLK);
+ 
+ 	return 0;
+ }
+@@ -1271,6 +1286,8 @@
+ 
+ 	i2c_set_clientdata(i2c, es8326);
+ 	es8326->i2c = i2c;
++	es8326->bclk_as_mclk = device_property_read_bool(&i2c->dev,
++						      "everest,bclk-as-mclk");
+ 	mutex_init(&es8326->lock);
+ 	es8326->regmap = devm_regmap_init_i2c(i2c, &es8326_regmap_config);
+ 	if (IS_ERR(es8326->regmap)) {
+@@ -1303,7 +1320,7 @@
+ 		dev_err(&i2c->dev, "unable to get mclk\n");
+ 		return PTR_ERR(es8326->mclk);
+ 	}
+-	if (!es8326->mclk)
++	if (!es8326->mclk && !es8326->bclk_as_mclk)
+ 		dev_warn(&i2c->dev, "assuming static mclk\n");
+ 
+ 	ret = clk_prepare_enable(es8326->mclk);

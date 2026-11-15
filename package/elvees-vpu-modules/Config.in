@@ -1,0 +1,6 @@
+config BR2_PACKAGE_ELVEES_VPU_MODULES
+	bool "ELVEES Mali-V61 VPU kernel modules and firmware"
+	depends on BR2_LINUX_KERNEL
+	help
+	  Source-built mve_rsrc/mve_base for MCom-03 and codec firmware,
+	  from the public complete ELVEES SDK source distribution.

@@ -15,12 +15,9 @@ AArch64, glibc, 6.18 kernel headers, BusyBox, Linux 6.18 from
 `elvees/linux` (`mcom03-6.18.y`), TF-A and U-Boot from the ELVEES
 GitHub mirrors, plus the MCom-03 boot chain packages.
 
-Options added by this tree:
-
-| Option | Meaning |
-|--------|---------|
-| `BR2_NMS_SM_K1892_CARRIER` | default carrier (`nms-sm-evm`) |
-| `BR2_NMS_SM_K1892_SBL_CONFIG` | SBL config TOML (ddrinit ↔ DTB pairs) |
+All carriers share the same build configuration and boot images.
+Select the Linux carrier DTB at runtime with U-Boot's fdtfile variable.
+See [SDK usage](../README.md#boot-selection-and-updates).
 
 ### `package/`
 
@@ -35,12 +32,13 @@ Options added by this tree:
 (SBL loads it) and the `-bootrom` one (the BootROM loads it). Both are
 installed to `output/images/ddrinit-nms-sm-k1892vm21ya{,-bootrom}/`.
 
-`mcom03-sbl` generates the SBL JSON configuration from the TOML file,
-copies the U-Boot device trees into `output/images/uboot-dtb/`, builds
-the SBL for every (ddrinit, DTB, boot type) combination and installs:
+`mcom03-sbl` reads the maintained native JSON configuration,
+copies the common module U-Boot device tree into `output/images/uboot-dtb/`,
+builds the QSPI and SD boot chains from that configuration and installs:
 
 * `output/images/sbl/sbl-xip-*.bin` — the SBL-XIP images
-* `output/images/tl-sbimg/*.tl-image` — flashable QSPI packages
+* `output/images/tl-sbimg/nms-sm-k1892vm21ya-mcom03r-nms-sm-k1892vm21ya.tl-image` — common QSPI package
+* `output/images/sd-boot/nms-sm-k1892vm21ya.sbimg` — common SD boot capsule
 
 ### `board/nms-sm-k1892vm21ya/`
 
@@ -48,19 +46,32 @@ the SBL for every (ddrinit, DTB, boot type) combination and installs:
 |------|-------------|
 | `HARDWARE.md` | hardware description extracted from the Altium projects |
 | `ddrinit/nms-sm-k1892vm21ya_defconfig` | LPDDR4 configuration |
-| `linux/*.dts{,i}` | Linux device trees (module + 3 carriers) |
-| `uboot/*.dts{,i}` | U-Boot device trees (`mcom03r-nms-*`) |
-| `nms-sm-k1892vm21ya-sbl-config.toml` | SBL build configuration |
-| `rootfs-overlay/` | `/etc/network/interfaces`, init scripts, motd |
+| `linux/dts/elvees/*.dts{,i}` | Linux device trees (module + 4 carriers) |
+| `linux/*_linux.fragment` | Linux configuration fragment |
+| `uboot/mcom03r-nms-sm-k1892vm21ya.dts` | one common module U-Boot tree |
+| `nms-sm-k1892vm21ya-sbl-config.json` | SBL build configuration |
+| `uboot/nms-sm-k1892vm21ya.env` | readable A/B policy and default fdtfile |
+| `rootfs-overlay/` | boot/data setup, one updater command and hardware helpers |
 | `genimage.cfg`, `post-build.sh`, `post-image.sh` | image generation |
 
-The device trees are kept here and applied to the upstream ELVEES trees
-as patches (`patches/linux`, `patches/uboot`). After editing a DTS,
-regenerate the patches:
+Linux device trees are copied directly through the standard
+`BR2_LINUX_KERNEL_CUSTOM_DTS_DIR=.../linux/dts` mechanism. `external.mk`
+tracks their file/directory timestamps as prerequisites of the Linux build
+stamp. Ordinary `make` therefore rebuilds and installs DTBs after source
+changes, including added/removed carrier files; stale output DTBs are
+removed before installation. There is no Linux DTS patch to synchronize.
 
-```sh
-support/gen-dts-patches.sh <linux-src> <uboot-src>
-```
+U-Boot uses `BR2_TARGET_UBOOT_CUSTOM_DTS_PATH` to copy the single module DTS
+from `board/.../uboot/`. `external.mk` sets CONFIG_OF_LIST from its name
+and tracks sources/directories as build-stamp prerequisites.
+Ordinary `make` rebuilds the changed U-Boot tree, then SBL and the SD/QSPI
+capsules. SBL tracks installed U-Boot/TF-A/ddrinit stamps. Its DTB copies
+are taken directly from the current U-Boot build directory and stale
+copies are removed first. The native SBL JSON describes the module boot variants;
+carrier selection is the persistent fdtfile environment variable.
+U-Boot does not initialize carrier PCIe or external QSPI1 and uses a
+conservative 3.3 V/25 MHz SD bootstrap. Linux configures these peripherals.
+There are no DTS patches or patch-generation commands.
 
 The U-Boot device trees must be named `mcom03r-*`: the SBL selects the
 chip variant from the DTB name (`^mcom03-` → MCOM03, otherwise
@@ -68,14 +79,35 @@ MCOM03R), and U-Boot builds the `mcom03r-*` DTBs for `TARGET_MCOM03R`.
 
 ### `patches/`
 
-| Patch | Content |
-|-------|---------|
-| `linux/0001-arm64-dts-elvees-add-NMS-SM-K1892VM21YA-module-and-c.patch` | module DTSI, 3 carrier DTS, `Makefile` entries |
-| `uboot/0001-arm-dts-mcom03r-add-NMS-SM-K1892VM21YA-module-and-ca.patch` | U-Boot DTSI, 3 carrier DTS, `Makefile` entries |
+The remaining Linux/U-Boot patches fix drivers and boot behaviour.
+The former 0001 patches containing DTS sources have been removed.
 
 ### `support/`
 
 | Script | Description |
 |--------|-------------|
-| `gen_sbl_config.py` | TOML → JSON SBL configuration (stdlib `tomllib`) |
-| `gen-dts-patches.sh` | regenerate the DTS patches from `board/` |
+| `make-sdboot.sh` | pack and verify complete SD BootROM/SBL firmware capsules |
+| `make-qspi-image.sh` | generate full QSPI images |
+
+These two helpers use shell and existing host tools. The SBL configuration
+is maintained directly as native JSON; there is no TOML conversion step.
+Python is still required by upstream Buildroot/U-Boot/SBL tools.
+
+### Boot and update layout
+
+Each A/B rootfs includes its own kernel, all four Linux DTBs and one
+extlinux entry using fdtdir. p1 is slot A, p2 is reserved for slot B,
+and p3 is persistent ext4 data. Factory SD/eMMC images contain only the
+boot area and slot A (516 MiB); the first update populates B. On first
+boot S15nmsboot grows p3 to the end of the medium and formats it with label
+data. An existing data-labelled filesystem is retained and grown; other
+old contents in p3 are replaced. One SWU rootfs payload replaces the inactive slot;
+SWUpdate's standard U-Boot backend changes the slot only on success.
+S15nmsboot mounts data/SSH keys and selects Linux's env configuration from
+the bootloader's /chosen marker. S99nmsconfirm confirms trial boots.
+
+The environment is stored with U-Boot: two 64 KiB copies on QSPI0
+(0xFE0000/0xFF0000), or SD (0x300000/0x310000). The SD capsule is bounded
+below 3 MiB; filesystems begin at 4 MiB. QSPI U-Boot can load Linux from
+SD/eMMC without changing its environment backend. Armbian uses the same
+U-Boot with normal distro boot and does not need the NMS A/B layout.

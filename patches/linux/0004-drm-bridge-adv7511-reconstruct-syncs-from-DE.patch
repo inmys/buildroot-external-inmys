@@ -1,0 +1,110 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] drm/bridge: adv7511: optionally reconstruct syncs from DE
+
+NMS-SM-K1892VM21YA V1 routes SoC HSYNC to ADV7513 VSYNC and vice
+versa. EDID and the display engine work, but the transmitter detects no
+valid video mode and the HDMI monitor has no image.
+
+Add opt-in adi,sync-from-de to use the sync adjustment generator, with
+porches and pulse widths derived from each selected progressive mode.
+Preserve external DE and program the fields through regmap, so power
+cycles and HPD events restore the configuration from the driver cache.
+Other boards retain their existing sync handling.
+
+On ELVEES-SMARC-CB with a Philips 222S1 monitor, programming the 1080p60
+parameters (D7..DB = 16 02 C0 10 05; 41[1] = 1) changed VIC_SEND from
+0 to 16 and restored the picture. The wiring is confirmed independently
+by schematic connectivity and the module PCB pad assignments.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+--- a/drivers/gpu/drm/bridge/adv7511/adv7511.h
++++ b/drivers/gpu/drm/bridge/adv7511/adv7511.h
+@@ -375,6 +375,7 @@
+ 	enum adv7511_sync_polarity vsync_polarity;
+ 	enum adv7511_sync_polarity hsync_polarity;
+ 	bool rgb;
++	bool sync_from_de;
+ 
+ 	struct gpio_desc *gpio_pd;
+ 
+--- a/drivers/gpu/drm/bridge/adv7511/adv7511_drv.c
++++ b/drivers/gpu/drm/bridge/adv7511/adv7511_drv.c
+@@ -653,6 +653,33 @@
+ 	return status;
+ }
+ 
++static void adv7511_sync_from_de(struct adv7511 *adv,
++				 const struct drm_display_mode *mode)
++{
++	unsigned int hfp = mode->crtc_hsync_start - mode->crtc_hdisplay;
++	unsigned int hsw = mode->crtc_hsync_end - mode->crtc_hsync_start;
++	unsigned int vfp = mode->crtc_vsync_start - mode->crtc_vdisplay;
++	unsigned int vsw = mode->crtc_vsync_end - mode->crtc_vsync_start;
++
++	/* ADV7513 Programming Guide, section 4.3.6.3, tables 27 and 29. */
++	regmap_update_bits(adv->regmap, ADV7511_REG_HSYNC_PLACEMENT_MSB,
++			   0x1c, ((hfp >> 10) & 0x7) << 2);
++	regmap_write(adv->regmap, ADV7511_REG_SYNC_ADJUSTMENT(0),
++		     (hfp >> 2) & 0xff);
++	regmap_write(adv->regmap, ADV7511_REG_SYNC_ADJUSTMENT(1),
++		     ((hfp & 0x3) << 6) | ((hsw >> 4) & 0x3f));
++	regmap_write(adv->regmap, ADV7511_REG_SYNC_ADJUSTMENT(2),
++		     ((hsw & 0xf) << 4) | ((vfp >> 6) & 0xf));
++	regmap_write(adv->regmap, ADV7511_REG_SYNC_ADJUSTMENT(3),
++		     ((vfp & 0x3f) << 2) | ((vsw >> 8) & 0x3));
++	regmap_write(adv->regmap, ADV7511_REG_SYNC_ADJUSTMENT(4), vsw & 0xff);
++
++	/* Use external DE; reconstruct both syncs before the DE generator. */
++	regmap_update_bits(adv->regmap, 0x17, BIT(0), 0);
++	regmap_update_bits(adv->regmap, ADV7511_REG_TIMING_GEN_SEQ, BIT(1), 0);
++	regmap_update_bits(adv->regmap, ADV7511_REG_POWER, BIT(1), BIT(1));
++}
++
+ static void adv7511_mode_set(struct adv7511 *adv7511,
+ 			     const struct drm_display_mode *adj_mode)
+ {
+@@ -694,6 +721,10 @@
+ 
+ 		hsync_polarity = !(adj_mode->flags & DRM_MODE_FLAG_PHSYNC);
+ 		vsync_polarity = !(adj_mode->flags & DRM_MODE_FLAG_PVSYNC);
++	} else if (adv7511->sync_from_de) {
++		adv7511_sync_from_de(adv7511, adj_mode);
++		hsync_polarity = !(adj_mode->flags & DRM_MODE_FLAG_PHSYNC);
++		vsync_polarity = !(adj_mode->flags & DRM_MODE_FLAG_PVSYNC);
+ 	} else {
+ 		enum adv7511_sync_polarity mode_hsync_polarity;
+ 		enum adv7511_sync_polarity mode_vsync_polarity;
+@@ -837,6 +868,18 @@
+ 		const struct drm_display_mode *mode)
+ {
+ 	struct adv7511 *adv = bridge_to_adv7511(bridge);
++
++	if (adv->sync_from_de) {
++		if (mode->flags & DRM_MODE_FLAG_INTERLACE)
++			return MODE_NO_INTERLACE;
++		if (mode->flags & DRM_MODE_FLAG_DBLSCAN)
++			return MODE_NO_DBLESCAN;
++		if (mode->hsync_start - mode->hdisplay > 0x1fff ||
++		    mode->hsync_end - mode->hsync_start > 0x3ff ||
++		    mode->vsync_start - mode->vdisplay > 0x3ff ||
++		    mode->vsync_end - mode->vsync_start > 0x3ff)
++			return MODE_BAD;
++	}
+ 
+ 	if (!adv->info->has_dsi)
+ 		return MODE_OK;
+@@ -1234,6 +1277,13 @@
+ 	if (ret)
+ 		return ret;
+ 
++	adv7511->sync_from_de = of_property_read_bool(dev->of_node,
++						     "adi,sync-from-de");
++	if (adv7511->sync_from_de &&
++	    (!adv7511->info->link_config || link_config.embedded_sync))
++		return dev_err_probe(dev, -EINVAL,
++				     "sync-from-de requires parallel video with external DE\n");
++
+ 	ret = adv7511_init_regulators(adv7511);
+ 	if (ret) {
+ 		dev_err_probe(dev, ret, "failed to init regulators\n");

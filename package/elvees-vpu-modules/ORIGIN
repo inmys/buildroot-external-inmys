@@ -1,0 +1,6 @@
+Source: https://dist.elvees.com/mcom03r/buildroot/2025.09/linux66/mcom03r-defconfig-src.tar.gz
+Member: mcom03r-defconfig-src/buildroot/dl/mcom03-vpu-modules/mcom03-vpu-modules-master-br1.tar.gz
+SDK commit: 9dccb3ce2b7e9c4193f4b0bc63233ff2c86d9456
+Original repository: ssh://gerrit.elvees.com:29418/mcom03/vpu-modules
+Kernel API compatibility patch only; preserve vendor MCom-03/DVFS build options.
+Firmware is installed from the same source snapshot as the driver.

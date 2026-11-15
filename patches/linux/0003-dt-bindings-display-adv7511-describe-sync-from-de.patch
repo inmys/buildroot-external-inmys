@@ -1,0 +1,25 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] dt-bindings: display: adv7511: describe sync-from-de
+
+Allow parallel-video boards with unusable separate sync signals to
+request HSYNC/VSYNC reconstruction from external DE and mode timings.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+--- a/Documentation/devicetree/bindings/display/bridge/adi,adv7511.yaml
++++ b/Documentation/devicetree/bindings/display/bridge/adi,adv7511.yaml
+@@ -110,6 +110,14 @@
+       format tables in the datasheet.
+     $ref: /schemas/types.yaml#/definitions/uint32
+     enum: [ 1, 2, 3 ]
++
++  adi,sync-from-de:
++    description: |
++      Reconstruct HSYNC and VSYNC from external DE using the sync adjustment
++      generator and the selected display mode. Use when the separate sync
++      inputs are unavailable or incorrectly wired. Only progressive parallel
++      video with external DE is supported; do not combine with embedded sync.
++    type: boolean
+ 
+   adi,input-justification:
+     description: Input bit justification.

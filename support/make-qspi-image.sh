@@ -15,16 +15,14 @@
 #   0x000000  bootrom SBIMG parsed by the BootROM
 #   0x200000  SBL SBIMG parsed by the SBL
 #   0xFD0000  SBL environment (erased, 64 KiB)
-#   0xFE0000  U-Boot environment (erased or uboot-env.bin, 64 KiB)
+#   0xFE0000  U-Boot environment, two erased 64 KiB sectors
 #
 # Everything else is filled with 0xFF (the erased state of a NOR flash).
 #
 # Usage:
-#   make-qspi-image.sh [-s SIZE] [-e UBOOT_ENV] [-o OUTPUT] TL_IMAGE
+#   make-qspi-image.sh [-s SIZE] [-o OUTPUT] TL_IMAGE
 #
 #   -s SIZE         flash size in bytes (default: 0x1000000, 16 MiB)
-#   -e FILE         write FILE into the U-Boot environment area
-#                   (normally output/images/uboot-env.bin)
 #   -o FILE         output file (default: <tl-image>.qspi.bin)
 #
 # Copyright (C) 2026 INMYS
@@ -39,14 +37,12 @@ die() {
 }
 
 flash_size=$((16 * 1024 * 1024))
-uboot_env=
 output=
 tl_image=
 
 while [ $# -gt 0 ]; do
 	case "$1" in
 	-s|--size)      flash_size=$(($2)); shift 2 ;;
-	-e|--uboot-env) uboot_env=$2; shift 2 ;;
 	-o|--output)    output=$2; shift 2 ;;
 	-h|--help)      sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 	-*)             die "unknown option: $1" ;;
@@ -118,8 +114,6 @@ layout_txt="${output%.bin}.layout.txt"
 	printf '%-10s %-10s %-10s %s\n' "offset" "size" "action" "content"
 } > "$layout_txt"
 
-env_area_off=$((flash_size - 0x20000))
-saw_env_area=0
 
 echo "$layout" | while IFS='|' read -r command offset size negative name; do
 	[ -n "$command" ] || continue
@@ -153,23 +147,6 @@ echo "$layout" | while IFS='|' read -r command offset size negative name; do
 		;;
 	esac
 done
-
-# ------------------------------------------------------------------
-# Optional: pre-program the U-Boot environment.
-#
-# The tl-image only erases it.  Writing a valid environment avoids the
-# "bad CRC, using default environment" warning and keeps the carrier
-# name the U-Boot device tree was built for.
-# ------------------------------------------------------------------
-if [ -n "$uboot_env" ]; then
-	[ -f "$uboot_env" ] || die "no such file: $uboot_env"
-	env_size=$(stat -c %s "$uboot_env")
-	[ "$env_size" -le $((0x10000)) ] || \
-		die "$uboot_env is larger than the 64 KiB environment area"
-	dd if="$uboot_env" of="$output" bs=1 seek="$env_area_off" conv=notrunc 2>/dev/null
-	printf '%-10s %-10s %-10s %s\n' "0x$(printf '%06x' "$env_area_off")" \
-		"$env_size" "env" "$(basename "$uboot_env")" >> "$layout_txt"
-fi
 
 sha256sum "$output" > "$output.sha256"
 

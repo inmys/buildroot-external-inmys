@@ -1,0 +1,75 @@
+--- a/drivers/video/arm/v5xx/base/mve_driver.c
++++ b/drivers/video/arm/v5xx/base/mve_driver.c
+@@ -218,7 +218,11 @@
+     return 0;
+ }
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++static void mve_driver_remove(struct platform_device *pdev)
++#else
+ static int mve_driver_remove(struct platform_device *pdev)
++#endif
+ {
+     struct mve_device *mdev = platform_get_drvdata(pdev);
+     dev_t dev = MKDEV(MAJOR(mdev->device), 0);
+@@ -240,7 +244,9 @@
+ 
+     printk("MVE base driver unloaded successfully\n");
+ 
+-    return 0;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
++    return 0;
++#endif
+ }
+ 
+ static struct of_device_id mve_base_of_match[] =
+@@ -309,7 +315,11 @@
+ MODULE_DESCRIPTION("Mali-V500 video engine driver");
+ 
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 16, 0))
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
++MODULE_IMPORT_NS("DMA_BUF");
++#else
+ MODULE_IMPORT_NS(DMA_BUF);
++#endif
+ #endif
+ 
+ module_init(mve_driver_init);
+--- a/drivers/video/arm/v5xx/resource/mve_rsrc_driver.c
++++ b/drivers/video/arm/v5xx/resource/mve_rsrc_driver.c
+@@ -387,7 +387,11 @@
+     dev_pm_opp_of_remove_table(&private->pdev->dev);
+ }
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++static void mver_driver_remove(struct platform_device *pdev)
++#else
+ static int mver_driver_remove(struct platform_device *pdev)
++#endif
+ {
+     mver_scheduler_deinit(&pdev->dev);
+     mver_irq_handler_deinit(&pdev->dev);
+@@ -404,7 +408,9 @@
+ 
+     printk("MVE resource driver unloaded successfully\n");
+ 
+-    return 0;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
++    return 0;
++#endif
+ }
+ 
+ #ifdef CONFIG_PM
+--- a/drivers/video/arm/v5xx/resource/mve_rsrc_log.c
++++ b/drivers/video/arm/v5xx/resource/mve_rsrc_log.c
+@@ -186,7 +186,9 @@
+     struct dentry *child;
+ 
+     /* Loop over directory entries in mve/drain/. */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0)) || defined(EMULATOR)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
++    hlist_for_each_entry(child, &parent->d_children, d_sib)
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0)) || defined(EMULATOR)
+     list_for_each_entry(child, &parent->d_subdirs, d_child)
+ #else
+     list_for_each_entry(child, &parent->d_subdirs, d_u.d_child)

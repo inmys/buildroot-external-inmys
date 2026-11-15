@@ -1,0 +1,10 @@
+config BR2_PACKAGE_ELVEES_FELIX
+	bool "ELVEES Felix ISP binaries"
+	depends on BR2_LINUX_KERNEL && BR2_INSTALL_LIBSTDCPP && !BR2_STATIC_LIBS
+	select BR2_PACKAGE_LIBDRM
+	select BR2_PACKAGE_LIBGPIOD
+	select BR2_PACKAGE_ELVEES_SENSOR_PHY
+	select BR2_PACKAGE_ELVEES_DMABUF_EXPORTER
+	help
+	  Vendor Felix ISP module/tools. Pinned to Linux 6.18.18.
+	  sensor-phy and dmabuf-exporter are built from source.

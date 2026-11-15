@@ -1,0 +1,9 @@
+Official public source distribution:
+https://dist.elvees.com/mcom03r/buildroot/2025.09/linux66/mcom03r-defconfig-src.tar.gz
+Member: mcom03r-defconfig-src/buildroot/dl/mcom03-rogue-modules/mcom03-rogue-modules-elvees-1.9.y-br1.tar.gz
+Original repository: ssh://gerrit.elvees.com:29418/mcom03/rogue-modules
+Branch: elvees-1.9.y
+SDK git-info commit: 71ff4c419e80c9a4803d53d85b06d4fa7c4d3e13
+Hardware: GE8300 BVNC 22.68.54.30, DDK 1.9@4991288.
+Patch contains Kbuild and kernel API compatibility changes for Linux 6.18;
+no changes to the GPU address translation, clock or command submission logic.

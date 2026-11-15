@@ -1,0 +1,8 @@
+config BR2_PACKAGE_ELVEES_ELCORENN
+	bool "ElcoreNN 1.8.0 DSP runtime (vendor SDK binaries)"
+	depends on BR2_LINUX_KERNEL && BR2_TOOLCHAIN_USES_GLIBC
+	depends on BR2_INSTALL_LIBSTDCPP && !BR2_STATIC_LIBS
+	select BR2_PACKAGE_ELVEES_ELCORE50
+	help
+	  Matching ElcoreNN / ElcoreCL / Boost from ELVEES SDK 2025.09.
+	  Private library directory; no libcpunn CPU inference backend.

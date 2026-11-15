@@ -1,0 +1,26 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] dt-bindings: rtc: pcf8523: describe disabled battery switchover
+
+Document VDD-only operation for boards where enabling automatic battery
+switching would disable the I2C interface during normal operation.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+--- a/Documentation/devicetree/bindings/rtc/nxp,pcf8523.yaml
++++ b/Documentation/devicetree/bindings/rtc/nxp,pcf8523.yaml
+@@ -25,6 +25,15 @@
+     enum: [ 7000, 12500 ]
+     default: 12500
+ 
++  nxp,disable-battery-switchover:
++    type: boolean
++    description:
++      Keep battery switch-over disabled and use VDD only. Needed on boards
++      where VBAT can exceed VDD during normal operation, making automatic
++      switching disable the I2C interface. Probe selects PM=010 and rejects
++      userspace requests to enable standard or direct battery switching.
++      Battery-backed timekeeping is unavailable in this mode.
++
+ required:
+   - compatible
+   - reg

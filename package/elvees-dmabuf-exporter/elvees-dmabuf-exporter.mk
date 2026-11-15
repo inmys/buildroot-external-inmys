@@ -1,0 +1,12 @@
+ELVEES_DMABUF_EXPORTER_VERSION = 202605-g448c74c
+ELVEES_DMABUF_EXPORTER_SITE = $(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/package/elvees-dmabuf-exporter/src
+ELVEES_DMABUF_EXPORTER_SITE_METHOD = local
+ELVEES_DMABUF_EXPORTER_LICENSE = GPL-2.0
+ELVEES_DMABUF_EXPORTER_INSTALL_STAGING = YES
+
+define ELVEES_DMABUF_EXPORTER_INSTALL_STAGING_CMDS
+	$(INSTALL) -D -m 0644 $(@D)/dmabuf_exporter.h $(STAGING_DIR)/usr/include/linux/dmabuf_exporter.h
+endef
+
+$(eval $(kernel-module))
+$(eval $(generic-package))

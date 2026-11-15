@@ -1,8 +1,8 @@
 # Kernel configuration fragment for the INMYS NMS-SM-K1892VM21YA module.
 #
-# The rootfs built by this SDK contains no loadable modules, so anything the
-# board needs at boot time has to be built in.  The ELVEES mcom03r defconfig
-# leaves several of these as =m, which silently breaks whole subsystems.
+# This rootfs uses devtmpfs without udev platform-driver autoloading.
+# Drivers needed at boot are built in or explicitly loaded by S11modules
+# from /etc/modules-load.d. The ELVEES defconfig leaves many drivers as =m.
 
 # --- I2C muxes ------------------------------------------------------------
 # D30 PCA9540B (I2C_INT / I2C_INT_1V8) and D29 PCA9546A (CAM0/CAM1/LCD).
@@ -83,8 +83,32 @@ CONFIG_DRM_PANEL_LVDS=y
 CONFIG_DRM_PANEL_SIMPLE=y
 CONFIG_DRM_DISPLAY_CONNECTOR=y
 
-# Panel backlight is driven from timer0-pwm (snps,dw-apb-timers-pwm2).
+# Panel backlight is driven by ELVEES PWM timer 0 output B.
 CONFIG_BACKLIGHT_PWM=y
 CONFIG_PWM_ELVEES=y
 CONFIG_PWM_DWC_CORE=y
 CONFIG_PWM_DWC_OF=y
+
+# --- Fan: D35 EMC2301 or SoC PWM, selected in the module DTSI ------------
+CONFIG_SENSORS_EMC2305=y
+CONFIG_SENSORS_PWM_FAN=y
+
+# --- CAN ---------------------------------------------------------------
+# MFBSP0/1 use LDAT6/7; MFBSP0 audio uses other pins and can coexist.
+# On-board controllers need no firmware; register them before userspace.
+CONFIG_CAN=y
+CONFIG_CAN_RAW=y
+CONFIG_CAN_DEV=y
+CONFIG_CAN_CALC_BITTIMING=y
+CONFIG_CAN_MFBSP_CAN=y
+
+# STM32 firmware 0.9 exposes GPIOs/IRQs through the standard PCAL6416 driver.
+CONFIG_GPIO_PCA953X=y
+CONFIG_GPIO_PCA953X_IRQ=y
+CONFIG_INPUT=y
+CONFIG_INPUT_EVDEV=y
+CONFIG_KEYBOARD_GPIO=y
+
+# Direct SoC GPIO to STM32 PB10/TP1 signals final shutdown; no TF-A hook.
+CONFIG_POWER_RESET=y
+CONFIG_POWER_RESET_GPIO=y

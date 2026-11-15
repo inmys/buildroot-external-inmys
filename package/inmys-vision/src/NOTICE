@@ -1,0 +1,11 @@
+inmys ELVEES IMX477 / YOLOv8n demo
+Application source: Apache-2.0, adapted from the user's RV1126B inmys-vision.
+HTTP MJPEG, GStreamer RTSP, COCO labels and bitmap font are reused.
+Rockchip RKNN/RGA/MPP/RKAIQ backends are not included.
+CSI/ISP uses ELVEES Felix binaries and separately built GPL kernel modules.
+YOLOv8n uses ElcoreNN 1.8.0 on ELcore50 DSP (no libcpunn CPU backend).
+Runtime and its matching dependencies come from ELVEES SDK 2025.09.
+YOLOv8n model: Ultralytics, converted/distributed in ELVEES examples data
+20260128; AGPL-3.0. https://github.com/ultralytics/ultralytics
+H.264/MJPEG use the Mali-V61 VPU through ELVEES gst-omx and libmveomx.
+Software x264/jpegenc remain available via an explicit command-line option.

@@ -1,0 +1,4 @@
+#!/bin/sh
+export GST_PLUGIN_PATH="/lib/gstreamer-1.0${GST_PLUGIN_PATH:+:$GST_PLUGIN_PATH}"
+export LD_LIBRARY_PATH="/usr/lib/elvees-nn${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec /usr/libexec/inmys-vision "$@"

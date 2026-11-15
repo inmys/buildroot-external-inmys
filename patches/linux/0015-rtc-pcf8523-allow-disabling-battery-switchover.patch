@@ -1,0 +1,84 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] rtc: pcf8523: allow boards to disable battery switchover
+
+Boards with VDD at 1.8 V and VBAT near 3 V enter backup mode when the
+standard automatic switchover is enabled, disabling the I2C interface.
+Honor the board property selecting VDD-only operation and prevent
+userspace from accidentally re-enabling switching on these boards.
+Unflagged boards retain the existing initialization behavior.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+--- a/drivers/rtc/rtc-pcf8523.c
++++ b/drivers/rtc/rtc-pcf8523.c
+@@ -11,6 +11,7 @@
+ #include <linux/rtc.h>
+ #include <linux/of.h>
+ #include <linux/pm_wakeirq.h>
++#include <linux/property.h>
+ 
+ #define PCF8523_REG_CONTROL1 0x00
+ #define PCF8523_CONTROL1_CAP_SEL BIT(7)
+@@ -23,6 +24,7 @@
+ #define PCF8523_REG_CONTROL3 0x02
+ #define PCF8523_CONTROL3_PM  GENMASK(7, 5)
+ #define PCF8523_PM_STANDBY   0x7
++#define PCF8523_PM_DISABLED  0x2
+ #define PCF8523_CONTROL3_BLF BIT(2) /* battery low bit, read-only */
+ #define PCF8523_CONTROL3_BSF BIT(3)
+ 
+@@ -50,6 +52,7 @@
+ struct pcf8523 {
+ 	struct rtc_device *rtc;
+ 	struct regmap *regmap;
++	bool disable_battery_switchover;
+ };
+ 
+ static int pcf8523_load_capacitance(struct pcf8523 *pcf8523, struct device_node *node)
+@@ -276,7 +279,7 @@
+ 	case RTC_PARAM_BACKUP_SWITCH_MODE:
+ 		switch (param->uvalue) {
+ 		case RTC_BSM_DISABLED:
+-			mode = 0x2;
++			mode = PCF8523_PM_DISABLED;
+ 			break;
+ 		case RTC_BSM_DIRECT:
+ 			mode = 0x1;
+@@ -290,6 +293,10 @@
+ 		default:
+ 			return -EINVAL;
+ 		}
++
++		if (pcf8523->disable_battery_switchover &&
++		    (mode == 0x0 || mode == 0x1))
++			return -EINVAL;
+ 
+ 		return regmap_update_bits(pcf8523->regmap, PCF8523_REG_CONTROL3,
+ 					  PCF8523_CONTROL3_PM,
+@@ -438,6 +445,17 @@
+ 	if (IS_ERR(rtc))
+ 		return PTR_ERR(rtc);
+ 	pcf8523->rtc = rtc;
++	pcf8523->disable_battery_switchover = device_property_read_bool(&client->dev,
++						"nxp,disable-battery-switchover");
++	if (pcf8523->disable_battery_switchover) {
++		/* Some boards have VBAT above VDD even with main power present. */
++		err = regmap_update_bits(pcf8523->regmap, PCF8523_REG_CONTROL3,
++					 PCF8523_CONTROL3_PM,
++					 FIELD_PREP(PCF8523_CONTROL3_PM, PCF8523_PM_DISABLED));
++		if (err)
++			return dev_err_probe(&client->dev, err,
++					     "failed to disable battery switchover\n");
++	}
+ 
+ 	err = pcf8523_load_capacitance(pcf8523, client->dev.of_node);
+ 	if (err < 0)
+@@ -448,7 +466,7 @@
+ 	if (err < 0)
+ 		return err;
+ 
+-	if (value & PCF8523_SECONDS_OS) {
++	if ((value & PCF8523_SECONDS_OS) && !pcf8523->disable_battery_switchover) {
+ 		err = regmap_read(pcf8523->regmap, PCF8523_REG_CONTROL3, &value);
+ 		if (err < 0)
+ 			return err;

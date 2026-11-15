@@ -1,0 +1,75 @@
+From: INMYS <info@inmys.ru>
+Subject: [PATCH] board: elvees: keep NMS environment with its bootloader
+
+Upstream-Status: Inappropriate [NMS module boot media]
+
+--- a/board/elvees/common/common.c
++++ b/board/elvees/common/common.c
+@@ -9,6 +9,7 @@
+ #include <dm.h>
+ #include <dm/of_access.h>
+ #include <env.h>
++#include <env_internal.h>
+ #include <fdt_support.h>
+ #include <i2c.h>
+ #include <image.h>
+@@ -63,6 +64,32 @@
+ };
+ 
+ DECLARE_GLOBAL_DATA_PTR;
++
++/* The image packer marks where this U-Boot was loaded from. */
++static const char *nms_boot_medium(void)
++{
++	int chosen = fdt_path_offset(gd->fdt_blob, "/chosen");
++	const char *medium = NULL;
++
++	if (chosen >= 0)
++		medium = fdt_getprop(gd->fdt_blob, chosen, "inmys,boot-medium", NULL);
++	return medium ? medium : "qspi0";
++}
++
++enum env_location env_get_location(enum env_operation op, int prio)
++{
++	if (prio)
++		return ENVL_UNKNOWN;
++	if (!strcmp(nms_boot_medium(), "sd") ||
++	    !strcmp(nms_boot_medium(), "emmc"))
++		return ENVL_MMC;
++	return ENVL_SPI_FLASH;
++}
++
++int mmc_get_env_dev(void)
++{
++	return !strcmp(nms_boot_medium(), "emmc") ? 1 : 0;
++}
+ 
+ enum subsystem_reset_lines {
+ 	/* Do not swap elements */
+@@ -529,6 +556,10 @@
+ 
+ int board_late_init(void)
+ {
++	if (!strcmp(nms_boot_medium(), "sd"))
++		env_set("boot_targets", "mmc0 mmc1 usb0");
++	printf("NMS: environment on %s, slot %s, DTB %s\n",
++	       nms_boot_medium(), env_get("active_slot"), env_get("fdtfile"));
+ 	return 0;
+ }
+ 
+@@ -566,6 +597,15 @@
+ 		}
+ 	}
+ 
++	/* Linux must use the same environment backend as this U-Boot. */
++	offset = fdt_find_or_add_subnode(images->ft_addr, 0, "chosen");
++	if (offset >= 0) {
++		ret = fdt_setprop_string(images->ft_addr, offset,
++					"inmys,boot-medium", nms_boot_medium());
++		if (ret < 0)
++			log_err("Could not set boot medium: %s\n", fdt_strerror(ret));
++	}
++
+ 	if (mcom03_bootstage_sip(MCOM03_SIP_BOOTSTAGE_SET_STAGE, BOOTSTAGE_ID_RUN_OS) < 0)
+ 		log_err("Failed to set 'RUN_OS' bootstage timestamp\n");
+ }

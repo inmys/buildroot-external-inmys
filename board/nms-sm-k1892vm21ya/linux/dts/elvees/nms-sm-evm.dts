@@ -1,0 +1,191 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * INMYS NMS-SM-EVM V1 carrier for NMS-SM-K1892VM21YA
+ *
+ * Carrier resources (see HARDWARE.md):
+ *   X6   SMARC 2.1 edge connector (314 pin, AS0B826-S78B-7H)
+ *   X12  15-pin camera: SoC CSI1 lanes 0/1, I2C_CAM0, D31 P04 PWDN
+ *   X5   microSD socket                       (module SDMMC0)
+ *   X7   RJ45 GbE0, X8 RJ45 GbE1              (module DAP8211 PHYs)
+ *   X4   HDMI type A via TPD12S016 (D1)       (module ADV7513)
+ *   X23  DisplayPort                          (module DP)
+ *   X33  PCIe x4 slot                         (module PCIe0)
+ *   X19  miniPCIe                             (module PCIe1)
+ *   X9   M.2 M-key (SATA via module TUSB9261)
+ *   X10/X11 USB 3.0 / USB 2.0 host ports      (module TUSB8041 hub)
+ *   X24/X25 30-pin FPC DSI0/DSI1 displays + touch
+ *   X13..X16 CAN0/CAN1 terminals              (module MFBSP0/1)
+ *   X34  fan connector + D32 ADT7473 fan controller
+ *   D31  PCA9535 GPIO expander (I2C_GP)
+ *   D30  PCA9546 I2C switch (I2C_GP -> GP_A / mPCIe / DSI0 / DSI1)
+ *
+ * Copyright (C) 2026 INMYS
+ */
+
+/dts-v1/;
+
+#include "nms-sm-k1892vm21ya.dtsi"
+
+/ {
+	model = "INMYS NMS-SM-K1892VM21YA V1 on NMS-SM-EVM V1";
+	compatible = "inmys,nms-sm-evm",
+		     "inmys,nms-sm-k1892vm21ya",
+		     "inmys,nms-sm-k1892",
+		     "elvees,mcom03r";
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	aliases {
+		ethernet0 = &emac0;
+		ethernet1 = &emac1;
+	};
+
+	hdmi_connector: hdmi-connector {
+		compatible = "hdmi-connector";
+		label = "hdmi";
+		type = "a";
+
+		port {
+			hdmi_connector_in: endpoint {
+				remote-endpoint = <&adv7513_out>;
+			};
+		};
+	};
+
+	/* SMARC LCD0 PWM and enable, driven by the module. */
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm NMS_LCD0_PWM_CHANNEL NMS_PWM0_PERIOD_NS>;
+		power-supply = <&lcd0_bklt_en>;
+		brightness-levels = <0 1 10 20 30 40 50 60 70 80 90 100>;
+		default-brightness-level = <6>;
+	};
+};
+
+/* ------------------------------------------------------------------ */
+/* Carrier I2C devices                                                */
+/* ------------------------------------------------------------------ */
+
+/* I2C_GP: PCA9535 (D31), fan controller (D32), I2C switch (D30). */
+&i2c1 {
+	carrier_gpio: gpio@20 {
+		compatible = "nxp,pca9535";
+		reg = <0x20>;
+		gpio-controller;
+		#gpio-cells = <2>;
+
+		gpio-line-names =
+			"DSI0_TP_RST_N", "DSI1_TP_RST_N",
+			"DSI0_RST_N", "DSI1_RST_N",
+			"CAM0_PWDN#", "I2C_GPIO05",
+			"I2C_GPIO06", "I2C_GPIO07",
+			"I2C_GPIO10", "I2C_GPIO11",
+			"I2C_GPIO12", "I2C_GPIO13",
+			"I2C_GPIO14", "I2C_GPIO15",
+			"I2C_GPIO16", "I2C_GPIO17";
+	};
+
+	/* ADT7473ARQZ fan controller, 7-bit address 0x2e */
+	fan_controller: hwmon@2e {
+		compatible = "adi,adt7473";
+		reg = <0x2e>;
+	};
+
+	i2c_gp_switch: i2c-switch@70 {
+		compatible = "nxp,pca9546";
+		reg = <0x70>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		i2c_gp_a: i2c@0 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0>;
+		};
+
+		i2c_mpcie: i2c@1 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <1>;
+		};
+
+		i2c_dsi0: i2c@2 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <2>;
+		};
+
+		i2c_dsi1: i2c@3 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <3>;
+		};
+	};
+};
+
+/* i2c_gp_a: X32 "PLD-10" expansion header */
+/* i2c_mpcie: miniPCIe socket X19 */
+
+/* ------------------------------------------------------------------ */
+/* HDMI (X4) - ADV7513 is on the module, TPD12S016 on the carrier     */
+/* ------------------------------------------------------------------ */
+
+&adv7513 {
+	status = "okay";
+
+	ports {
+		port@1 {
+			reg = <1>;
+
+			adv7513_out: endpoint {
+				remote-endpoint = <&hdmi_connector_in>;
+			};
+		};
+	};
+};
+
+/* ------------------------------------------------------------------ */
+/* LVDS panel (X24) - SN65DSI84 on the module drives SMARC LVDS0        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * X24 is a 30-pin FPC carrying LVDS0 (S125..S138) plus the LCD0 controls;
+ * X25 is the same for LVDS1 / LCD1 and is not described yet.  The panel
+ * uses the module's default single-link 800x480 timing; override it for
+ * a different fitted display.
+ *
+ * Panel power is SMARC LCD0_VDD_EN (S133) -> R96 -> D22 -> X24.11, which
+ * the module drives from PCAL6416A P0_1.
+ */
+&lvds_bridge {
+	status = "okay";
+};
+
+/* LCD0 is timer 0 output B; FAN.md describes the shared timer without D35. */
+&pwm {
+	status = "okay";
+	elvees,output-channel = <1 0 0 0>;
+	elvees,state-on-disable = <1 0 0 0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm_oenb0_mux>;
+};
+
+&lvds_panel {
+	status = "okay";
+	backlight = <&backlight>;
+	power-supply = <&lcd0_vdd_en>;
+};
+
+/* X12 uses SMARC CSI1 (P3/P4, P7/P8, P10/P11), but I2C_CAM0.
+ * Felix sensor drivers run in userspace; no I2C sensor nodes belong here.
+ * The camera module exposes only two lanes of the four-lane receiver.
+ */
+&isp {
+	status = "okay";
+};
+
+&csi1 {
+	status = "okay";
+};

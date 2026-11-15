@@ -1,0 +1,7 @@
+config BR2_PACKAGE_ELVEES_ROGUE_MODULES
+	bool "PowerVR GE8300 vendor GPU kernel module"
+	depends on BR2_LINUX_KERNEL
+	help
+	  Source-built ELVEES Rogue DDK 1.9 kernel module, adapted to Linux
+	  6.18. Requires matching vendor firmware and graphics libraries
+	  to run OpenGL ES / Vulkan applications. See sdk2/GPU.md.

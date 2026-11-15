@@ -1,0 +1,10 @@
+- project:
+    templates:
+      - altlinux-p11-rpm-project
+      - ecam03-tests-gate
+    check:
+      jobs:
+        - mcom03r-linux66-priv-buildroot-build:
+            irrelevant-files:
+              - .*\.spec
+              - \.zuul\.yaml

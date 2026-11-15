@@ -1,0 +1,923 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * INMYS NMS-SM-K1892VM21YA V1
+ * SMARC 2.1 module on ELVEES MCom-03R (К1892ВМ21Я)
+ *
+ * Module resources (see ../../../HARDWARE.md for the full map):
+ *   SoC            К1892ВМ21Я (MCom-03R), BGA-1936
+ *   LPDDR4         D27/D28 Rayson RS512M32LO4D1BDS-46IT, 2 x 2 GiB,
+ *                  DDRMC0 (MEMA/MEMB) + DDRMC1 (MEMC/MEMD), 2133 MT/s
+ *   eMMC           D20 Kioxia THGAMRG7T13BAIL 16 GiB  -> SDMMC1 (8 bit)
+ *   SD/SDIO        SMARC SDIO (4 bit)                 -> SDMMC0
+ *   QSPI boot      D21 W25Q128FWPIG 16 MiB            -> QSPI0
+ *   RTC            D8  PCF8523TK                      -> I2C_INT_1V8
+ *   GPIO expander  D34 PCAL6416AHF                    -> I2C_INT_1V8
+ *   I2C mux        D30 PCA9540BGD (I2C_INT / I2C_INT_1V8)
+ *                  D29 PCA9546ABS (CAM0 / CAM1 / LCD)
+ *   Ethernet       D9A/D9B DAP8211RI (RGMII0/RGMII1, MDIO0/MDIO1)
+ *   USB hub        D14 TUSB8041IRGCR  (USB0 -> 4 ports)
+ *   USB-SATA       D16 TUSB9261IPVP   (USB1 -> SATA)
+ *   HDMI           D19 ADV7513BSWZ    (parallel RGB from DPI)
+ *   LVDS           D10 SN65DSI84ZQER  (DSI -> 2 x LVDS)
+ *   Board ctrl     D41 STM32L052C8T6  (power/reset/bootsel sequencing)
+ *
+ * Copyright (C) 2026 INMYS
+ */
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+
+#include "mcom03r.dtsi"
+
+/*
+ * Module assembly option (FAN.SchDoc):
+ * 1: D35 EMC2301 fitted, R259/R261 fitted, R260/R262 omitted.
+ * 0: D35 omitted, R259/R261 omitted, R260/R262 fitted: SoC PWM + GPIO tach.
+ * Override before including this file, or change the default here.
+ */
+#ifndef NMS_FAN_USE_EMC2301
+#define NMS_FAN_USE_EMC2301 1
+#endif
+#if NMS_FAN_USE_EMC2301 != 0 && NMS_FAN_USE_EMC2301 != 1
+#error NMS_FAN_USE_EMC2301 must be 0 or 1
+#endif
+
+/* FAN OUTA0 and LCD0 OUTB0 share one counter in the current PCB revision. */
+#define NMS_PWM0_PERIOD_NS 2000000 /* 500 Hz for both SoC outputs */
+#if NMS_FAN_USE_EMC2301
+#define NMS_LCD0_PWM_CHANNEL 0 /* legacy numbering, selects OUTB0 */
+#else
+#define NMS_LCD0_PWM_CHANNEL 4 /* dual-output numbering: OUTA0=0, OUTB0=4 */
+#endif
+
+/ {
+	model = "INMYS NMS-SM-K1892VM21YA V1";
+	compatible = "inmys,nms-sm-k1892vm21ya",
+		     "inmys,nms-sm-k1892",
+		     "elvees,mcom03r";
+
+	/* STM32 debounces the button and suppresses a press held during startup. */
+	power_keys: power-keys {
+		compatible = "gpio-keys";
+		label = "board-power";
+
+		power-button {
+			label = "POWER";
+			gpios = <&board_controller 0 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_POWER>;
+			debounce-interval = <5>;
+		};
+	};
+
+	aliases {
+		i2c_pm = &i2c0;
+		i2c_gp = &i2c1;
+		i2c5 = &i2c_cam0;
+		i2c6 = &i2c_cam1;
+		i2c7 = &i2c_lcd;
+		/* Keep the vendor's spi0/spi1 numbering for QSPI0/QSPI1. */
+		spi2 = &spi0;
+		spi3 = &spi1;
+		mmc0 = &sdhci0;
+		mmc1 = &sdhci1;
+	};
+
+#if !NMS_FAN_USE_EMC2301
+	/* D2.BC15 -> R262 -> SMARC P113; tach P114 -> R260 -> D2.BA17. */
+	fan: fan {
+		compatible = "pwm-fan";
+		pwms = <&pwm 0 NMS_PWM0_PERIOD_NS>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pwm_oena0_mux>;
+		interrupt-parent = <&gpio1a>;
+		interrupts = <7 IRQ_TYPE_EDGE_FALLING>;
+		pulses-per-revolution = <2>;
+	};
+#endif
+
+	/* PCB V1 rework: TP1 (STM32 PB10) wired to D2.AW19; R100 removed,
+	 * R101 fitted. Request final poweroff directly, without TF-A changes.
+	 */
+	poweroff {
+		compatible = "gpio-poweroff";
+		gpios = <&gpio1c 7 GPIO_ACTIVE_HIGH>;
+		priority = <192>;
+		active-delay-ms = <100>;
+		inactive-delay-ms = <100>;
+		timeout-ms = <3000>;
+	};
+
+	/* eMMC is 1.8 V only on this module */
+	emmc_1v8: regulator-emmc-1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "emmc-1v8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+	};
+
+	/*
+	 * Card VDD stays at 3.3 V. The separate I/O rail is switched by D18/VT4
+	 * from the controller's SDMMC0_18EN output, not by this regulator.
+	 */
+	sdio_3v3: regulator-sdio-3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "sdio-3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+
+	/* 1.8 V I2C_INT rail used by RTC, GPIO expander and video bridges */
+	i2c_int_1v8: regulator-i2c-int-1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "i2c-int-1v8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+	};
+
+	hdmi_1v8: regulator-hdmi-1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "hdmi-1v8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+	};
+
+	hdmi_3v3: regulator-hdmi-3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "hdmi-3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+
+	lvds_1v8: regulator-lvds-1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "lvds-1v8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+	};
+
+	/*
+	 * Module PCAL6416A P0_1/P0_0 drive SMARC LCD0_VDD_EN/LCD0_BKLT_EN.
+	 * Panel/backlight consumers own these regulators; both default off.
+	 */
+	lcd0_vdd_en: regulator-lcd0-vdd {
+		compatible = "regulator-fixed";
+		regulator-name = "LCD0_VDD_EN";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpios = <&gpio_expander 1 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	lcd0_bklt_en: regulator-lcd0-bklt {
+		compatible = "regulator-fixed";
+		regulator-name = "LCD0_BKLT_EN";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpios = <&gpio_expander 0 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	/*
+	 * Default single-link LVDS sink, enabled/configured by the carrier.
+	 * Carriers override timing, dimensions and mapping for their panel;
+	 * the tester supplies its own dual-link mode. Channel B needs port@3
+	 * on the bridge and a second panel port (SMARC LVDS1, S108..S121).
+	 */
+	lvds_panel: panel-lvds {
+		compatible = "panel-lvds";
+		status = "disabled";
+		width-mm = <231>;
+		height-mm = <139>;
+		data-mapping = "jeida-24";
+		enable-delay-ms = <20>;
+		prepare-delay-ms = <20>;
+		unprepare-delay-ms = <20>;
+		disable-delay-ms = <20>;
+
+		panel-timing {
+			clock-frequency = <33000000>;
+			hactive = <800>;
+			vactive = <480>;
+			hfront-porch = <40>;
+			hback-porch = <40>;
+			hsync-len = <48>;
+			vfront-porch = <13>;
+			vback-porch = <29>;
+			vsync-len = <3>;
+			hsync-active = <1>;
+			vsync-active = <1>;
+			de-active = <1>;
+			pixelclk-active = <0>;
+		};
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				panel_in_a: endpoint {
+					remote-endpoint = <&lvds_out_a>;
+				};
+			};
+		};
+	};
+
+	/*
+	 * HDMI audio.  The SoC I2S0 drives SCLK/WS/SDO0 (GPIO1_PORTB_0/1/2,
+	 * balls BB18/BA18/BD18) into the ADV7513, which runs as an I2S slave;
+	 * its MCLK, SPDIF and I2S1..3 inputs are tied to ground on the module.
+	 */
+	hdmi_sound: hdmi-sound {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "hdmi-audio";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,bitclock-master = <&hdmi_dailink_master>;
+		simple-audio-card,frame-master = <&hdmi_dailink_master>;
+		status = "disabled";
+
+		hdmi_dailink_master: simple-audio-card,cpu {
+			sound-dai = <&i2s0>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&adv7513>;
+		};
+	};
+};
+
+/*
+ * SMARC SER0 = UART3, SER1_DBG = UART0 through D33, SER2 = UART2,
+ * SER3 = UART1. UART_0_1_CROSS# (GPIO1_PORTA_6) defaults high, selecting
+ * UART0 on SER1_DBG. Linux serial0/ttyS0 is the debug console.
+ */
+ser0: &uart3 {
+	status = "okay";
+};
+
+ser1: &uart0 {
+	status = "okay";
+};
+
+ser2: &uart2 {
+	status = "okay";
+};
+
+ser3: &uart1 {
+	status = "okay";
+};
+
+/* ------------------------------------------------------------------ */
+/* Storage                                                            */
+/* ------------------------------------------------------------------ */
+
+/* eMMC D20 supports HS400; the SoC controller supports up to HS200. */
+&sdhci1 {
+	status = "okay";
+
+	non-removable;
+	bus-width = <8>;
+	mmc-hs200-1_8v;
+	vqmmc-supply = <&emmc_1v8>;
+	/* 1125 MHz HSPERIPH PLL / 6; SDMMC0 and the shared PLL stay unchanged. */
+	assigned-clocks = <&hsperiph_clocks CLK_HSP_UCG1_SDMMC1_XIN>;
+	assigned-clock-rates = <187500000>;
+	max-frequency = <187500000>;
+};
+
+/* SMARC SDIO: card power is 3.3 V, signal levels can switch to 1.8 V. */
+&sdhci0 {
+	status = "okay";
+
+	bus-width = <4>;
+	vmmc-supply = <&sdio_3v3>;
+	/*
+	 * No vqmmc-supply: SDHCI HOST_CONTROL2 controls SDMMC0_18EN directly.
+	 * The SoC pad sequencer switches D18/VT4 and delays V18 pad mode until
+	 * the I/O rail settles (URB.sdmmc0_padcfg.use_sw_v18 = 0).
+	 */
+	sd-uhs-sdr12;
+	sd-uhs-sdr25;
+	sd-uhs-sdr50;
+	sd-uhs-sdr104;
+	sd-uhs-ddr50;
+	/*
+	 * Dedicated SDMMC0_CDN (BB1) reaches SMARC SDIO_CD# (P35).
+	 * Use hardware card detect; broken-cd would poll an empty slot.
+	 */
+};
+
+/* Boot SPI flash (D21 W25Q128FWPIG, 16 MiB, 4 bit) */
+&qspi0 {
+	status = "okay";
+
+	flash0: flash@0 {
+		compatible = "jedec,spi-nor", "spi-flash";
+		reg = <0x0>;
+		spi-max-frequency = <66000000>;
+		/* Silvaco's Linux driver implements single-lane SPI transfers. */
+		spi-tx-bus-width = <1>;
+		spi-rx-bus-width = <1>;
+		m25p,fast-read;
+
+		/*
+		 * Layout used by the ELVEES boot chain (see the
+		 * package.toml inside the SBL *.tl-image):
+		 *
+		 *   0x000000  BootROM SBIMG (sbl-s1 + ddrinit + sbl-s2)
+		 *   0x200000  SBL image slot A (bl31 + u-boot + dtb + sbl-s3)
+		 *   0x600000  SBL image slot B (update slot)
+		 *   0xFE0000  U-Boot environment (CONFIG_ENV_OFFSET)
+		 */
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "bootrom";
+				reg = <0x000000 0x200000>;
+			};
+
+			partition@200000 {
+				label = "sbl-a";
+				reg = <0x200000 0x400000>;
+			};
+
+			partition@600000 {
+				label = "sbl-b";
+				reg = <0x600000 0x400000>;
+			};
+
+			partition@a00000 {
+				label = "spare";
+				reg = <0xA00000 0x5E0000>;
+			};
+
+			partition@fe0000 {
+				label = "uboot-env";
+				reg = <0xFE0000 0x020000>;
+			};
+		};
+	};
+};
+
+/* ------------------------------------------------------------------ */
+/* SSI controllers: only chip selects actually routed on the module.  */
+/* ------------------------------------------------------------------ */
+
+/* SSI0 -> SMARC SPI0, CS0=P43 and CS1=P31. CS2/CS3 are unconnected. */
+&spi0 {
+	status = "okay";
+	num-cs = <2>;
+	cs-gpios = <&gpio0c 4 GPIO_ACTIVE_LOW>,
+		   <&gpio0c 5 GPIO_ACTIVE_LOW>;
+
+	spidev@0 {
+		compatible = "elvees,mcom03-spidev";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
+	};
+
+	spidev@1 {
+		compatible = "elvees,mcom03-spidev";
+		reg = <1>;
+		spi-max-frequency = <10000000>;
+	};
+};
+
+/* SSI1 -> D31/D32 crossbar. Drive QSPI_SPI# low with gpioset for SSI1.
+ * CS3 shares GPIO0_CAM0_PWR# and must remain available to the camera.
+ */
+&spi1 {
+	status = "okay";
+	/* C7/SS_IN is the poweroff GPIO; SPI master uses data and CS0..2. */
+	pinctrl-0 = <&spi1_mux_data &spi1_default_cfg>;
+	num-cs = <3>;
+	cs-gpios = <&gpio1c 3 GPIO_ACTIVE_LOW>,
+		   <&gpio1c 4 GPIO_ACTIVE_LOW>,
+		   <&gpio1c 5 GPIO_ACTIVE_LOW>;
+
+	spidev@0 {
+		compatible = "elvees,mcom03-spidev";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
+	};
+
+	spidev@1 {
+		compatible = "elvees,mcom03-spidev";
+		reg = <1>;
+		spi-max-frequency = <10000000>;
+	};
+
+	spidev@2 {
+		compatible = "elvees,mcom03-spidev";
+		reg = <2>;
+		spi-max-frequency = <10000000>;
+	};
+};
+
+&spi1_default_cfg {
+	rxd-ss-in-n-pins {
+		pins = "GPIOC_2";
+	};
+};
+
+/* ------------------------------------------------------------------ */
+/* I2C                                                                */
+/* ------------------------------------------------------------------ */
+
+/* SMARC I2C_PM (SoC I2C0) - power management bus, 3.3 V */
+&i2c0 {
+	status = "okay";
+	clock-frequency = <100000>;
+};
+
+/* SMARC I2C_GP (SoC I2C1) - general purpose bus, 3.3 V */
+&i2c1 {
+	status = "okay";
+	clock-frequency = <100000>;
+};
+
+/* SoC I2C2 -> PCA9540B (D30): I2C_INT (3.3 V) and I2C_INT_1V8 */
+&i2c2 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	i2c_int_switch: i2c-switch@70 {
+		compatible = "nxp,pca9540";
+		reg = <0x70>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		/*
+		 * Channel 0 (I2C_INT, 3.3 V).  Verified from the U-Boot
+		 * prompt with `i2c mw 70 0.0 04` + `i2c probe`:
+		 *   0x2f EMC2301 fan controller (D35)
+		 *   0x44 TUSB8041 USB hub (D14), SMBus only, no driver
+		 */
+		i2c_int: i2c@0 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0>;
+
+#if NMS_FAN_USE_EMC2301
+			fan: fan@2f {
+				compatible = "microchip,emc2301", "microchip,emc2305";
+				reg = <0x2f>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				#pwm-cells = <3>;
+			};
+#endif
+
+			/* D14 TUSB8041 is in USB mode with R128 omitted: no SMBus
+			 * cfgActive write is required before USB enumeration.
+			 */
+		};
+
+		/*
+		 * Channel 1 (I2C_INT_1V8, 1.8 V).  Verified with
+		 * `i2c mw 70 0.0 05` + `i2c probe`:
+		 *   0x20 PCAL6416A GPIO expander (D34)
+		 *   0x2d SN65DSI84 DSI-LVDS bridge (D10)
+		 *   0x38/0x39/0x3c/0x3e/0x3f ADV7513 HDMI (D19)
+		 *   0x50/0x53 24AA025E48 MAC-address EEPROMs (D11/D12)
+		 *   0x68 PCF8523 RTC (D8)
+		 */
+		i2c_int_1v8_bus: i2c@1 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <1>;
+
+			/* D41 firmware 0.9+: PCAL6416-compatible virtual GPIOs.
+			 * V1 requires BC_INT -> FORCE_RECOV# / GPIO0_PORTA_0 wire.
+			 * PB5 is now open drain, active low; EXTINT/QLIC is unused.
+			 */
+			board_controller: gpio@2a {
+				compatible = "nxp,pcal6416";
+				reg = <0x2a>;
+				gpio-controller;
+				#gpio-cells = <2>;
+				/* SLEEP#/LID# share SWD: expose levels, no input consumers. */
+				interrupt-controller;
+				#interrupt-cells = <2>;
+				interrupt-parent = <&gpio0a>;
+				interrupts = <0 IRQ_TYPE_LEVEL_LOW>;
+				gpio-line-names =
+					"POWER_BTN#", "TEST#", "SLEEP#", "LID#",
+					"RTC_INT#", "CHARGING#", "CHARGER_PRSNT#", "nINT_WOL0",
+					"nINT_WOL1", "BATLOW#", "FAN_ALERT#", "PG_3V3",
+					"RESET_IN#", "BC_RUNNING", "BC_POWER_OFF#", "BC_RESTART#";
+			};
+
+			gpio_expander: gpio@20 {
+				compatible = "nxp,pcal6416";
+				reg = <0x20>;
+				gpio-controller;
+				#gpio-cells = <2>;
+				interrupt-controller;
+				#interrupt-cells = <2>;
+				interrupt-parent = <&gpio0a>;
+				interrupts = <3 IRQ_TYPE_EDGE_FALLING>;
+
+				gpio-line-names =
+					"LCD0_BKLT_EN", "LCD0_VDD_EN",
+					"LCD1_BKLT_EN", "LCD1_VDD_EN",
+					"QSPI_SPI#", "BC_UART_SEL",
+					"PCIE_SEL", "HDMI_INT#",
+					"HDMI_PD", "RTC_32K",
+					"ENABLE_LVDS", "USB1_ID0_GPIO",
+					"BC_BOOT", "BC_RST",
+					"CAM_SEL0", "CAM_SEL1";
+			};
+
+			/*
+			 * D11/D12 24AA025E48 EUI-48 EEPROMs. Factory addresses at
+			 * 0xfa..0xff provide nvmem fallback to U-Boot-supplied MACs.
+			 */
+			eeprom@50 {
+				compatible = "atmel,24c02";
+				reg = <0x50>;
+				pagesize = <16>;
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				mac0: mac-address@fa {
+					reg = <0xfa 0x6>;
+				};
+			};
+
+			eeprom@53 {
+				compatible = "atmel,24c02";
+				reg = <0x53>;
+				pagesize = <16>;
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				mac1: mac-address@fa {
+					reg = <0xfa 0x6>;
+				};
+			};
+
+			/* RTC D8 */
+			rtc: rtc@68 {
+				compatible = "nxp,pcf8523";
+				reg = <0x68>;
+				status = "okay";
+				/* VDD=1V8, VBAT~3V: automatic switching disables I2C. */
+				nxp,disable-battery-switchover;
+				/* D8 INT# -> STM32 PA15 -> virtual GPIO 4. */
+				interrupt-parent = <&board_controller>;
+				interrupts = <4 IRQ_TYPE_LEVEL_LOW>;
+				/* rtc-pcf8523 registers wake capability from its IRQ itself. */
+			};
+
+			/*
+			 * HDMI transmitter D19 (parallel RGB in, HDMI out).
+			 *
+			 * Supplies, traced from the module netlist through the ferrite beads:
+			 *   AVDD_HDMI   D19.15/19/25 <- L30 <- +1V8_MEDIA
+			 *   HDMI_DVDD   D19.1/11/31/51 <- L29 <- +1V8_MEDIA
+			 *   HDMI_PVDD   D19.12/13 <- L28 <- +1V8_MEDIA
+			 *   HDMI_DVDD3V D19.29 <- L27 <- +3V3_CORE
+			 * The driver gets all five regulators in bulk, so every one of them has
+			 * to be named even though the rails themselves are always on.
+			 */
+			adv7513: hdmi@39 {
+				compatible = "adi,adv7513";
+				reg = <0x39>, <0x3f>;
+				reg-names = "main", "edid";
+				interrupt-parent = <&gpio_expander>;
+				interrupts = <7 IRQ_TYPE_EDGE_FALLING>;
+				/* This driver requires explicit RGB depth, clock mode and delay. */
+				adi,input-depth = <8>;
+				adi,input-colorspace = "rgb";
+				adi,input-clock = "1x";
+				adi,clock-delay = <0>;
+				/*
+				 * V1 PCB swaps the sync inputs: D2.A25 (HSYNC) -> D19.2
+				 * (VSYNC), D2.C25 (VSYNC) -> D19.64 (HSYNC). DE is correct.
+				 * Reconstruct both syncs from DE; requires the SDK driver patch.
+				 */
+				adi,sync-from-de;
+				/* HDMI_PD is active high; the driver deasserts it to wake D19. */
+				pd-gpios = <&gpio_expander 8 GPIO_ACTIVE_HIGH>;
+				avdd-supply = <&hdmi_1v8>;
+				dvdd-supply = <&hdmi_1v8>;
+				pvdd-supply = <&hdmi_1v8>;
+				dvdd-3v-supply = <&hdmi_3v3>;
+				bgvdd-supply = <&hdmi_1v8>;
+				#sound-dai-cells = <0>;
+				status = "disabled"; /* enable in carrier DTS when HDMI is used */
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					port@0 {
+						reg = <0>;
+						adv7513_in: endpoint {
+							remote-endpoint = <&rgb_out>;
+						};
+					};
+				};
+			};
+
+			/*
+			 * DSI -> dual LVDS bridge D10 (SN65DSI84).
+			 *
+			 * The I2C address is 0x2d, not 0x2c: R82 pulls DSI_LVDS_ADDR (D10.A1)
+			 * up to +1V8_MEDIA.  A live `i2c probe` on I2C_INT_1V8 confirms 0x2d.
+			 * ENABLE_LVDS is PCAL6416A P1_2, i.e. line 10 of the expander.
+			 */
+			lvds_bridge: lvds-bridge@2d {
+				compatible = "ti,sn65dsi84";
+				reg = <0x2d>;
+				enable-gpios = <&gpio_expander 10 GPIO_ACTIVE_HIGH>;
+				vcc-supply = <&lvds_1v8>;
+				status = "disabled"; /* enable in carrier DTS when LVDS is used */
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					/* MIPI DSI channel A: all four lanes are wired */
+					port@0 {
+						reg = <0>;
+						lvds_in: endpoint {
+							remote-endpoint = <&dsi_out>;
+							data-lanes = <1 2 3 4>;
+						};
+					};
+
+					/* LVDS channel A -> panel */
+					port@2 {
+						reg = <2>;
+						lvds_out_a: endpoint {
+							remote-endpoint = <&panel_in_a>;
+						};
+					};
+				};
+			};
+		};
+	};
+};
+
+/* SoC I2C3 -> PCA9546A (D29): CAM0 / CAM1 / LCD */
+&i2c3 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	i2c_cam_switch: i2c-switch@77 {
+		compatible = "nxp,pca9546";
+		reg = <0x77>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		i2c_cam0: i2c@0 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0>;
+		};
+
+		i2c_cam1: i2c@1 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <1>;
+		};
+
+		i2c_lcd: i2c@2 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <2>;
+		};
+	};
+};
+
+/* ------------------------------------------------------------------ */
+/* Display: Mali-DP550 -> DPI/ADV7513 or DSI/SN65DSI84                  */
+/* ------------------------------------------------------------------ */
+
+/* Carriers select the active route by enabling/disabling its bridge/encoder. */
+&de_dpi {
+	status = "okay";
+
+	/* Parallel RGB pads require cmos0_clk; repeat the inherited clock list. */
+	clocks = <&media_clocks CLK_MEDIA_UCG1_DISP_PXL>,
+		 <&media_clocks CLK_MEDIA_UCG0_SYSA>,
+		 <&media_clocks CLK_MEDIA_UCG1_DISP_A>,
+		 <&media_clocks CLK_MEDIA_UCG3_CMOS0>;
+	clock-names = "pxlclk", "pclk", "disp_aclk", "cmos0_clk";
+
+	ports {
+		port@1 {
+			reg = <1>;
+
+			rgb_out: endpoint {
+				remote-endpoint = <&adv7513_in>;
+			};
+		};
+	};
+};
+
+&de_dsi {
+	status = "okay";
+
+	ports {
+		port@1 {
+			reg = <1>;
+
+			dsi_out: endpoint {
+				remote-endpoint = <&lvds_in>;
+			};
+		};
+	};
+};
+
+&dp {
+	status = "okay";
+};
+
+/* ------------------------------------------------------------------ */
+/* Ethernet                                                           */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The PHYs (D9A/D9B, DAP8211) have their VDDIO on +1V8_AO and the RGMII
+ * nets are pulled to the same rail, so the SoC's EMAC pads must drive and
+ * sample at 1.8 V.  Without this the MAC transmits fine (the PHY still
+ * sees 3.3 V as high) but receives nothing at all: every hardware RX
+ * counter stays zero, because the PHY's 1.8 V levels never reach the
+ * 3.3 V input threshold.  `emac_v18` sets EMAC_V18 (URB 0x140, bit 0).
+ */
+&hsperiph_pinctrl {
+	pinctrl-0 = <&hsperiph_misc_default &emac_v18>;
+};
+
+/* D9A: RGMII0, MDIO0, PHY address 0 */
+&emac0 {
+	status = "okay";
+	phy-mode = "rgmii-id";
+	phy-handle = <&ethernet_phy0>;
+	nvmem-cells = <&mac0>;
+	nvmem-cell-names = "mac-address";
+
+	ethernet_phy0: ethernet-phy@0 {
+		compatible = "ethernet-phy-ieee802.3-c22";
+		reg = <0x0>;
+	};
+};
+
+/* D9B: RGMII1, MDIO1, PHY address 0 (separate MDIO bus) */
+&emac1 {
+	status = "okay";
+	phy-mode = "rgmii-id";
+	phy-handle = <&ethernet_phy1>;
+	nvmem-cells = <&mac1>;
+	nvmem-cell-names = "mac-address";
+
+	ethernet_phy1: ethernet-phy@0 {
+		compatible = "ethernet-phy-ieee802.3-c22";
+		reg = <0x0>;
+	};
+};
+
+/* ------------------------------------------------------------------ */
+/* USB                                                                */
+/* ------------------------------------------------------------------ */
+
+/* USB0 -> TUSB8041 hub (D14) -> 4 downstream ports on the carrier */
+&usb0 {
+	status = "okay";
+};
+
+/* USB1 -> TUSB9261 USB-SATA bridge (D16) */
+&usb1 {
+	status = "okay";
+};
+
+/* ------------------------------------------------------------------ */
+/* PCIe                                                               */
+/* ------------------------------------------------------------------ */
+
+/* PCIe0 is routed to the SMARC PCIe pins, PCIe1 to the second slot;
+ * the actual root complex used is selected by PCIE_SEL (expander P0_6).
+ */
+&pcie0 {
+	status = "okay";
+	/* GPIO BA32 -> D22 -> SMARC PCIe A PERST#. H12 is a separate input. */
+	reset-gpios = <&gpio0d 7 GPIO_ACTIVE_LOW>;
+};
+
+/*
+ * Carrier profiles enable PCIe1 when the second link is routed.
+ * Supported reworked modules have both reference clocks free-running;
+ * the original CLKREQ-gated D5 assembly needed separate clock handling.
+ */
+&pcie1 {
+	status = "disabled";
+	/* GPIO AW33 -> D23/D24 -> SMARC PCIe B/C PERST#. */
+	reset-gpios = <&gpio0d 6 GPIO_ACTIVE_LOW>;
+};
+
+/* ------------------------------------------------------------------ */
+/* CAN (MFBSP)                                                        */
+/* ------------------------------------------------------------------ */
+
+&mfbsp0_can {
+	status = "okay";
+};
+
+&mfbsp1_can {
+	status = "okay";
+};
+
+/* ------------------------------------------------------------------ */
+/* PWM (LCD backlight)                                                */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LCD0_BKLT_PWM: AW17 / GPIO1_PORTD_3 / PWM_OENB0.
+ * LCD1_BKLT_PWM: AV19 / GPIO1_PORTD_4 / PWM_OENA1.
+ * LCD0 carriers enable &pwm and select B using NMS_LCD0_PWM_CHANNEL.
+ * Keep timers_pwm disabled: its PORTD_0/1 outputs do not reach backlight;
+ * PORTD_1 is the SMARC camera reset. See PWM.md and FAN.md.
+ */
+
+#if !NMS_FAN_USE_EMC2301
+/* Expose both A and B of each timer; channel 0 and 4 share their period. */
+&pwm {
+	status = "okay";
+	elvees,dual-output;
+};
+#endif
+
+/* ------------------------------------------------------------------ */
+/* GPIO line names (SMARC naming)                                     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The names below are taken from the module netlist, ball by ball, not
+ * from the SMARC pin order -- the two differ for most of the SoC GPIOs.
+ * They are what "gpiofind" resolves, so standard GPIO tools can drive
+ * the board multiplexers without knowing any chip or line number.
+ */
+
+&gpio0a {
+	/* V1 test wire shares SMARC FORCE_RECOV#; next PCB moves FORCE_RECOV# to A1. */
+	gpio-line-names = "BC_INT#", "", "SER0_CTS", "I2C_GPIO_INT#",
+		"GPIO11", "GPIO12", "", "SER0_RTS";
+};
+
+&gpio0b {
+	gpio-line-names = "SER0_RX", "SER0_TX", "UART3_DE", "UART3_RE",
+		"WDT_TIME_OUT#", "UART1_DBG_RX", "UART1_DBG_TX", "SER2_RX";
+};
+
+&gpio0c {
+	gpio-line-names = "SPI0_SCK", "SPI0_MOSI", "SPI0_MISO", "SPI0_SS_IN",
+		"SPI0_CS0", "SPI0_CS1", "", "";
+};
+
+&gpio0d {
+	gpio-line-names = "SER2_TX", "GPIO10", "GPIO13", "I2C_PM_CK",
+		"I2C_PM_DAT", "I2C0_SMBALERT", "PCIE1_PERST#", "PCIE0_PERST#";
+};
+
+&gpio1a {
+	gpio-line-names = "I2C_GP_CK", "I2C_GP_DAT", "I2C2_SCL", "I2C2_SDA",
+		"I2C3_SCL", "I2C3_SDA", "UART_0_1_CROSS#", "FAN_TACHIN";
+
+	/* D33 must keep UART0 on SER1_DBG, including during STM32 ROM updates. */
+	debug-uart-route-hog {
+		gpio-hog;
+		gpios = <6 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "debug-uart-route";
+	};
+
+};
+
+&gpio1b {
+	gpio-line-names = "HDMI_I2S_SCLK", "HDMI_I2S_LRCLK", "HDMI_I2S_SDOUT",
+		"", "GPIO1_CAM1_PWR#", "GPIO7", "UART0_DBG_TX", "UART0_DBG_RX";
+};
+
+&gpio1c {
+	gpio-line-names = "SPI1_SCK", "SPI1_MOSI", "SPI1_MISO", "SPI1_CS0",
+		"SPI1_CS1", "SPI1_CS2", "GPIO0_CAM0_PWR#", "SOC_POWEROFF_REQ";
+};
+
+&gpio1d {
+	gpio-line-names = "GPIO2_CAM0_RST#", "GPIO3_CAM1_RST#", "FAN_PWMOUT",
+		"LCD0_BKLT_PWM", "LCD1_BKLT_PWM", "GPIO8", "GPIO4_HDA_RST#",
+		"GPIO9";
+};

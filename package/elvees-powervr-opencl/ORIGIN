@@ -1,0 +1,7 @@
+Pinned ELVEES SDK 2025.09:
+https://dist.elvees.com/mcom03r/buildroot/2025.09/linux66/images/aarch64-buildroot-linux-gnu_sdk-buildroot.tar.gz
+Runtime DDK 1.9@4991288; firmware BVNC 22.68.54.30, matches the module source.
+Install only compute runtime, its three dependencies and GPU firmware.
+libufwriter.so contains the online compiler needed by clBuildProgram.
+This provides libOpenCL directly through the vendor library, without an ICD loader.
+ElcoreCL for DSP remains separate in the existing neural-network runtime.

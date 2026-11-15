@@ -1,0 +1,41 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] hwmon: emc2305: preserve initial fan duty at probe
+
+With thermal support enabled, probe writes the minimum duty to each
+fan even when no cooling map or userspace fan controller is configured.
+The default minimum is zero, stopping the fan when the driver binds.
+
+Read the existing duty before registering the cooling device and retain
+it unless registration applies a thermal state. In common-channel mode,
+retain the highest initial duty among the fans, clamped to the configured
+minimum. This preserves reset/firmware cooling instead of dropping it
+when this driver becomes built in on NMS-SM-K1892VM21YA.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+--- a/drivers/hwmon/emc2305.c
++++ b/drivers/hwmon/emc2305.c
+@@ -307,6 +307,14 @@
+ 
+ 	cdev_idx = (idx) ? idx - 1 : 0;
+ 	pwm = data->pwm_min[cdev_idx];
++	/* Preserve firmware/reset cooling instead of stopping fans at probe. */
++	for (i = data->pwm_separate ? cdev_idx : 0;
++	     i < (data->pwm_separate ? cdev_idx + 1 : data->pwm_num); i++) {
++		ret = emc2305_show_pwm(dev, i);
++		if (ret < 0)
++			return ret;
++		pwm = max_t(long, pwm, ret);
++	}
+ 
+ 	data->cdev_data[cdev_idx].cdev =
+ 		devm_thermal_of_cooling_device_register(dev, fan_node,
+@@ -323,7 +331,7 @@
+ 		pwm = EMC2305_PWM_STATE2DUTY(data->cdev_data[cdev_idx].cur_state,
+ 					     data->max_state, EMC2305_FAN_MAX);
+ 
+-	/* Set minimal PWM speed. */
++	/* Retain the initial duty unless a thermal policy has selected one. */
+ 	if (data->pwm_separate) {
+ 		ret = emc2305_set_pwm(dev, pwm, cdev_idx);
+ 		if (ret < 0)

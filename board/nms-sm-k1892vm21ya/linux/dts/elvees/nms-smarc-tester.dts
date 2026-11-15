@@ -1,0 +1,153 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * NMS_SMARC_TESTER V1 - SMARC test/burn-in carrier
+ *
+ * The tester is a multi-purpose bring-up board (Ethernet, HDMI/DP,
+ * LVDS/eDP converter, M.2 SATA/WiFi, USB, CAN, SD, FPGA GPIO...).
+ * Only the resources needed for bring-up are described here; the
+ * remaining peripherals are added as they are validated.
+ *
+ * Copyright (C) 2026 INMYS
+ */
+
+/dts-v1/;
+
+#include "nms-sm-k1892vm21ya.dtsi"
+
+/ {
+	model = "INMYS NMS-SM-K1892VM21YA V1 on NMS_SMARC_TESTER V1";
+	compatible = "inmys,nms-smarc-tester",
+		     "inmys,nms-sm-k1892vm21ya",
+		     "inmys,nms-sm-k1892",
+		     "elvees,mcom03r";
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	aliases {
+		ethernet0 = &emac0;
+		ethernet1 = &emac1;
+	};
+
+	/* SMARC LCD0 PWM and enable, driven by the module. */
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm NMS_LCD0_PWM_CHANNEL NMS_PWM0_PERIOD_NS>;
+		power-supply = <&lcd0_bklt_en>;
+		brightness-levels = <100 90 80 70 60 50 40 30 20 10 1 0>;
+		default-brightness-level = <10>;
+	};
+};
+
+/* Independent Wi-Fi cards occupy A/B: this controller must train lane A only. */
+&pcie0 {
+	num-lanes = <1>;
+};
+
+/*
+ * PCIe1 uses two lanes routed to slots C/D through D25/D26 with PCIE_SEL=0.
+ * This tester assembly supplies its reference clock via PCIE_B_CLKREQ#.
+ */
+&pcie1 {
+	status = "okay";
+	num-lanes = <2>;
+};
+
+/* HDMI/DP test path */
+&adv7513 {
+	status = "okay";
+};
+
+/*
+ * LVDS test path: Mali-DP -> DSI -> SN65DSI84 -> SMARC LVDS0 + LVDS1.  The
+ * panel power and backlight enables are the standard SMARC LCD0_VDD_EN
+ * (S133) and LCD0_BKLT_EN (S127) lines; the tester schematic has not been
+ * checked pin by pin, so if the converter is powered from a fixed rail
+ * instead, drop the two power-supply properties.
+ *
+ * The link is dual on this carrier.  The module wires both SN65DSI84
+ * channels to the connector - A to LVDS0 (S125..S138), B to LVDS1
+ * (S108..S121) - and the tester has a FIN1032 receiver on every pair of
+ * both, feeding the FPGA:
+ *
+ *   channel A  CLK S134/S135 -> D32   Y0 S125/S126 -> D30
+ *              Y1  S128/S129 -> D30   Y2 S131/S132 -> D32
+ *              Y3  S137/S138 -> D32
+ *   channel B  CLK S108/S109 -> D31   Y0 S120/S121 -> D30
+ *              Y1  S111/S112 -> D31   Y2 S117/S118 -> D31
+ *              Y3  S114/S115 -> D31
+ *
+ * A single link leaves channel B silent, so dual is the only way to prove
+ * that B reaches the far end at all.  It is also why this stays here and
+ * not in the module dtsi: the other carriers default to single-link
+ * panels, which need a complete picture on channel A.
+ */
+&lvds_bridge {
+	status = "okay";
+
+	ports {
+		/* LVDS channel B -> panel port 1 */
+		port@3 {
+			reg = <3>;
+			lvds_out_b: endpoint {
+				remote-endpoint = <&panel_in_b>;
+			};
+		};
+	};
+};
+
+/* LCD0 is timer 0 output B; FAN.md describes the shared timer without D35. */
+&pwm {
+	status = "okay";
+	elvees,output-channel = <1 0 0 0>;
+	elvees,state-on-disable = <1 0 0 0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm_oenb0_mux>;
+};
+
+/*
+ * FPGA receivers act as the sink. The odd/even markers select dual link;
+ * channel A carries odd pixels and B even pixels. See ../HARDWARE.md.
+ */
+&lvds_panel {
+	status = "okay";
+	backlight = <&backlight>;
+	power-supply = <&lcd0_vdd_en>;
+
+	/*
+	 * 1024x768 at 66 MHz gives a legal dual-link LVDS clock (~33 MHz).
+	 * The default 800x480/33 MHz would need 16.5 MHz per link, below
+	 * SN65DSI84's 25 MHz limit. 66 MHz is also an exact 594/N pixel clock.
+	 */
+	panel-timing {
+		clock-frequency = <66000000>;
+		hactive = <1024>;
+		vactive = <768>;
+		hfront-porch = <24>;
+		hback-porch = <160>;
+		hsync-len = <136>;
+		vfront-porch = <3>;
+		vback-porch = <29>;
+		vsync-len = <6>;
+		hsync-active = <1>;
+		vsync-active = <1>;
+		de-active = <1>;
+		pixelclk-active = <0>;
+	};
+
+	ports {
+		port@0 {
+			dual-lvds-odd-pixels;
+		};
+
+		port@1 {
+			reg = <1>;
+			dual-lvds-even-pixels;
+
+			panel_in_b: endpoint {
+				remote-endpoint = <&lvds_out_b>;
+			};
+		};
+	};
+};

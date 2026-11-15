@@ -1,0 +1,16 @@
+From: INMYS <info@inmys.ru>
+Subject: [PATCH] reserve both U-Boot environment sectors
+
+Upstream-Status: Inappropriate [NMS module flash layout]
+
+--- a/tl-sbimg/package.template.toml
++++ b/tl-sbimg/package.template.toml
+@@ -22,7 +22,7 @@
+ uboot_env.description = "Erase U-Boot environment"
+ uboot_env.command = "erase"
+ uboot_env.offset = 0xFE0000
+-uboot_env.size = 0x10000
++uboot_env.size = 0x20000
+ 
+ [profile.update]
+ sbl.description = "Flash SBIMG parsed by SBL"

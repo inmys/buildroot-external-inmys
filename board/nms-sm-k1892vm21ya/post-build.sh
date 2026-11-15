@@ -7,66 +7,12 @@
 set -eu
 
 TARGET_DIR="$1"
-BOARD_DIR="$(dirname "$0")"
-CARRIER=$(sed -n 's/^BR2_NMS_SM_K1892_CARRIER="\(.*\)"$/\1/p' "${BR2_CONFIG}")
-CARRIER="${CARRIER:-nms-sm-evm}"
 
-# Carrier specific rootfs overlay (optional)
-if [ -d "$BOARD_DIR/rootfs-overlay-$CARRIER" ]; then
-	cp -a "$BOARD_DIR/rootfs-overlay-$CARRIER/." "$TARGET_DIR/"
-fi
+# Dropbear's Buildroot default symlink is for a volatile /run directory.
+if [ -L "$TARGET_DIR/etc/dropbear" ]; then rm "$TARGET_DIR/etc/dropbear"; fi
+mkdir -p "$TARGET_DIR/etc/dropbear" "$TARGET_DIR/root/.ssh" "$TARGET_DIR/data"
 
-# Record the carrier the image was built for.  nms-ab uses it to pick the
-# right extlinux label: the FAT partition keeps the labels of whatever image
-# created it, so a module moved to a different carrier would otherwise go on
-# booting the old device tree after an A/B update.  Two tokens, no comments -
-# /etc/hwrevision has the same constraint for a different reason.
-echo "$CARRIER" > "$TARGET_DIR/etc/nms-carrier"
-
-# Write the extlinux configuration used by the SD card image and by
-# "bootm" from the U-Boot prompt.
-mkdir -p "$TARGET_DIR/boot/extlinux"
-cat > "$TARGET_DIR/boot/extlinux/extlinux.conf" <<EOF
-label linux
-	linux /boot/Image
-	fdt /boot/$CARRIER.dtb
-	append root=/dev/mmcblk0p2 rootwait rw console=ttyS0,115200 earlycon pcie_aspm=off pcie_port_pm=off
-EOF
-
-# The kernel device trees are installed by Buildroot with the directory
-# name preserved (elvees/nms-sm-evm.dtb); extlinux wants them flat.
-#
-# All of them are copied, not just the configured carrier, so that /boot
-# matches the FAT partition of the SD image and "bootm" works for any
-# carrier.  The stale copies are removed first: output/target survives
-# between builds, so a carrier that was dropped from the list would
-# otherwise linger in /boot forever.
-rm -f "$TARGET_DIR"/boot/nms-*.dtb
-for dtb in "$TARGET_DIR"/boot/elvees/nms-*.dtb; do
-	[ -f "$dtb" ] || continue
-	cp "$dtb" "$TARGET_DIR/boot/"
-done
-
-# fstab
-#
-# Buildroot's default fstab does not mount sysfs and this image has no
-# S10mdev (the system uses devtmpfs), so /sys stayed unmounted and
-# everything that reads it -- /sys/class/net, /sys/firmware/devicetree,
-# most of "ip" -- silently reported nothing.
-cat > "$TARGET_DIR/etc/fstab" <<EOF
-# device	mount point	type		options					dump	pass
-/dev/root	/		ext4		defaults				0	1
-proc		/proc		proc		defaults				0	0
-sysfs		/sys		sysfs		defaults				0	0
-devtmpfs	/dev		devtmpfs	defaults				0	0
-devpts		/dev/pts	devpts		defaults,gid=5,mode=620,ptmxmode=0666	0	0
-tmpfs		/dev/shm	tmpfs		mode=0777				0	0
-tmpfs		/run		tmpfs		mode=0755				0	0
-tmpfs		/tmp		tmpfs		mode=1777				0	0
-debugfs		/sys/kernel/debug	debugfs		defaults				0	0
-EOF
-
-# Allow root login over the serial console
-if [ -f "$TARGET_DIR/etc/inittab" ] && ! grep -q '^ttyS0' "$TARGET_DIR/etc/inittab"; then
-	echo 'ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100' >> "$TARGET_DIR/etc/inittab"
+# Keep Buildroot's standard fstab/getty; only debugfs is useful for bring-up.
+if ! grep -q '^[^#]*[[:space:]]/sys/kernel/debug[[:space:]]' "$TARGET_DIR/etc/fstab"; then
+    printf 'debugfs /sys/kernel/debug debugfs defaults 0 0\n' >> "$TARGET_DIR/etc/fstab"
 fi

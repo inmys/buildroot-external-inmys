@@ -1,0 +1,238 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * INMYS NMS-SM-K1892VM21YA V1 on ELV-SMARC-CB r3.3.0
+ *
+ * The ELV-SMARC-CB is the ELVEES reference SMARC carrier: 2x GbE, HDMI out,
+ * LVDS/eDP, audio codec, 2x CAN, PCIe x4 + miniPCIe, USB, microSD.
+ * Only the resources needed for bring-up are described here; the remaining
+ * peripherals are added as they are validated.
+ *
+ * Copyright (C) 2026 INMYS
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/clock/mcom03-clock.h>
+
+#include "nms-sm-k1892vm21ya.dtsi"
+
+/ {
+	model = "INMYS NMS-SM-K1892VM21YA V1 on ELV-SMARC-CB r3.3.0";
+	compatible = "inmys,nms-sm-elvsmarccb",
+		     "inmys,nms-sm-k1892vm21ya",
+		     "inmys,nms-sm-k1892",
+		     "elvees,mcom03r";
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	aliases {
+		ethernet0 = &emac0;
+		ethernet1 = &emac1;
+	};
+
+	/* HDMI receptacle on the carrier, fed from the module's ADV7513 */
+	hdmi_connector: hdmi-connector {
+		compatible = "hdmi-connector";
+		label = "hdmi";
+		type = "a";
+
+		port {
+			hdmi_connector_in: endpoint {
+				remote-endpoint = <&adv7513_out>;
+			};
+		};
+	};
+
+	/*
+	 * Carrier DD1 is labelled ES8327 in the schematic; fitted silicon
+	 * identifies as ES8326. MFBSP0 drives SMARC I2S0 as clock master.
+	 * AUDIO_MCK is unconnected on the module, so use 64-fs BCLK.
+	 */
+	analog_audio: analog-audio {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "analog-audio";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,bitclock-master = <&analog_dailink_master>;
+		simple-audio-card,frame-master = <&analog_dailink_master>;
+		simple-audio-card,continuous-clock;
+		/* No module MCLK; feed the codec main clock from 64-fs BCLK. */
+		simple-audio-card,mclk-fs = <64>;
+
+		analog_dailink_master: simple-audio-card,cpu {
+			sound-dai = <&mfbsp0_i2s>;
+			dai-tdm-slot-num = <2>;
+			dai-tdm-slot-width = <32>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&es8326>;
+		};
+	};
+
+	/* SMARC LCD0 PWM and enable, driven by the module. */
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm NMS_LCD0_PWM_CHANNEL NMS_PWM0_PERIOD_NS>;
+		power-supply = <&lcd0_bklt_en>;
+		brightness-levels = <100 90 80 70 60 50 40 30 20 10 1 0>;
+		default-brightness-level = <10>;
+		status = "okay";
+	};
+};
+
+/*
+ * microSD socket XS6: card VDD stays at 3.3 V, and the module switches
+ * signal levels to 1.8 V for UHS. Retain the stronger clock pad drive.
+ */
+&sdhci0 {
+	elvees,drive-strength-clk = <6>;
+
+	/*
+	 * Keep the existing base clock: the 100 MHz request rounds down to
+	 * 93.75 MHz from the 1125 MHz parent. SDR104/SDR50 can use that base;
+	 * High Speed and DDR50 use /2, giving 46.875 MHz.
+	 */
+	assigned-clocks = <&hsperiph_clocks CLK_HSP_UCG1_SDMMC0_XIN>;
+	assigned-clock-rates = <100000000>;
+};
+
+/*
+ * QSPI1 flash socket XS7 (SOIC-8, ACA-SPI-004), powered from 1V8_SF-0 and
+ * routed through the module's RS2299 crossbar D31/D32.  The crossbar is
+ * selected by QSPI_SPI# = PCAL6416A P0_4: 1 = QSPI1, 0 = SPI1.
+ * The fitted R224 pull-up selects QSPI1 without software initialization.
+ * qspi1_default_18 keeps the pads in 1.8 V mode.
+ */
+&qspi1 {
+	status = "okay";
+	pinctrl-0 = <&qspi1_default_18>;
+
+	qspi_flash: spi-nor@0 {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "jedec,spi-nor", "spi-flash";
+		reg = <0x0>;
+		/* Highest frequency for the IC installed into the socket */
+		spi-max-frequency = <3000000>;
+		m25p,fast-read;
+	};
+};
+
+&qspi1_default {
+	/*
+	 * Max clock frequency is 1 MHz with the default pad drive strength;
+	 * this raises it to 3 MHz.
+	 */
+	clk {
+		drive-strength = <10>;
+	};
+};
+
+/* XS12: CSI0, two data lanes, I2C_CAM0 (Linux bus 5). */
+&isp {
+	status = "okay";
+};
+
+&csi0 {
+	status = "okay";
+};
+
+/* ------------------------------------------------------------------ */
+/* Display                                                            */
+/* ------------------------------------------------------------------ */
+
+/* Default display route: Mali-DP -> DPI -> ADV7513 -> HDMI. */
+&adv7513 {
+	status = "okay";
+
+	ports {
+		port@1 {
+			reg = <1>;
+
+			adv7513_out: endpoint {
+				remote-endpoint = <&hdmi_connector_in>;
+			};
+		};
+	};
+};
+
+/*
+ * MIPI DSI path: Mali-DP -> DSI -> SN65DSI84 (module D10) -> LVDS panel on
+ * XP7.  XP7 is a 2x15P header carrying both LVDS channels (A on S125..S138,
+ * B on S108..S121) through series resistors ZL39..ZL48, so a dual-link panel
+ * can be plugged in as well; this device tree describes channel A only.
+ *
+ * Panel power comes from XP8 ("LVDS VCC SEL", 6-pin) via VT6, gated by
+ * SMARC LCD0_VDD_EN (S133) = PCAL6416A P0_1, which is why the panel takes
+ * lcd0_vdd_en as its supply.
+ *
+ * Keep the DSI encoder, bridge and panel disabled together for HDMI boot.
+ * The current single-CRTC driver has no working physical HDMI/LVDS clone.
+ * To select LVDS, enable these three nodes and disable the HDMI route.
+ * Backlight controls remain available for independent PWM measurement.
+ */
+&de_dsi {
+	status = "disabled";
+};
+
+&lvds_bridge {
+	status = "disabled";
+};
+
+&lvds_panel {
+	status = "disabled";
+	backlight = <&backlight>;
+	power-supply = <&lcd0_vdd_en>;
+};
+
+/* LCD0 is timer 0 output B; FAN.md describes the shared timer without D35. */
+&pwm {
+	status = "okay";
+	elvees,output-channel = <1 0 0 0>;
+	elvees,state-on-disable = <1 0 0 0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm_oenb0_mux>;
+};
+
+/*
+ * DD1 ES8326 on I2C_GP at 0x18; SCLK/LRCK/SDIN/SDOUT reach MFBSP0
+ * through SMARC S42/S39/S40/S41. R16 connects MCLK to unconnected S38;
+ * the alternative G1 12 MHz link R12 is marked DNP. See ANALOG_AUDIO.md.
+ * INTOUT reaches GPIO0_PORTD_1, which has no IRQ controller in this DT;
+ * leave jack detection IRQ undescribed.
+ */
+&i2c1 {
+	es8326: codec@18 {
+		compatible = "everest,es8326";
+		reg = <0x18>;
+
+		/* G1 -> MCLK link R12 is DNP; SMARC AUDIO_MCK is unconnected. */
+		everest,bclk-as-mclk;
+		#sound-dai-cells = <0>;
+
+		everest,jack-pol = [0e];
+		everest,interrupt-src = [08];
+		everest,interrupt-clk = [45];
+	};
+};
+
+/* HDMI audio: SoC I2S0 -> ADV7513 on the module */
+&i2s0 {
+	status = "okay";
+};
+
+&hdmi_sound {
+	status = "okay";
+};
+
+/* MFBSP DMA interrupts are delivered through service-subsystem QLIC0. */
+&qlic0 {
+	status = "okay";
+};
+
+/* Analog audio: SoC MFBSP0 -> ES8326 on the carrier */
+&mfbsp0_i2s {
+	status = "okay";
+};

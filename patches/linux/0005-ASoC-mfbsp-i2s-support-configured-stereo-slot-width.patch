@@ -1,0 +1,98 @@
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] ASoC: mfbsp-i2s: support configured stereo slot width
+
+Honor set_tdm_slot for two-channel I2S. Keep sample packing and word
+length based on PCM format, but derive BCLK and word-select dividers
+from the configured slot width. This allows 16-bit PCM in 32-bit slots,
+providing 64-fs BCLK to a codec that uses BCLK as its main clock.
+
+Reject unsupported masks, narrow slots and out-of-range clock dividers.
+Boards without a slot configuration retain their existing framing.
+
+Signed-off-by: INMYS <support@inmys.ru>
+---
+--- a/sound/soc/elvees/mfbsp.h
++++ b/sound/soc/elvees/mfbsp.h
+@@ -160,6 +160,7 @@
+ 	struct mfbsp_dma_data capture_dma;
+ 	bool bclk_provider;
+ 	bool frame_provider;
++	unsigned int slot_width;
+ 	int active;
+ };
+ 
+--- a/sound/soc/elvees/mfbsp-i2s.c
++++ b/sound/soc/elvees/mfbsp-i2s.c
+@@ -133,6 +133,26 @@
+ 	return 0;
+ }
+ 
++static int mfbsp_i2s_set_tdm_slot(struct snd_soc_dai *dai,
++				 unsigned int tx_mask, unsigned int rx_mask,
++				 int slots, int slot_width)
++{
++	struct mfbsp_data *mfbsp = snd_soc_dai_get_drvdata(dai);
++
++	/* I2S is stereo; allow wider slots without changing sample packing. */
++	if (!slots) {
++		mfbsp->slot_width = 0;
++		return 0;
++	}
++	if (slots != 2 || (tx_mask && tx_mask != 0x3) ||
++	    (rx_mask && rx_mask != 0x3) ||
++	    (slot_width != 16 && slot_width != 24 && slot_width != 32))
++		return -EINVAL;
++
++	mfbsp->slot_width = slot_width;
++	return 0;
++}
++
+ static int mfbsp_i2s_hw_params(struct snd_pcm_substream *substream,
+ 			       struct snd_pcm_hw_params *params,
+ 			       struct snd_soc_dai *dai)
+@@ -143,9 +163,17 @@
+ 	u32 sysclk, clk_div, cs_div;
+ 	u32 tctr_reg = mfbsp_readl(mfbsp->base, MFBSP_I2S_TCTR);
+ 	snd_pcm_format_t format = params_format(params);
++	unsigned int sample_width;
++	unsigned int slot_width;
++	unsigned int bclk;
+ 
+ 	if (snd_pcm_format_width(format) < 0)
+ 		return -EINVAL;
++	sample_width = snd_pcm_format_width(format);
++	slot_width = mfbsp->slot_width ?: sample_width;
++	if (slot_width < sample_width)
++		return -EINVAL;
++	bclk = params_rate(params) * params_channels(params) * slot_width;
+ 
+ 	/*
+ 	 * EN bit is changed by hardware when we write in TSTART register for
+@@ -209,7 +237,9 @@
+ 	sysclk = clk_get_rate(mfbsp->clk);
+ 
+ 	if (mfbsp->bclk_provider) {
+-		clk_div = sysclk / (2 * snd_soc_params_to_bclk(params)) - 1;
++		if (sysclk < 2 * bclk || sysclk / (2 * bclk) > 1024)
++			return -EINVAL;
++		clk_div = sysclk / (2 * bclk) - 1;
+ 		ret = snd_soc_dai_set_clkdiv(dai, MFBSP_TCLK_RATE_DIV, clk_div);
+ 		if (ret) {
+ 			dev_err(dev, "Failed to set TCLK_RATE divider, rc=%d\n", ret);
+@@ -222,7 +252,7 @@
+ 		u32 wordlen = FIELD_GET(MFBSP_I2S_CTR_WORDLEN_MASK, tctr_reg);
+ 		u32 wordcnt = FIELD_GET(MFBSP_I2S_CTR_WORDCNT_MASK, tctr_reg);
+ 
+-		cs_div = snd_pcm_format_width(format) - 1;
++		cs_div = slot_width - 1;
+ 
+ 		if (cs_div < ((wordlen + 1)*(wordcnt + 1) - 1)) {
+ 			dev_err(dev, "Invalid CS divider for: WORDLEN=0x%x WORDCNT=0x%x\n",
+@@ -303,6 +333,7 @@
+ 
+ static const struct snd_soc_dai_ops mfbsp_i2s_dai_ops = {
+ 	.set_fmt	= mfbsp_i2s_set_fmt,
++	.set_tdm_slot	= mfbsp_i2s_set_tdm_slot,
+ 	.hw_params	= mfbsp_i2s_hw_params,
+ 	.trigger	= mfbsp_i2s_trigger,
+ 	.set_clkdiv	= mfbsp_i2s_set_clkdiv,
