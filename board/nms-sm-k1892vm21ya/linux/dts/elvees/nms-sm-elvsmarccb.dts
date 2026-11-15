@@ -74,7 +74,7 @@
 	/* SMARC LCD0 PWM and enable, driven by the module. */
 	backlight: backlight {
 		compatible = "pwm-backlight";
-		pwms = <&pwm NMS_LCD0_PWM_CHANNEL NMS_PWM0_PERIOD_NS>;
+		pwms = <&pwm 0 NMS_PWM0_PERIOD_NS>;
 		power-supply = <&lcd0_bklt_en>;
 		brightness-levels = <100 90 80 70 60 50 40 30 20 10 1 0>;
 		default-brightness-level = <10>;
@@ -187,7 +187,7 @@
 	power-supply = <&lcd0_vdd_en>;
 };
 
-/* LCD0 is timer 0 output B; FAN.md describes the shared timer without D35. */
+/* LCD0 is timer 0 output B, exposed as PWM channel 0. */
 &pwm {
 	status = "okay";
 	elvees,output-channel = <1 0 0 0>;

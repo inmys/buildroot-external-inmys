@@ -82,6 +82,14 @@ MCOM03R), and U-Boot builds the `mcom03r-*` DTBs for `TARGET_MCOM03R`.
 The remaining Linux/U-Boot patches fix drivers and boot behaviour.
 The former 0001 patches containing DTS sources have been removed.
 
+SBL patches are applied automatically from `package/mcom03-sbl/` by
+Buildroot's package infrastructure. No separate patch hook is needed.
+The QSPI fix retains the controller/GPO initialization changes without
+bring-up register dumps. The fitted W25Q128FW is supported by the original
+SBL JEDEC table; unknown devices are no longer assumed to be 16 MiB.
+U-Boot has no external-QSPI1 patches because that controller is disabled
+in its common module DTS. Linux QSPI1 support is independent.
+
 ### `support/`
 
 | Script | Description |

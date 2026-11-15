@@ -30,26 +30,8 @@
 
 #include "mcom03r.dtsi"
 
-/*
- * Module assembly option (FAN.SchDoc):
- * 1: D35 EMC2301 fitted, R259/R261 fitted, R260/R262 omitted.
- * 0: D35 omitted, R259/R261 omitted, R260/R262 fitted: SoC PWM + GPIO tach.
- * Override before including this file, or change the default here.
- */
-#ifndef NMS_FAN_USE_EMC2301
-#define NMS_FAN_USE_EMC2301 1
-#endif
-#if NMS_FAN_USE_EMC2301 != 0 && NMS_FAN_USE_EMC2301 != 1
-#error NMS_FAN_USE_EMC2301 must be 0 or 1
-#endif
-
-/* FAN OUTA0 and LCD0 OUTB0 share one counter in the current PCB revision. */
-#define NMS_PWM0_PERIOD_NS 2000000 /* 500 Hz for both SoC outputs */
-#if NMS_FAN_USE_EMC2301
-#define NMS_LCD0_PWM_CHANNEL 0 /* legacy numbering, selects OUTB0 */
-#else
-#define NMS_LCD0_PWM_CHANNEL 4 /* dual-output numbering: OUTA0=0, OUTB0=4 */
-#endif
+/* LCD0 backlight only; D35 EMC2301 has its own PWM generator. */
+#define NMS_PWM0_PERIOD_NS 2000000 /* 500 Hz */
 
 / {
 	model = "INMYS NMS-SM-K1892VM21YA V1";
@@ -82,19 +64,6 @@
 		mmc0 = &sdhci0;
 		mmc1 = &sdhci1;
 	};
-
-#if !NMS_FAN_USE_EMC2301
-	/* D2.BC15 -> R262 -> SMARC P113; tach P114 -> R260 -> D2.BA17. */
-	fan: fan {
-		compatible = "pwm-fan";
-		pwms = <&pwm 0 NMS_PWM0_PERIOD_NS>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&pwm_oena0_mux>;
-		interrupt-parent = <&gpio1a>;
-		interrupts = <7 IRQ_TYPE_EDGE_FALLING>;
-		pulses-per-revolution = <2>;
-	};
-#endif
 
 	/* PCB V1 rework: TP1 (STM32 PB10) wired to D2.AW19; R100 removed,
 	 * R101 fitted. Request final poweroff directly, without TF-A changes.
@@ -381,13 +350,13 @@ ser3: &uart1 {
 		   <&gpio0c 5 GPIO_ACTIVE_LOW>;
 
 	spidev@0 {
-		compatible = "elvees,mcom03-spidev";
+		compatible = "rohm,dh2228fv";
 		reg = <0>;
 		spi-max-frequency = <10000000>;
 	};
 
 	spidev@1 {
-		compatible = "elvees,mcom03-spidev";
+		compatible = "rohm,dh2228fv";
 		reg = <1>;
 		spi-max-frequency = <10000000>;
 	};
@@ -406,19 +375,19 @@ ser3: &uart1 {
 		   <&gpio1c 5 GPIO_ACTIVE_LOW>;
 
 	spidev@0 {
-		compatible = "elvees,mcom03-spidev";
+		compatible = "rohm,dh2228fv";
 		reg = <0>;
 		spi-max-frequency = <10000000>;
 	};
 
 	spidev@1 {
-		compatible = "elvees,mcom03-spidev";
+		compatible = "rohm,dh2228fv";
 		reg = <1>;
 		spi-max-frequency = <10000000>;
 	};
 
 	spidev@2 {
-		compatible = "elvees,mcom03-spidev";
+		compatible = "rohm,dh2228fv";
 		reg = <2>;
 		spi-max-frequency = <10000000>;
 	};
@@ -468,15 +437,20 @@ ser3: &uart1 {
 			#size-cells = <0>;
 			reg = <0>;
 
-#if NMS_FAN_USE_EMC2301
-			fan: fan@2f {
+			/* D35 fitted with R259/R261; R260/R262 omitted (FAN.SchDoc). */
+			nms_fan_controller: fan@2f {
 				compatible = "microchip,emc2301", "microchip,emc2305";
 				reg = <0x2f>;
 				#address-cells = <1>;
 				#size-cells = <0>;
 				#pwm-cells = <3>;
+
+				fan: fan@0 {
+					reg = <0>;
+					pwms = <&nms_fan_controller 26000 0 0>;
+					#cooling-cells = <2>;
+				};
 			};
-#endif
 
 			/* D14 TUSB8041 is in USB mode with R128 omitted: no SMBus
 			 * cfgActive write is required before USB enumeration.
@@ -847,18 +821,33 @@ ser3: &uart1 {
 /*
  * LCD0_BKLT_PWM: AW17 / GPIO1_PORTD_3 / PWM_OENB0.
  * LCD1_BKLT_PWM: AV19 / GPIO1_PORTD_4 / PWM_OENA1.
- * LCD0 carriers enable &pwm and select B using NMS_LCD0_PWM_CHANNEL.
+ * LCD0 carriers enable &pwm and select output B of PWM channel 0.
  * Keep timers_pwm disabled: its PORTD_0/1 outputs do not reach backlight;
  * PORTD_1 is the SMARC camera reset. See PWM.md and FAN.md.
  */
 
-#if !NMS_FAN_USE_EMC2301
-/* Expose both A and B of each timer; channel 0 and 4 share their period. */
-&pwm {
-	status = "okay";
-	elvees,dual-output;
+/* ------------------------------------------------------------------ */
+/* Fan cooling policy (D35 EMC2301)                                    */
+/* ------------------------------------------------------------------ */
+
+/* ELVEES reference policy: start active cooling at 50 C, release at 49 C.
+ * Keep the inherited CPU throttling (90 C) and critical shutdown (100 C).
+ * Validate the start duty and temperature thresholds on the fitted fan.
+ */
+&trips {
+	nms_fan_active: fan-active {
+		temperature = <50000>;
+		hysteresis = <1000>;
+		type = "active";
+	};
 };
-#endif
+
+&cooling_maps {
+	map-fan {
+		trip = <&nms_fan_active>;
+		cooling-device = <&fan 0 10>;
+	};
+};
 
 /* ------------------------------------------------------------------ */
 /* GPIO line names (SMARC naming)                                     */

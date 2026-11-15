@@ -1,5 +1,12 @@
-diff --git a/drivers/spi-nor/spi-nor.c b/drivers/spi-nor/spi-nor.c
-index 85125b2..2bd9b73 100644
+From: INMYS <support@inmys.ru>
+Subject: [PATCH] spi-nor: reset flash before probing
+
+Keep the existing reset sequence before reading the JEDEC ID. BootROM
+may leave the flash in a different transfer mode.
+
+Upstream-Status: Pending
+Signed-off-by: INMYS <support@inmys.ru>
+---
 --- a/drivers/spi-nor/spi-nor.c
 +++ b/drivers/spi-nor/spi-nor.c
 @@ -7,6 +7,7 @@
@@ -10,7 +17,7 @@ index 85125b2..2bd9b73 100644
  #include <libs/errors.h>
  #include <libs/log.h>
  #include <libs/utils-def.h>
-@@ -337,6 +338,30 @@ static int __spi_nor_init(void)
+@@ -337,6 +338,30 @@
  	return 0;
  }
  
@@ -41,12 +48,12 @@ index 85125b2..2bd9b73 100644
  int spi_nor_init(void)
  {
  	int ret;
-@@ -347,6 +372,8 @@ int spi_nor_init(void)
+@@ -346,6 +371,8 @@
+ 		ERROR("qspi init failed. Code : %d\n", ret);
  		return ret;
  	}
- 
-+	spi_nor_reset();
 +
++	spi_nor_reset();
+ 
  	ret = __spi_nor_init();
  	if (ret) {
- 		ERROR("__spi_nor_init failed. Code : %d\n", ret);

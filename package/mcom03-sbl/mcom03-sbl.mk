@@ -58,12 +58,6 @@ endef
 MCOM03_SBL_PRE_CONFIGURE_HOOKS += MCOM03_SBL_INSTALL_UBOOT_DTBS
 MCOM03_SBL_PRE_BUILD_HOOKS += MCOM03_SBL_INSTALL_UBOOT_DTBS
 
-define MCOM03_SBL_APPLY_SD_BOOT_PATCH
-	$(APPLY_PATCHES) $(@D) \
-		$(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/patches/mcom03-sbl '*.patch'
-endef
-MCOM03_SBL_POST_PATCH_HOOKS += MCOM03_SBL_APPLY_SD_BOOT_PATCH
-
 # The module now has one bootloader DTB. Remove earlier per-carrier output
 # files before installing, so glob-based image consumers cannot reuse them.
 define MCOM03_SBL_CLEAN_OLD_BOOT_IMAGES

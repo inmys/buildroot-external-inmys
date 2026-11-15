@@ -1,20 +1,19 @@
 # Kernel configuration fragment for the INMYS NMS-SM-K1892VM21YA module.
 #
-# This rootfs uses devtmpfs without udev platform-driver autoloading.
-# Drivers needed at boot are built in or explicitly loaded by S11modules
-# from /etc/modules-load.d. The ELVEES defconfig leaves many drivers as =m.
+# BusyBox mdev loads modules by their device modaliases. Drivers needed
+# before userspace or for the display dependency chain are built in.
+# The ELVEES defconfig leaves many of these drivers as =m.
 
 # --- I2C muxes ------------------------------------------------------------
 # D30 PCA9540B (I2C_INT / I2C_INT_1V8) and D29 PCA9546A (CAM0/CAM1/LCD).
-# With =m the muxes never bind, no child adapters are created and every
-# device behind them (RTC, GPIO expander, EEPROMs, bridges) is invisible.
+# Keep the muxes available before userspace for the RTC and display chain.
 CONFIG_I2C_MUX=y
 CONFIG_I2C_MUX_PCA954x=y
 
 # --- USB ----------------------------------------------------------------
 # The TUSB9261 (D16) has no firmware flash of its own and on this module D15
-# is blank, so the bridge sits in its HID boot loader (0451:926b).  hidapi's
-# hidraw backend is what tusb926x-flash-burner uses to reach it, and the
+# is blank, so the bridge sits in its HID boot loader (0451:926b). The
+# tusb926x-flash-burner helper accesses hidraw directly, and the
 # ELVEES defconfig has HIDRAW switched off.
 CONFIG_HIDRAW=y
 
@@ -28,12 +27,12 @@ CONFIG_HIDRAW=y
 # filesystem is mounted at 3.48 s - "Direct firmware load ... failed with
 # error -2" and no wlan0.  cfg80211 has the same problem with
 # regulatory.db.  There is no initramfs, so the only way to have the
-# firmware available in time is to load the driver after boot, which is what
-# /etc/init.d/S11modules does with /etc/modules-load.d/iwlwifi.conf.
+# firmware available in time is to load the driver after mounting rootfs.
+# BusyBox mdev does this through the PCI modalias and modules.dep.
 #
 # IWLWIFI=m makes IWLWIFI_OPMODE_MODULAR default to y, so iwlmvm is a
-# separate module and that is the one to load; modprobe pulls in iwlwifi,
-# mac80211 and cfg80211 through modules.dep.
+# separate module; module aliases/dependencies pull in iwlwifi, mac80211
+# and cfg80211 without a board-specific startup script.
 CONFIG_CFG80211=m
 CONFIG_MAC80211=m
 CONFIG_CFG80211_CRDA_SUPPORT=y
@@ -50,19 +49,17 @@ CONFIG_IWLWIFI_LEDS=y
 # empty and hwclock has nothing to talk to.
 CONFIG_RTC_CLASS=y
 CONFIG_RTC_DRV_PCF8523=y
-# Seed the system clock from the RTC at boot and write it back on
-# shutdown, so the time survives a power cycle without NTP.
+# Seed the system clock from the RTC at boot. The board's VDD-only
+# workaround does not retain time across loss of RTC VDD; see RTC.md.
 CONFIG_RTC_HCTOSYS=y
 CONFIG_RTC_SYSTOHC=y
 
 # --- Audio ------------------------------------------------------------
 # Two independent paths:
-#   analog - SoC MFBSP0 -> ES8327 on the ELV-SMARC-CB (I2C_GP, 0x18)
+#   analog - SoC MFBSP0 -> ES8326 on the ELV-SMARC-CB (I2C_GP, 0x18)
 #   HDMI   - SoC I2S0   -> ADV7513 on the module
-# The ELVEES defconfig leaves the whole sound stack as =m.  Modules do get
-# installed into the rootfs, but nothing loads them: there is no udev and
-# /etc/modules-load.d is empty, so /proc/asound never appears.  Build the
-# pieces in instead of adding an init script for each of them.
+# The ELVEES defconfig leaves the sound stack as =m. Keep this display/audio
+# dependency chain built in; no board-specific audio init script is needed.
 CONFIG_SOUND=y
 CONFIG_SND=y
 CONFIG_SND_SOC=y
@@ -89,9 +86,9 @@ CONFIG_PWM_ELVEES=y
 CONFIG_PWM_DWC_CORE=y
 CONFIG_PWM_DWC_OF=y
 
-# --- Fan: D35 EMC2301 or SoC PWM, selected in the module DTSI ------------
+# --- Fan: D35 EMC2301 with thermal control -----------------------------
 CONFIG_SENSORS_EMC2305=y
-CONFIG_SENSORS_PWM_FAN=y
+# CONFIG_SENSORS_PWM_FAN is not set
 
 # --- CAN ---------------------------------------------------------------
 # MFBSP0/1 use LDAT6/7; MFBSP0 audio uses other pins and can coexist.

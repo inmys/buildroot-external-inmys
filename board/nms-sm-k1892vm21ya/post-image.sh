@@ -3,8 +3,6 @@
 set -eu
 BOARD_DIR=$(dirname "$0")
 
-cp "$BINARIES_DIR/sd-boot/nms-sm-k1892vm21ya.sbimg" "$BINARIES_DIR/sdboot.sbimg"
-
 build_image() {
     out=$1
     sig=$2
