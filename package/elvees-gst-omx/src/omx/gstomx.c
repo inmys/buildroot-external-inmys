@@ -2572,6 +2572,11 @@ gst_omx_port_allocate_buffers_unlocked (GstOMXPort * port,
 
   comp = port->comp;
 
+  /* OMX_UseEGLImage is optional. Some components leave the vtable entry NULL
+   * rather than providing a stub returning OMX_ErrorNotImplemented. */
+  if (images && !((OMX_COMPONENTTYPE *) comp->handle)->UseEGLImage)
+    return OMX_ErrorNotImplemented;
+
   gst_omx_component_handle_messages (port->comp);
   if ((err = comp->last_error) != OMX_ErrorNone) {
     GST_ERROR_OBJECT (comp->parent, "Component %s in error state: %s (0x%08x)",

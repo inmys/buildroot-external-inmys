@@ -1,0 +1,4 @@
+SUBSYSTEM=="drm", GROUP="video", MODE="0660"
+KERNEL=="pvr_sync", GROUP="video", MODE="0660"
+KERNEL=="mv500", GROUP="video", MODE="0660"
+KERNEL=="dmabuf", GROUP="video", MODE="0660"

@@ -1323,7 +1323,14 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
   interlace_mode = gst_omx_video_dec_get_output_interlace_info (self);
 
 #if defined (HAVE_GST_GL)
+#if defined (USE_OMX_TARGET_RPI)
+  /* Raspberry Pi uses a separate egl_render component below. */
   {
+#else
+  /* Only negotiate direct EGLImage output when the component implements it.
+   * Otherwise retain raw video output; downstream glupload can still use GL. */
+  if (((OMX_COMPONENTTYPE *) self->dec->handle)->UseEGLImage) {
+#endif
 #if defined (USE_OMX_TARGET_RPI)
     OMX_STATETYPE egl_state;
 #endif

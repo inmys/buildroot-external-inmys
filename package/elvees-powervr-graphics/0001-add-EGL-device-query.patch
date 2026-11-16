@@ -1,0 +1,315 @@
+--- a/src/egl/Makefile.sources
++++ b/src/egl/Makefile.sources
+@@ -11,6 +11,8 @@
+ 	main/eglcurrent.c \
+ 	main/eglcurrent.h \
+ 	main/egldefines.h \
++	main/egldevice.c \
++	main/egldevice.h \
+ 	main/egldisplay.c \
+ 	main/egldisplay.h \
+ 	main/egldriver.c \
+--- /dev/null
++++ b/src/egl/main/egldevice.h
+@@ -0,0 +1,24 @@
++/* SPDX-License-Identifier: MIT */
++#ifndef EGLDEVICE_INCLUDED
++#define EGLDEVICE_INCLUDED
++
++#include "egltypedefs.h"
++
++#ifndef EGL_DRM_RENDER_NODE_FILE_EXT
++#define EGL_DRM_RENDER_NODE_FILE_EXT 0x3377
++#endif
++
++/* Device handles live until the EGL library's exit cleanup. */
++EGLDeviceEXT _eglDeviceForFD(int fd, const char *driver_name);
++EGLBoolean _eglDeviceIsValid(EGLDeviceEXT handle);
++const char *_eglDeviceQueryString(EGLDeviceEXT handle, EGLint name);
++
++EGLAPI EGLBoolean EGLAPIENTRY eglQueryDeviceAttribEXT(EGLDeviceEXT device,
++                                                     EGLint attribute,
++                                                     EGLAttrib *value);
++EGLAPI const char *EGLAPIENTRY eglQueryDeviceStringEXT(EGLDeviceEXT device,
++                                                    EGLint name);
++EGLAPI EGLBoolean EGLAPIENTRY eglQueryDisplayAttribEXT(EGLDisplay dpy,
++                                                      EGLint attribute,
++                                                      EGLAttrib *value);
++#endif
+--- /dev/null
++++ b/src/egl/main/egldevice.c
+@@ -0,0 +1,173 @@
++/* SPDX-License-Identifier: MIT */
++/* EXT_device_query and EXT_device_drm_render_node for the legacy DRI backend.
++ * Device identity comes from the DRM fd actually used by the EGL display.
++ * Device enumeration and platform-device creation are deliberately not exposed.
++ */
++#include <stdlib.h>
++#include <string.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <xf86drm.h>
++#include "c11/threads.h"
++#include "egldevice.h"
++#include "eglcurrent.h"
++#include "eglglobals.h"
++
++struct egl_drm_device {
++   struct egl_drm_device *next;
++   char *node;
++   char *render_node;
++};
++
++static mtx_t device_mutex = _MTX_INITIALIZER_NP;
++static struct egl_drm_device *devices;
++static EGLBoolean cleanup_registered;
++
++static void
++free_devices(void)
++{
++   struct egl_drm_device *device;
++   mtx_lock(&device_mutex);
++   while ((device = devices)) {
++      devices = device->next;
++      free(device->node);
++      free(device->render_node);
++      free(device);
++   }
++   mtx_unlock(&device_mutex);
++}
++
++/* The legacy MCom-03 PVR support library receives the display-controller fd
++ * from Wayland, then opens its render device internally. Resolve that separate
++ * device by its kernel driver, only when exactly one PVR render node exists.
++ * Refuse ambiguous multi-PVR systems instead of guessing an association.
++ */
++static int
++unique_pvr_render_fd(void)
++{
++   drmDevicePtr candidates[32];
++   int count = drmGetDevices2(0, candidates, 32);
++   int result = -1, matches = 0, i;
++   if (count < 0)
++      return -1;
++   for (i = 0; i < count; i++) {
++      int fd;
++      drmVersionPtr version;
++      if (!(candidates[i]->available_nodes & (1 << DRM_NODE_RENDER)))
++         continue;
++      fd = open(candidates[i]->nodes[DRM_NODE_RENDER], O_RDWR | O_CLOEXEC);
++      if (fd < 0)
++         continue;
++      version = drmGetVersion(fd);
++      if (version && version->name && !strcmp(version->name, "pvr")) {
++         matches++;
++         if (result >= 0)
++            close(result);
++         result = fd;
++      } else {
++         close(fd);
++      }
++      drmFreeVersion(version);
++   }
++   drmFreeDevices(candidates, count);
++   if (matches != 1 && result >= 0) {
++      close(result);
++      result = -1;
++   }
++   return result;
++}
++
++EGLDeviceEXT
++_eglDeviceForFD(int fd, const char *driver_name)
++{
++   struct egl_drm_device *device;
++   char *node = drmGetPrimaryDeviceNameFromFd(fd);
++   char *render_node = drmGetRenderDeviceNameFromFd(fd);
++   EGLBoolean register_cleanup = EGL_FALSE;
++
++   if (!render_node && driver_name && !strcmp(driver_name, "pvr")) {
++      int render_fd = unique_pvr_render_fd();
++      if (render_fd >= 0) {
++         free(node);
++         node = drmGetPrimaryDeviceNameFromFd(render_fd);
++         render_node = drmGetRenderDeviceNameFromFd(render_fd);
++         close(render_fd);
++      }
++   }
++
++   if (!node && !render_node)
++      return EGL_NO_DEVICE_EXT;
++
++   mtx_lock(&device_mutex);
++   for (device = devices; device; device = device->next) {
++      if ((render_node && device->render_node &&
++           !strcmp(render_node, device->render_node)) ||
++          (node && device->node && !strcmp(node, device->node)))
++         break;
++   }
++   if (!device) {
++      device = calloc(1, sizeof(*device));
++      if (device) {
++         device->node = node;
++         device->render_node = render_node;
++         node = render_node = NULL;
++         device->next = devices;
++         devices = device;
++         if (!cleanup_registered) {
++            cleanup_registered = EGL_TRUE;
++            register_cleanup = EGL_TRUE;
++         }
++      }
++   }
++   mtx_unlock(&device_mutex);
++   free(node);
++   free(render_node);
++   if (register_cleanup)
++      _eglAddAtExitCall(free_devices);
++   return (EGLDeviceEXT) device;
++}
++
++/* Compare opaque handles before dereferencing; invalid client pointers are safe. */
++static struct egl_drm_device *
++lookup_device(EGLDeviceEXT handle)
++{
++   struct egl_drm_device *device;
++   for (device = devices; device; device = device->next) {
++      if ((EGLDeviceEXT) device == handle)
++         return device;
++   }
++   return NULL;
++}
++
++EGLBoolean
++_eglDeviceIsValid(EGLDeviceEXT handle)
++{
++   EGLBoolean valid;
++   mtx_lock(&device_mutex);
++   valid = lookup_device(handle) != NULL;
++   mtx_unlock(&device_mutex);
++   return valid;
++}
++
++const char *
++_eglDeviceQueryString(EGLDeviceEXT handle, EGLint name)
++{
++   struct egl_drm_device *device;
++   const char *result = NULL;
++   EGLint error = EGL_SUCCESS;
++   mtx_lock(&device_mutex);
++   device = lookup_device(handle);
++   if (!device) {
++      error = EGL_BAD_DEVICE_EXT;
++   } else if (name == EGL_EXTENSIONS) {
++      result = device->render_node ? "EGL_EXT_device_drm_render_node" : "";
++   } else if (name == EGL_DRM_RENDER_NODE_FILE_EXT && device->render_node) {
++      result = device->render_node;
++   } else {
++      /* EXT_device_drm requires device_base/enumeration, not implemented here. */
++      error = EGL_BAD_PARAMETER;
++   }
++   mtx_unlock(&device_mutex);
++   _eglError(error, "eglQueryDeviceStringEXT");
++   return result;
++}
+--- a/src/egl/main/egldisplay.h
++++ b/src/egl/main/egldisplay.h
+@@ -148,6 +148,7 @@
+    void *PlatformDisplay;     /**< A pointer to the platform display */
+ 
+    _EGLDriver *Driver;        /**< Matched driver of the display */
++   EGLDeviceEXT Device;      /**< DRM device actually used by the DRI backend */
+    EGLBoolean Initialized;    /**< True if the display is initialized */
+ 
+    /* options that affect how the driver initializes the display */
+--- a/src/egl/main/eglglobals.c
++++ b/src/egl/main/eglglobals.c
+@@ -52,6 +52,7 @@
+ 
+    /* ClientExtensionString */
+    "EGL_EXT_client_extensions"
++   " EGL_EXT_device_query"
+    " EGL_EXT_platform_base"
+ #ifdef HAVE_WAYLAND_PLATFORM
+    " EGL_EXT_platform_wayland"
+--- a/src/egl/drivers/dri2/egl_dri2.c
++++ b/src/egl/drivers/dri2/egl_dri2.c
+@@ -56,6 +56,7 @@
+ #endif
+ 
+ #include "egl_dri2.h"
++#include "egldevice.h"
+ #include "loader/loader.h"
+ #include "util/u_atomic.h"
+ 
+@@ -875,6 +876,9 @@
+       dri2_dpy->ref_count++;
+    }
+ 
++   if (ret)
++      disp->Device = _eglDeviceForFD(dri2_dpy->fd, dri2_dpy->driver_name);
++
+    return ret;
+ }
+ 
+--- a/src/egl/main/eglapi.c
++++ b/src/egl/main/eglapi.c
+@@ -94,6 +94,7 @@
+ #include "eglglobals.h"
+ #include "eglcontext.h"
+ #include "egldisplay.h"
++#include "egldevice.h"
+ #include "egltypedefs.h"
+ #include "eglcurrent.h"
+ #include "egldriver.h"
+@@ -2324,6 +2325,40 @@
+    return EGL_TRUE;
+ }
+ 
++EGLBoolean EGLAPIENTRY
++eglQueryDeviceAttribEXT(EGLDeviceEXT device, EGLint attribute, EGLAttrib *value)
++{
++   _EGL_FUNC_START(NULL, EGL_NONE, NULL, EGL_FALSE);
++   if (!_eglDeviceIsValid(device))
++      RETURN_EGL_ERROR(NULL, EGL_BAD_DEVICE_EXT, EGL_FALSE);
++   /* EXT_device_query defines no valid numeric device attributes. */
++   RETURN_EGL_ERROR(NULL, EGL_BAD_ATTRIBUTE, EGL_FALSE);
++}
++
++const char *EGLAPIENTRY
++eglQueryDeviceStringEXT(EGLDeviceEXT device, EGLint name)
++{
++   _EGL_FUNC_START(NULL, EGL_NONE, NULL, NULL);
++   return _eglDeviceQueryString(device, name);
++}
++
++EGLBoolean EGLAPIENTRY
++eglQueryDisplayAttribEXT(EGLDisplay dpy, EGLint attribute, EGLAttrib *value)
++{
++   _EGLDisplay *disp = _eglLockDisplay(dpy);
++   _EGLDriver *drv;
++   _EGL_FUNC_START(disp, EGL_OBJECT_DISPLAY_KHR, disp, EGL_FALSE);
++   _EGL_CHECK_DISPLAY(disp, EGL_FALSE, drv);
++   if (attribute != EGL_DEVICE_EXT)
++      RETURN_EGL_ERROR(disp, EGL_BAD_ATTRIBUTE, EGL_FALSE);
++   if (!value)
++      RETURN_EGL_ERROR(disp, EGL_BAD_PARAMETER, EGL_FALSE);
++   if (disp->Device == EGL_NO_DEVICE_EXT)
++      RETURN_EGL_ERROR(disp, EGL_BAD_ALLOC, EGL_FALSE);
++   *value = (EGLAttrib) disp->Device;
++   RETURN_EGL_SUCCESS(disp, EGL_TRUE);
++}
++
+ __eglMustCastToProperFunctionPointerType EGLAPIENTRY
+ eglGetProcAddress(const char *procname)
+ {
+@@ -2407,6 +2442,9 @@
+       { "eglLabelObjectKHR", (_EGLProc) eglLabelObjectKHR },
+       { "eglDebugMessageControlKHR", (_EGLProc) eglDebugMessageControlKHR },
+       { "eglQueryDebugKHR", (_EGLProc) eglQueryDebugKHR },
++      { "eglQueryDeviceAttribEXT", (_EGLProc) eglQueryDeviceAttribEXT },
++      { "eglQueryDeviceStringEXT", (_EGLProc) eglQueryDeviceStringEXT },
++      { "eglQueryDisplayAttribEXT", (_EGLProc) eglQueryDisplayAttribEXT },
+       { "eglDupNativeFenceFDANDROID", (_EGLProc) eglDupNativeFenceFDANDROID },
+       { NULL, NULL }
+    };

@@ -7,3 +7,6 @@ SDK git-info commit: 71ff4c419e80c9a4803d53d85b06d4fa7c4d3e13
 Hardware: GE8300 BVNC 22.68.54.30, DDK 1.9@4991288.
 Patch contains Kbuild and kernel API compatibility changes for Linux 6.18;
 no changes to the GPU address translation, clock or command submission logic.
+
+Patch 0003 fixes physical PMR cache maintenance (NULL virtual address),
+validated with accelerated browsers in the Astra experiment.

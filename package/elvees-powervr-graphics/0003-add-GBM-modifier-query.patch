@@ -1,0 +1,40 @@
+Expose the modern GBM modifier-plane query required by Xorg modesetting.
+The legacy PVR DRI v8 backend has no modifier attribute query. Report that
+explicit modifiers are unsupported, matching the existing allocation API;
+Xorg may then use implicit-layout allocation. Do not invent a plane count.
+
+--- a/src/gbm/main/gbm.h
++++ b/src/gbm/main/gbm.h
+@@ -233,6 +233,10 @@
+ gbm_device_is_format_supported(struct gbm_device *gbm,
+                                uint32_t format, uint32_t usage);
+ 
++int
++gbm_device_get_format_modifier_plane_count(struct gbm_device *gbm,
++                                            uint32_t format, uint64_t modifier);
++
+ void
+ gbm_device_destroy(struct gbm_device *gbm);
+ 
+--- a/src/gbm/main/gbm.c
++++ b/src/gbm/main/gbm.c
+@@ -85,6 +85,19 @@
+    return gbm->is_format_supported(gbm, format, usage);
+ }
+ 
++GBM_EXPORT int
++gbm_device_get_format_modifier_plane_count(struct gbm_device *gbm,
++                                            uint32_t format, uint64_t modifier)
++{
++   /* DRI v8 cannot query explicit-modifier attributes. Keep implicit layout
++    * available without advertising unsupported explicit allocations. */
++   (void) gbm;
++   (void) format;
++   (void) modifier;
++   errno = ENOSYS;
++   return -1;
++}
++
+ /** Destroy the gbm device and free all resources associated with it.
+  *
+  * \param gbm The device created using gbm_create_device()

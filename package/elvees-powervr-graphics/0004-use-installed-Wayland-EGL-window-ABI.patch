@@ -1,0 +1,37 @@
+Use the wl_egl_window ABI of the installed Wayland library.
+Mesa 17 predates the versioned layout: with Wayland 1.24 it reads the
+version field (3) as wl_surface*, crashing in wl_proxy_create_wrapper.
+Only the EGL consumer uses this header; the obsolete bundled
+libwayland-egl is not installed by this package.
+
+--- a/src/egl/drivers/dri2/egl_dri2.h
++++ b/src/egl/drivers/dri2/egl_dri2.h
+@@ -43,7 +43,7 @@
+ 
+ #ifdef HAVE_WAYLAND_PLATFORM
+ #include <wayland-client.h>
+-#include "wayland-egl-priv.h"
++#include <wayland-egl-backend.h>
+ #endif
+ 
+ #include <GL/gl.h>
+--- a/src/egl/drivers/dri2/platform_wayland.c
++++ b/src/egl/drivers/dri2/platform_wayland.c
+@@ -180,7 +180,7 @@
+    wl_proxy_set_queue((struct wl_proxy *)dri2_surf->wl_surface_wrapper,
+                       dri2_surf->wl_queue);
+ 
+-   dri2_surf->wl_win->private = dri2_surf;
++   dri2_surf->wl_win->driver_private = dri2_surf;
+    dri2_surf->wl_win->destroy_window_callback = destroy_window_callback;
+ 
+    dri2_surf->base.Width =  window->width;
+@@ -274,7 +274,7 @@
+       wl_callback_destroy(dri2_surf->throttle_callback);
+ 
+    if (dri2_surf->wl_win) {
+-      dri2_surf->wl_win->private = NULL;
++      dri2_surf->wl_win->driver_private = NULL;
+       dri2_surf->wl_win->resize_callback = NULL;
+       dri2_surf->wl_win->destroy_window_callback = NULL;
+    }

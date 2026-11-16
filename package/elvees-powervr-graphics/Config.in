@@ -1,0 +1,26 @@
+config BR2_PACKAGE_ELVEES_POWERVR_GRAPHICS
+	bool "PowerVR GE8300 EGL/GLES/GBM"
+	depends on BR2_aarch64 && BR2_LINUX_KERNEL && BR2_TOOLCHAIN_USES_GLIBC
+	depends on BR2_INSTALL_LIBSTDCPP && !BR2_STATIC_LIBS
+	depends on BR2_TOOLCHAIN_HAS_THREADS_NPTL
+	select BR2_PACKAGE_ELVEES_POWERVR_OPENCL
+	select BR2_PACKAGE_EXPAT
+	select BR2_PACKAGE_WAYLAND
+	select BR2_PACKAGE_MESA3D_HEADERS
+	select BR2_PACKAGE_HAS_LIBEGL
+	select BR2_PACKAGE_HAS_LIBGLES
+	select BR2_PACKAGE_HAS_LIBGBM
+	select BR2_PACKAGE_LIBGBM_HAS_FEATURE_DMA_BUF
+	select BR2_PACKAGE_LIBGBM_HAS_FEATURE_FORMAT_MODIFIER_PLANE_COUNT
+	help
+	  Vendor GLES and source-built ELVEES Mesa 17 EGL/GBM, including
+	  the device-query and DMA-BUF compatibility fixes tested on Astra.
+
+if BR2_PACKAGE_ELVEES_POWERVR_GRAPHICS
+config BR2_PACKAGE_PROVIDES_LIBEGL
+	default "elvees-powervr-graphics"
+config BR2_PACKAGE_PROVIDES_LIBGLES
+	default "elvees-powervr-graphics"
+config BR2_PACKAGE_PROVIDES_LIBGBM
+	default "elvees-powervr-graphics"
+endif

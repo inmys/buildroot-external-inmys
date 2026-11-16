@@ -1,0 +1,16 @@
+The ELVEES DDK needs pvr_sync in addition to the standard DRM nodes.
+The vendor GStreamer OMX decoder uses mv500. Keep both in the normal
+bubblewrap device allowlist, without disabling the WebKit sandbox.
+
+--- a/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
++++ b/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
+@@ -442,6 +442,9 @@ static void bindOpenGL(Vector<CString>& args)
+ {
+     args.appendVector(Vector<CString>({
+         "--dev-bind-try", "/dev/dri", "/dev/dri",
++        // ELVEES / Imagination PowerVR and Mali-V61 OMX decoder
++        "--dev-bind-try", "/dev/pvr_sync", "/dev/pvr_sync",
++        "--dev-bind-try", "/dev/mv500", "/dev/mv500",
+         // Mali
+         "--dev-bind-try", "/dev/mali", "/dev/mali",
+         "--dev-bind-try", "/dev/mali0", "/dev/mali0",

@@ -1,0 +1,69 @@
+#!/bin/sh
+set -eu
+session=/run/inmys-browser
+vision=/etc/init.d/S90inmysvision
+[ "$(id -u)" = 0 ] || { echo "Run as root" >&2; exit 1; }
+if [ "${1:-}" = stop ]; then
+    [ ! -s "$session/pid" ] || kill -TERM "$(cat "$session/pid")"
+    exit 0
+fi
+if [ -s "$session/pid" ] && kill -0 "$(cat "$session/pid")" 2>/dev/null; then
+    echo 'Browser session is already running; use inmys-browser stop' >&2
+    exit 1
+fi
+mkdir -p "$session"
+chmod 0711 "$session"
+echo $$ > "$session/pid"
+weston_pid=
+cog_pid=
+restore_vision=false
+cleanup() {
+    trap - EXIT HUP INT TERM
+    [ -z "$cog_pid" ] || kill -TERM -- "-$cog_pid" 2>/dev/null || true
+    [ -z "$cog_pid" ] || wait "$cog_pid" 2>/dev/null || true
+    [ -z "$weston_pid" ] || kill -TERM "$weston_pid" 2>/dev/null || true
+    [ -z "$weston_pid" ] || wait "$weston_pid" 2>/dev/null || true
+    rm -f "$session/pid"
+    if "$restore_vision"; then "$vision" start; fi
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+if [ -s /run/inmys-vision.pid ] && kill -0 "$(cat /run/inmys-vision.pid)" 2>/dev/null; then
+    restore_vision=true
+fi
+"$vision" stop
+if mountpoint -q /data; then
+    mkdir -p /data/browser
+    chmod 0700 /data/browser
+    chown browser:browser /data/browser
+    export NMS_BROWSER_HOME=/data/browser
+fi
+mkdir -p "$session/weston" "$session/client"
+chmod 0700 "$session/weston" "$session/client"
+chown browser:browser "$session/client"
+export XDG_RUNTIME_DIR="$session/weston"
+export LIBSEAT_BACKEND=builtin
+export EGL_PLATFORM=drm
+weston --backend=drm --renderer=gl --drm-device=card0 --socket=wayland-0 \
+    --continue-without-input --idle-time=0 \
+    --config=/etc/inmys-browser/weston.ini --log=/var/log/inmys-weston.log &
+weston_pid=$!
+n=0
+while [ ! -S "$session/weston/wayland-0" ]; do
+    if ! kill -0 "$weston_pid" 2>/dev/null || [ "$n" -ge 100 ]; then
+        echo 'Weston failed; see /var/log/inmys-weston.log' >&2
+        exit 1
+    fi
+    n=$((n+1))
+    sleep 0.1
+done
+chmod 0711 "$session/weston"
+chown browser:browser "$session/weston/wayland-0"
+chmod 0600 "$session/weston/wayland-0"
+echo 'Browser running; Ctrl+C or inmys-browser stop ends the session.'
+setsid start-stop-daemon -S -c browser:browser -x /usr/libexec/inmys-cog -- \
+    "${1:-file:///usr/share/inmys/browser-test.html}" &
+cog_pid=$!
+wait "$cog_pid"

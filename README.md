@@ -32,6 +32,11 @@ Linux DTB выбирается переменной U-Boot `fdtfile`.
 | `make uboot-rebuild && make` | Пересборка U-Boot и образов загрузчиков |
 | `make` после правки Linux DTS/DTSI в external tree | Пересборка DTB и образов автоматически |
 
+Браузер запускается вручную: `inmys-browser https://example.org`
+(без URL — локальная проверка WebGL). Команда останавливает `inmys-vision`,
+запускает Weston + Cog; Ctrl+C или `inmys-browser stop` завершает сеанс
+и возвращает ранее работавший `inmys-vision`. Автостарта браузера нет.
+
 | Каталог | Содержимое |
 | --- | --- |
 | `configs/` | Buildroot defconfig |

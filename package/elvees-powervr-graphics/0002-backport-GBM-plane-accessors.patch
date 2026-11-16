@@ -1,0 +1,335 @@
+Backport GBM plane accessors for the ELVEES Mesa 17 / PVR DRI v8 branch.
+Adapted from Mesa 17.3.9's GBM implementation:
+https://archive.mesa3d.org/older-versions/17.x/mesa-17.3.9.tar.xz
+
+Explicit-modifier allocation remains unsupported. Report ENOSYS so clients
+can use the existing implicit-layout allocation/export/import path.
+The public GBM ABI is extended; rebuild the matching EGL/GBM/DRI set together.
+Also remove the obsolete ARGB8888 scanout prohibition, as in Mesa 17.3.9.
+Real ARGB scanout allocation/export/EGL import passes on the MCom-03 display
+allocator (card0); PowerVR's renderD128 allocator cannot allocate scanout BOs.
+
+--- a/include/GL/internal/dri_interface.h
++++ b/include/GL/internal/dri_interface.h
+@@ -1272,6 +1272,8 @@
+ #define __DRI_IMAGE_ATTRIB_NUM_PLANES   0x2009 /* available in versions 11 */
+ 
+ #define __DRI_IMAGE_ATTRIB_OFFSET 0x200A /* available in versions 13 */
++#define __DRI_IMAGE_ATTRIB_MODIFIER_LOWER 0x200B /* available in versions 14 */
++#define __DRI_IMAGE_ATTRIB_MODIFIER_UPPER 0x200C /* available in versions 14 */
+ 
+ enum __DRIYUVColorSpace {
+    __DRI_YUV_COLOR_SPACE_UNDEFINED = 0,
+--- a/src/gbm/main/gbmint.h
++++ b/src/gbm/main/gbmint.h
+@@ -86,6 +86,14 @@
+                                   struct gbm_bo *bo);
+    int (*surface_has_free_buffers)(struct gbm_surface *surface);
+    void (*surface_destroy)(struct gbm_surface *surface);
++
++   /* Plane accessors, backported from Mesa 17.3. */
++   int (*bo_get_planes)(struct gbm_bo *bo);
++   union gbm_bo_handle (*bo_get_handle_for_plane)(struct gbm_bo *bo, int plane);
++   uint32_t (*bo_get_stride_for_plane)(struct gbm_bo *bo, int plane);
++   uint32_t (*bo_get_offset)(struct gbm_bo *bo, int plane);
++   uint64_t (*bo_get_modifier)(struct gbm_bo *bo);
++   int (*bo_get_fd_for_plane)(struct gbm_bo *bo, int plane);
+ };
+ 
+ /**
+--- a/src/gbm/main/gbm.h
++++ b/src/gbm/main/gbm.h
+@@ -243,6 +243,17 @@
+               uint32_t width, uint32_t height,
+               uint32_t format, uint32_t flags);
+ 
++struct gbm_bo *
++gbm_bo_create_with_modifiers(struct gbm_device *gbm,
++                             uint32_t width, uint32_t height, uint32_t format,
++                             const uint64_t *modifiers, unsigned int count);
++
++struct gbm_bo *
++gbm_bo_create_with_modifiers2(struct gbm_device *gbm,
++                              uint32_t width, uint32_t height, uint32_t format,
++                              const uint64_t *modifiers, unsigned int count,
++                              uint32_t flags);
++
+ #define GBM_BO_IMPORT_WL_BUFFER         0x5501
+ #define GBM_BO_IMPORT_EGL_IMAGE         0x5502
+ #define GBM_BO_IMPORT_FD                0x5503
+@@ -303,6 +314,13 @@
+ uint32_t
+ gbm_bo_get_stride(struct gbm_bo *bo);
+ 
++uint32_t gbm_bo_get_stride_for_plane(struct gbm_bo *bo, int plane);
++uint32_t gbm_bo_get_offset(struct gbm_bo *bo, int plane);
++int gbm_bo_get_plane_count(struct gbm_bo *bo);
++union gbm_bo_handle gbm_bo_get_handle_for_plane(struct gbm_bo *bo, int plane);
++uint64_t gbm_bo_get_modifier(struct gbm_bo *bo);
++int gbm_bo_get_fd_for_plane(struct gbm_bo *bo, int plane);
++
+ uint32_t
+ gbm_bo_get_format(struct gbm_bo *bo);
+ 
+--- a/src/gbm/main/gbm.c
++++ b/src/gbm/main/gbm.c
+@@ -168,6 +168,42 @@
+    return bo->stride;
+ }
+ 
++GBM_EXPORT uint32_t
++gbm_bo_get_stride_for_plane(struct gbm_bo *bo, int plane)
++{
++   return bo->gbm->bo_get_stride_for_plane(bo, plane);
++}
++
++GBM_EXPORT uint32_t
++gbm_bo_get_offset(struct gbm_bo *bo, int plane)
++{
++   return bo->gbm->bo_get_offset(bo, plane);
++}
++
++GBM_EXPORT int
++gbm_bo_get_plane_count(struct gbm_bo *bo)
++{
++   return bo->gbm->bo_get_planes(bo);
++}
++
++GBM_EXPORT union gbm_bo_handle
++gbm_bo_get_handle_for_plane(struct gbm_bo *bo, int plane)
++{
++   return bo->gbm->bo_get_handle_for_plane(bo, plane);
++}
++
++GBM_EXPORT uint64_t
++gbm_bo_get_modifier(struct gbm_bo *bo)
++{
++   return bo->gbm->bo_get_modifier(bo);
++}
++
++GBM_EXPORT int
++gbm_bo_get_fd_for_plane(struct gbm_bo *bo, int plane)
++{
++   return bo->gbm->bo_get_fd_for_plane(bo, plane);
++}
++
+ /** Get the format of the buffer object
+  *
+  * The format of the pixels in the buffer.
+@@ -316,6 +352,35 @@
+    return gbm->bo_create(gbm, width, height, format, usage);
+ }
+ 
++GBM_EXPORT struct gbm_bo *
++gbm_bo_create_with_modifiers(struct gbm_device *gbm,
++                             uint32_t width, uint32_t height, uint32_t format,
++                             const uint64_t *modifiers, unsigned int count)
++{
++   return gbm_bo_create_with_modifiers2(gbm, width, height, format,
++                                       modifiers, count, 0);
++}
++
++GBM_EXPORT struct gbm_bo *
++gbm_bo_create_with_modifiers2(struct gbm_device *gbm,
++                              uint32_t width, uint32_t height, uint32_t format,
++                              const uint64_t *modifiers, unsigned int count,
++                              uint32_t flags)
++{
++   if (!width || !height || (count && !modifiers) || (modifiers && !count)) {
++      errno = EINVAL;
++      return NULL;
++   }
++   if (!modifiers)
++      return gbm_bo_create(gbm, width, height, format, flags);
++
++   /* This Mesa branch predates DRI createImageWithModifiers. Do not allocate
++    * an implicitly laid out image and mislabel it as an explicit modifier.
++    * Clients may fall back to ordinary GBM_BO_USE_LINEAR allocation. */
++   errno = ENOSYS;
++   return NULL;
++}
++
+ /**
+  * Create a gbm buffer object from an foreign object
+  *
+--- a/src/gbm/backends/dri/gbm_dri.c
++++ b/src/gbm/backends/dri/gbm_dri.c
+@@ -38,6 +38,7 @@
+ #include <unistd.h>
+ #include <dlfcn.h>
+ #include <xf86drm.h>
++#include <drm_fourcc.h>
+ 
+ #include <GL/gl.h> /* dri_interface needs GL types */
+ #include <GL/internal/dri_interface.h>
+@@ -553,8 +554,6 @@
+       break;
+    case GBM_BO_FORMAT_ARGB8888:
+    case GBM_FORMAT_ARGB8888:
+-      if (usage & GBM_BO_USE_SCANOUT)
+-         return 0;
+       break;
+    default:
+       return 0;
+@@ -617,6 +616,131 @@
+    free(bo);
+ }
+ 
++/* Plane accessors adapted from Mesa 17.3.9. DRI v8 lacks plane queries, but
++ * the legacy RGB/R/RG formats below are unambiguously single-plane. Do not
++ * guess the plane count for imported YUV formats on older image drivers. */
++static int
++gbm_dri_bo_get_planes(struct gbm_bo *_bo)
++{
++   struct gbm_dri_device *dri = gbm_dri_device(_bo->gbm);
++   struct gbm_dri_bo *bo = gbm_dri_bo(_bo);
++   int count = 0;
++
++   if (!bo->image)
++      return 1;
++   if (dri->image->base.version >= 11 &&
++       dri->image->queryImage(bo->image, __DRI_IMAGE_ATTRIB_NUM_PLANES, &count) &&
++       count > 0)
++      return count;
++   switch (_bo->format) {
++   case GBM_BO_FORMAT_XRGB8888:
++   case GBM_BO_FORMAT_ARGB8888:
++   case GBM_FORMAT_XRGB8888:
++   case GBM_FORMAT_ARGB8888:
++   case GBM_FORMAT_XBGR8888:
++   case GBM_FORMAT_ABGR8888:
++   case GBM_FORMAT_RGB565:
++   case GBM_FORMAT_R8:
++   case GBM_FORMAT_GR88:
++   case GBM_FORMAT_ARGB2101010:
++   case GBM_FORMAT_XRGB2101010:
++      return 1;
++   default:
++      errno = ENOSYS;
++      return 0;
++   }
++}
++
++static int
++gbm_dri_bo_query_plane(struct gbm_bo *_bo, int plane, int attrib, int *value)
++{
++   struct gbm_dri_device *dri = gbm_dri_device(_bo->gbm);
++   struct gbm_dri_bo *bo = gbm_dri_bo(_bo);
++   int count = gbm_dri_bo_get_planes(_bo);
++   __DRIimage *image;
++   int result;
++
++   if (plane < 0 || plane >= count) {
++      errno = EINVAL;
++      return 0;
++   }
++   if (!bo->image || (count == 1 && dri->image->base.version < 11)) {
++      switch (attrib) {
++      case __DRI_IMAGE_ATTRIB_HANDLE: *value = _bo->handle.s32; return 1;
++      case __DRI_IMAGE_ATTRIB_STRIDE: *value = _bo->stride; return 1;
++      /* The legacy BO allocator/import-FD interface starts at offset zero. */
++      case __DRI_IMAGE_ATTRIB_OFFSET: *value = 0; return 1;
++      case __DRI_IMAGE_ATTRIB_FD:
++         *value = gbm_dri_bo_get_fd(_bo);
++         return *value >= 0;
++      default: errno = ENOSYS; return 0;
++      }
++   }
++   image = dri->image->fromPlanar ?
++      dri->image->fromPlanar(bo->image, plane, NULL) : NULL;
++   if (!image && plane != 0) {
++      errno = ENOSYS;
++      return 0;
++   }
++   result = dri->image->queryImage(image ? image : bo->image, attrib, value);
++   if (image)
++      dri->image->destroyImage(image);
++   if (!result)
++      errno = ENOSYS;
++   return result;
++}
++
++static union gbm_bo_handle
++gbm_dri_bo_get_handle_for_plane(struct gbm_bo *bo, int plane)
++{
++   union gbm_bo_handle result;
++   result.s32 = -1;
++   gbm_dri_bo_query_plane(bo, plane, __DRI_IMAGE_ATTRIB_HANDLE, &result.s32);
++   return result;
++}
++
++static uint32_t
++gbm_dri_bo_get_stride_for_plane(struct gbm_bo *bo, int plane)
++{
++   int stride = 0;
++   gbm_dri_bo_query_plane(bo, plane, __DRI_IMAGE_ATTRIB_STRIDE, &stride);
++   return stride;
++}
++
++static int
++gbm_dri_bo_get_fd_for_plane(struct gbm_bo *bo, int plane)
++{
++   int fd = -1;
++   gbm_dri_bo_query_plane(bo, plane, __DRI_IMAGE_ATTRIB_FD, &fd);
++   return fd;
++}
++
++static uint32_t
++gbm_dri_bo_get_offset(struct gbm_bo *bo, int plane)
++{
++   int offset = 0;
++   gbm_dri_bo_query_plane(bo, plane, __DRI_IMAGE_ATTRIB_OFFSET, &offset);
++   return offset;
++}
++
++static uint64_t
++gbm_dri_bo_get_modifier(struct gbm_bo *_bo)
++{
++   struct gbm_dri_device *dri = gbm_dri_device(_bo->gbm);
++   struct gbm_dri_bo *bo = gbm_dri_bo(_bo);
++   int upper, lower;
++
++   if (!bo->image)
++      return DRM_FORMAT_MOD_LINEAR;
++   if (dri->image->base.version >= 14 &&
++       dri->image->queryImage(bo->image, __DRI_IMAGE_ATTRIB_MODIFIER_UPPER, &upper) &&
++       dri->image->queryImage(bo->image, __DRI_IMAGE_ATTRIB_MODIFIER_LOWER, &lower))
++      return ((uint64_t)(uint32_t)upper << 32) | (uint32_t)lower;
++   /* INVALID means implicit layout, not a claim that the allocation is linear. */
++   errno = ENOSYS;
++   return DRM_FORMAT_MOD_INVALID;
++}
++
+ static uint32_t
+ gbm_dri_to_gbm_format(uint32_t dri_format)
+ {
+@@ -1064,6 +1188,12 @@
+    dri->base.base.bo_write = gbm_dri_bo_write;
+    dri->base.base.bo_get_fd = gbm_dri_bo_get_fd;
+    dri->base.base.bo_destroy = gbm_dri_bo_destroy;
++   dri->base.base.bo_get_planes = gbm_dri_bo_get_planes;
++   dri->base.base.bo_get_handle_for_plane = gbm_dri_bo_get_handle_for_plane;
++   dri->base.base.bo_get_stride_for_plane = gbm_dri_bo_get_stride_for_plane;
++   dri->base.base.bo_get_offset = gbm_dri_bo_get_offset;
++   dri->base.base.bo_get_modifier = gbm_dri_bo_get_modifier;
++   dri->base.base.bo_get_fd_for_plane = gbm_dri_bo_get_fd_for_plane;
+    dri->base.base.destroy = dri_destroy;
+    dri->base.base.surface_create = gbm_dri_surface_create;
+    dri->base.base.surface_destroy = gbm_dri_surface_destroy;
+--- a/src/gbm/gbm-symbols-check
++++ b/src/gbm/gbm-symbols-check
+@@ -8,6 +8,14 @@
+ gbm_device_destroy
+ gbm_create_device
+ gbm_bo_create
++gbm_bo_create_with_modifiers
++gbm_bo_get_stride_for_plane
++gbm_bo_get_offset
++gbm_bo_get_plane_count
++gbm_bo_get_handle_for_plane
++gbm_bo_get_modifier
++gbm_bo_create_with_modifiers2
++gbm_bo_get_fd_for_plane
+ gbm_bo_import
+ gbm_bo_map
+ gbm_bo_unmap

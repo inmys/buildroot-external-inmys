@@ -1,0 +1,78 @@
+Check the GBM plane-export API instead of a Mesa version number. ELVEES
+Mesa 17 has the required backports but cannot allocate explicit modifiers.
+Restore the conditional modifier-surface path used by Weston 10; the
+existing implicit-layout fallback remains unchanged.
+
+--- a/libweston/meson.build
++++ b/libweston/meson.build
+@@ -87,7 +87,16 @@
+ subdir('desktop')
+ subdir('shell-utils')
+ 
+-dep_gbm = dependency('gbm', required: false, version: '>= 21.1.1')
++# The vendor Mesa branch backports plane APIs without changing its version.
++dep_gbm = dependency('gbm', required: false)
++if dep_gbm.found()
++	if not cc.has_function('gbm_bo_get_fd_for_plane', prefix: '#include <gbm.h>', dependencies: dep_gbm)
++		error('GBM must provide gbm_bo_get_fd_for_plane')
++	endif
++	if cc.has_function('gbm_surface_create_with_modifiers', prefix: '#include <gbm.h>', dependencies: dep_gbm)
++		config_h.set('HAVE_GBM_MODIFIERS', '1')
++	endif
++endif
+ 
+ if get_option('backend-vnc')
+ 	dep_pam = dependency('pam', required: false)
+--- a/libweston/backend-drm/drm-gbm.c
++++ b/libweston/backend-drm/drm-gbm.c
+@@ -185,8 +185,10 @@
+ 	struct weston_mode *mode = output->base.current_mode;
+ 	struct drm_plane *plane = output->scanout_plane;
+ 	struct weston_drm_format *fmt;
++#ifdef HAVE_GBM_MODIFIERS
+ 	const uint64_t *modifiers;
+ 	unsigned int num_modifiers;
++#endif
+ 
+ 	fmt = weston_drm_format_array_find_format(&plane->formats,
+ 						  output->format->format);
+@@ -197,6 +199,7 @@
+ 		return;
+ 	}
+ 
++#ifdef HAVE_GBM_MODIFIERS
+ 	if (!weston_drm_format_has_modifier(fmt, DRM_FORMAT_MOD_INVALID)) {
+ 		modifiers = weston_drm_format_get_modifiers(fmt, &num_modifiers);
+ 		output->gbm_surface =
+@@ -205,6 +208,7 @@
+ 							  output->format->format,
+ 							  modifiers, num_modifiers);
+ 	}
++#endif
+ 
+ 	/*
+ 	 * If we cannot use modifiers to allocate the GBM surface and the GBM
+--- a/libweston/backend-drm/fb.c
++++ b/libweston/backend-drm/fb.c
+@@ -376,6 +376,13 @@
+ 		       struct drm_device *device, bool is_opaque,
+ 		       uint32_t *try_view_on_plane_failure_reasons)
+ {
++#ifndef GBM_BO_IMPORT_FD_MODIFIER
++	/* Direct KMS import needs explicit modifiers. The renderer can still
++	 * composite these buffers with EGL, as on Weston 10. */
++	if (try_view_on_plane_failure_reasons)
++		*try_view_on_plane_failure_reasons |= FAILURE_REASONS_GBM_BO_IMPORT_FAILED;
++	return NULL;
++#else
+ 	struct drm_backend *backend = device->backend;
+ 	struct drm_fb *fb;
+ 	int i;
+@@ -486,6 +493,7 @@
+ err_free:
+ 	drm_fb_destroy_dmabuf(fb);
+ 	return NULL;
++#endif
+ }
+ 
+ struct drm_fb *

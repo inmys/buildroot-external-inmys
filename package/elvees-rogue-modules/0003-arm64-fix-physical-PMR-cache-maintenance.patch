@@ -1,0 +1,189 @@
+Subject: [PATCH] arm64: service physical PMR cache operations on mapped RAM pages
+
+The PHYSICAL cache-op interface permits a NULL virtual address. The previous
+fallback passed that NULL to dma_map_single(), ignoring the supplied physical
+address. Linux 6.18/SWIOTLB then faults while bouncing the unrelated mapping.
+This affects Firefox readback and the driver's own diagnostic dump.
+
+Map the pinned PMR RAM pages for CPU cache maintenance instead of creating a
+new DMA mapping. Keep clean/invalidate/flush semantics, preserve partial-line
+bytes on invalidate, and complete cache maintenance with DSB SY before return.
+Applies after the existing Linux 6.18 compatibility patch.
+
+--- a/services/server/env/linux/osfunc_arm64.c
++++ b/services/server/env/linux/osfunc_arm64.c
+@@ -42,7 +42,8 @@
+ */ /**************************************************************************/
+ #include <linux/version.h>
+ #include <linux/cpumask.h>
+-#include <linux/dma-mapping.h>
++#include <linux/highmem.h>
++#include <asm/barrier.h>
+ #include <asm/cacheflush.h>
+ 
+ #include "pvrsrv_error.h"
+@@ -153,7 +154,9 @@
+ 							  PVRSRV_CACHE_OP eCacheOp)
+ {
+ 	IMG_UINT32 ui32CacheLineSize = OSCPUCacheAttributeSize(PVR_DCACHE_LINE_SIZE);
+-	IMG_BYTE *pbStart = pvRangeAddrStart;
++	uintptr_t uiStart = (uintptr_t)pvRangeAddrStart;
++	uintptr_t uiEnd = (uintptr_t)pvRangeAddrEnd;
++	IMG_BYTE *pbStart = (IMG_BYTE *)(uiStart & ~((uintptr_t)ui32CacheLineSize - 1));
+ 	IMG_BYTE *pbEnd = pvRangeAddrEnd;
+ 	IMG_BYTE *pbBase;
+ 
+@@ -171,15 +174,20 @@
+ 		switch (eCacheOp)
+ 		{
+ 			case PVRSRV_CACHE_OP_CLEAN:
+-				asm volatile ("dc cvac, %0" :: "r" (pbBase));
++				asm volatile ("dc cvac, %0" :: "r" (pbBase) : "memory");
+ 				break;
+ 
+ 			case PVRSRV_CACHE_OP_INVALIDATE:
+-				asm volatile ("dc ivac, %0" :: "r" (pbBase));
++				/* Preserve bytes outside a partially covered cache line. */
++				if ((uintptr_t)pbBase < uiStart ||
++					(uintptr_t)pbBase + ui32CacheLineSize > uiEnd)
++					asm volatile ("dc civac, %0" :: "r" (pbBase) : "memory");
++				else
++					asm volatile ("dc ivac, %0" :: "r" (pbBase) : "memory");
+ 				break;
+ 
+ 			case PVRSRV_CACHE_OP_FLUSH:
+-				asm volatile ("dc civac, %0" :: "r" (pbBase));
++				asm volatile ("dc civac, %0" :: "r" (pbBase) : "memory");
+ 				break;
+ 
+ 			default:
+@@ -189,6 +197,47 @@
+ 				break;
+ 		}
+ 	}
++	/* Complete maintenance before the caller reuses or unmaps the buffer. */
++	dsb(sy);
++}
++
++static void CacheRange(void *pvVirtStart, void *pvVirtEnd,
++					   IMG_CPU_PHYADDR sCPUPhysStart,
++					   IMG_CPU_PHYADDR sCPUPhysEnd,
++					   PVRSRV_CACHE_OP eCacheOp)
++{
++	phys_addr_t phys = sCPUPhysStart.uiAddr;
++	phys_addr_t end = sCPUPhysEnd.uiAddr;
++
++	if (pvVirtStart)
++	{
++		FlushRange(pvVirtStart, pvVirtEnd, eCacheOp);
++		return;
++	}
++
++	/*
++	 * PHYSICAL cache-op requests deliberately omit the virtual address.
++	 * dma_map_single(NULL) cannot service them: it maps an unrelated address
++	 * and may even copy from it through SWIOTLB. The PMR has already resolved
++	 * and pinned the backing RAM pages; map those pages for CPU maintenance.
++	 * This is cache maintenance only, not a new GPU DMA mapping.
++	 */
++	while (phys < end)
++	{
++		unsigned long pfn = PHYS_PFN(phys);
++		size_t offset = offset_in_page(phys);
++		size_t size = min_t(phys_addr_t, PAGE_SIZE - offset, end - phys);
++		void *mapping;
++		IMG_BYTE *start;
++
++		if (WARN_ON_ONCE(!pfn_valid(pfn)))
++			return;
++		mapping = kmap_local_page(pfn_to_page(pfn));
++		start = (IMG_BYTE *)mapping + offset;
++		FlushRange(start, start + size, eCacheOp);
++		kunmap_local(mapping);
++		phys += size;
++	}
+ }
+ 
+ PVRSRV_ERROR OSCPUOperation(PVRSRV_CACHE_OP uiCacheOp)
+@@ -224,24 +273,9 @@
+ 							IMG_CPU_PHYADDR sCPUPhysStart,
+ 							IMG_CPU_PHYADDR sCPUPhysEnd)
+ {
+-	struct device *dev = psDevNode->psDevConfig->pvOSDevice;
+-	dma_addr_t bus_addr;
+-	size_t size = sCPUPhysEnd.uiAddr - sCPUPhysStart.uiAddr;
+-
+-	if (pvVirtStart)
+-	{
+-		FlushRange(pvVirtStart, pvVirtEnd, PVRSRV_CACHE_OP_FLUSH);
+-		return;
+-	}
+-
+-	bus_addr = dma_map_single(dev, pvVirtStart, size, DMA_BIDIRECTIONAL);
+-
+-	PVR_ASSERT(!dma_mapping_error(dev,bus_addr));
+-
+-	dma_sync_single_for_device(dev, bus_addr, size, DMA_TO_DEVICE);
+-	dma_sync_single_for_cpu(dev, bus_addr, size, DMA_FROM_DEVICE);
+-
+-	dma_unmap_single(dev, bus_addr, size, DMA_BIDIRECTIONAL);
++	PVR_UNREFERENCED_PARAMETER(psDevNode);
++	CacheRange(pvVirtStart, pvVirtEnd, sCPUPhysStart, sCPUPhysEnd,
++			   PVRSRV_CACHE_OP_FLUSH);
+ }
+ 
+ void OSCPUCacheCleanRangeKM(PVRSRV_DEVICE_NODE *psDevNode,
+@@ -250,23 +284,9 @@
+ 							IMG_CPU_PHYADDR sCPUPhysStart,
+ 							IMG_CPU_PHYADDR sCPUPhysEnd)
+ {
+-	struct device *dev = psDevNode->psDevConfig->pvOSDevice;
+-	dma_addr_t bus_addr;
+-	size_t size = sCPUPhysEnd.uiAddr - sCPUPhysStart.uiAddr;
+-
+-	if (pvVirtStart)
+-	{
+-		FlushRange(pvVirtStart, pvVirtEnd, PVRSRV_CACHE_OP_CLEAN);
+-		return;
+-	}
+-
+-	bus_addr = dma_map_single(dev, pvVirtStart, size, DMA_TO_DEVICE);
+-
+-	PVR_ASSERT(!dma_mapping_error(dev,bus_addr));
+-
+-	dma_sync_single_for_device(dev, bus_addr, size, DMA_TO_DEVICE);
+-
+-	dma_unmap_single(dev, bus_addr, size, DMA_TO_DEVICE);
++	PVR_UNREFERENCED_PARAMETER(psDevNode);
++	CacheRange(pvVirtStart, pvVirtEnd, sCPUPhysStart, sCPUPhysEnd,
++			   PVRSRV_CACHE_OP_CLEAN);
+ }
+ 
+ void OSCPUCacheInvalidateRangeKM(PVRSRV_DEVICE_NODE *psDevNode,
+@@ -275,23 +295,9 @@
+ 								 IMG_CPU_PHYADDR sCPUPhysStart,
+ 								 IMG_CPU_PHYADDR sCPUPhysEnd)
+ {
+-	struct device *dev = psDevNode->psDevConfig->pvOSDevice;
+-	dma_addr_t bus_addr;
+-	size_t size = sCPUPhysEnd.uiAddr - sCPUPhysStart.uiAddr;
+-
+-	if (pvVirtStart)
+-	{
+-		FlushRange(pvVirtStart, pvVirtEnd, PVRSRV_CACHE_OP_INVALIDATE);
+-		return;
+-	}
+-
+-	bus_addr = dma_map_single(dev, pvVirtStart, size, DMA_FROM_DEVICE);
+-
+-	PVR_ASSERT(!dma_mapping_error(dev,bus_addr));
+-
+-	dma_sync_single_for_cpu(dev, bus_addr, size, DMA_FROM_DEVICE);
+-
+-	dma_unmap_single(dev, bus_addr, size, DMA_FROM_DEVICE);
++	PVR_UNREFERENCED_PARAMETER(psDevNode);
++	CacheRange(pvVirtStart, pvVirtEnd, sCPUPhysStart, sCPUPhysEnd,
++			   PVRSRV_CACHE_OP_INVALIDATE);
+ }
+ 
+ PVRSRV_CACHE_OP_ADDR_TYPE OSCPUCacheOpAddressType(void)

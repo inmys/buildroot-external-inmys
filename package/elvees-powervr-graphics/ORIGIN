@@ -1,0 +1,15 @@
+ELVEES SDK 2025.09, GE8300 BVNC 22.68.54.30, DDK 1.9@4991288.
+Mesa source member:
+mcom03r-defconfig-src/buildroot/dl/mesa3d/mesa3d-mcom03-17.0.y-br1.tar.gz
+Public source archive: https://dist.elvees.com/mcom03r/buildroot/2025.09/linux66/mcom03r-defconfig-src.tar.gz
+Vendor GLES, compiler, DRI support and headers: target sysroot in
+https://dist.elvees.com/mcom03r/buildroot/2025.09/linux66/images/aarch64-buildroot-linux-gnu_sdk-buildroot.tar.gz
+Both archives share the existing SDK download cache; no second SDK copy.
+
+Patches 0001-0003 originate in the Astra experiment in this workspace.
+They extend EGL device query and GBM plane/modifier APIs while retaining
+the original PVR DRI v8 interface. Explicit modifier allocation is unsupported.
+
+Patch 0004 switches the EGL Wayland consumer to the installed
+wayland-egl-backend.h ABI. The bundled Mesa 17 libwayland-egl is not installed;
+the image uses libwayland-egl from Buildroot's Wayland package.
