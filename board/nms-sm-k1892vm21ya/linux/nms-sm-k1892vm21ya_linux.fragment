@@ -109,3 +109,6 @@ CONFIG_KEYBOARD_GPIO=y
 # Direct SoC GPIO to STM32 PB10/TP1 signals final shutdown; no TF-A hook.
 CONFIG_POWER_RESET=y
 CONFIG_POWER_RESET_GPIO=y
+
+# Standard stateful H.264 V4L2 M2M frontend in the external MVE module.
+CONFIG_VIDEO_ELVEES_MVE_V4L2=m

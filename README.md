@@ -20,7 +20,8 @@ Linux DTB выбирается переменной U-Boot `fdtfile`.
 
 * `sdcard.img` — образ загрузочной SD с rootfs.
 * `qspi-full-nms-sm-k1892vm21ya.bin` — полный образ QSPI, 16 МиБ.
-* `emmc.img` — rootfs для eMMC; `firmware.swu` — A/B-обновление.
+* `emmc.img` — rootfs для eMMC.
+* `firmware.swu` — A/B-обновление.
 
 Команды из каталога `output/`:
 

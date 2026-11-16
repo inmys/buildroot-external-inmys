@@ -1,0 +1,22 @@
+--- a/drivers/media/v4l2-core/Kconfig
++++ b/drivers/media/v4l2-core/Kconfig
+@@ -48,6 +48,19 @@
+ config V4L2_VP9
+ 	tristate
+ 
++config VIDEO_ELVEES_MVE_V4L2
++	tristate "V4L2 helpers for the external ELVEES MVE decoder"
++	depends on ARCH_MCOM03R && VIDEO_DEV
++	select MEDIA_CONTROLLER
++	select VIDEOBUF2_V4L2
++	select VIDEOBUF2_VMALLOC
++	select VIDEOBUF2_DMA_CONTIG
++	select V4L2_MEM2MEM_DEV
++	help
++	  Build the standard queue and DMA-BUF allocators needed by the
++	  stateful H.264 frontend in the external ELVEES VPU module.
++	  The hardware frontend itself is built with that external module.
++
+ # Used by drivers that need v4l2-mem2mem.ko
+ config V4L2_MEM2MEM_DEV
+ 	tristate

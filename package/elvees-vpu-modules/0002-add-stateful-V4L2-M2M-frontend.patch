@@ -1,0 +1,157 @@
+--- a/drivers/video/arm/v5xx/base/Makefile
++++ b/drivers/video/arm/v5xx/base/Makefile
+@@ -66,3 +66,7 @@
+ 
+ # Always switch out on idleness
+ ccflags-y += -DSCHEDULER_MODE_IDLE_SWITCHOUT=1
++
++mve_base-$(CONFIG_MALI_VPU_V4L2) += mve_v4l2.o
++
++ccflags-$(CONFIG_MALI_VPU_V4L2) += -DCONFIG_MALI_VPU_V4L2=1
+--- a/drivers/video/arm/v5xx/base/mve_buffer.h
++++ b/drivers/video/arm/v5xx/base/mve_buffer.h
+@@ -70,6 +70,7 @@
+     enum mve_base_omx_buffer_format format;   /**< Format of the buffer. */
+     uint32_t offset;                          /**< If allocator is attachment, this member marks
+                                                *   the offset of the first byte in the buffer */
++    struct dma_buf *kernel_dmabuf; /* Internal callers only; never part of the ioctl ABI. */
+     bool do_cache_maintenance;                /**< True if cache maintenance is needed for this buffer */
+ 
+     uint32_t afbc_width_in_superblocks;       /**< Width of the AFBC buffer in superblocks (only for AFBC formats) */
+--- a/drivers/video/arm/v5xx/base/mve_buffer_dmabuf.c
++++ b/drivers/video/arm/v5xx/base/mve_buffer_dmabuf.c
+@@ -56,7 +56,12 @@
+     }
+ 
+     fd = (unsigned long)info->handle;
+-    buffer_external->handle = dma_buf_get((int)fd);
++    if (info->kernel_dmabuf) {
++        buffer_external->handle = info->kernel_dmabuf;
++        get_dma_buf(buffer_external->handle);
++    } else {
++        buffer_external->handle = dma_buf_get((int)fd);
++    }
+     if (IS_ERR_OR_NULL(buffer_external->handle))
+     {
+         goto error;
+--- a/drivers/video/arm/v5xx/base/mve_session_buffer.c
++++ b/drivers/video/arm/v5xx/base/mve_session_buffer.c
+@@ -236,9 +236,10 @@
+     return buffer;
+ }
+ 
+-mve_base_error mve_session_buffer_register_internal(struct mve_session *session,
++mve_base_error mve_session_buffer_register_kernel(struct mve_session *session,
+                                                     uint32_t port_index,
+-                                                    struct mve_base_buffer_userspace *userspace_buffer)
++                                                    struct mve_base_buffer_userspace *userspace_buffer,
++                                                    struct dma_buf *dmabuf)
+ {
+     enum mve_mem_virt_region_type region_mapping[][2] =
+     {
+@@ -250,7 +251,7 @@
+     struct mve_buffer_client *buffer, *ptr;
+     enum mve_mem_virt_region_type region_type;
+     bool res;
+-    struct mve_buffer_info buffer_info, crc_info;
++    struct mve_buffer_info buffer_info = {0}, crc_info = {0};
+     mve_base_error ret = MVE_BASE_ERROR_NONE;
+ 
+     buffer = get_external_descriptor(session, userspace_buffer->buffer_id);
+@@ -261,6 +262,9 @@
+         return MVE_BASE_ERROR_NONE;
+     }
+ 
++    if (dmabuf && userspace_buffer->allocator != MVE_BASE_BUFFER_ALLOCATOR_DMABUF)
++        return MVE_BASE_ERROR_BAD_PARAMETER;
++    buffer_info.kernel_dmabuf        = dmabuf;
+     buffer_info.buffer_id            = userspace_buffer->buffer_id;
+     buffer_info.handle               = userspace_buffer->handle;
+     buffer_info.allocator            = userspace_buffer->allocator;
+@@ -1099,3 +1103,10 @@
+ {
+     kref_put(&buffer->refcount, free_buffer);
+ }
++
++/* Legacy ioctl clients never supply an in-kernel DMA-BUF pointer. */
++mve_base_error mve_session_buffer_register_internal(struct mve_session *session,
++    uint32_t port_index, struct mve_base_buffer_userspace *descriptor)
++{
++    return mve_session_buffer_register_kernel(session, port_index, descriptor, NULL);
++}
+--- a/drivers/video/arm/v5xx/base/mve_session_buffer.h
++++ b/drivers/video/arm/v5xx/base/mve_session_buffer.h
+@@ -95,4 +95,8 @@
+ void mve_session_buffer_acquire(struct mve_buffer_client *buffer);
+ void mve_session_buffer_release(struct mve_buffer_client *buffer);
+ 
++struct dma_buf;
++mve_base_error mve_session_buffer_register_kernel(struct mve_session *session,
++    uint32_t port, struct mve_base_buffer_userspace *descriptor, struct dma_buf *dmabuf);
++
+ #endif /* MVE_SESSION_BUFFER_H */
+--- a/drivers/video/arm/v5xx/base/mve_driver.c
++++ b/drivers/video/arm/v5xx/base/mve_driver.c
+@@ -35,6 +35,8 @@
+ #include "mve_rsrc_log.h"
+ #include "mve_rsrc_register.h"
+ 
++#include "mve_v4l2.h"
++
+ #define MVE_DRIVER_NAME "mv500"
+ 
+ /**
+@@ -213,6 +215,10 @@
+     /* Initialize firmware module. */
+     mve_fw_init();
+ 
++    err = mve_v4l2_register(&pdev->dev);
++    if (err)
++        dev_warn(&pdev->dev, "V4L2 decoder registration failed: %d\n", err);
++
+     printk("MVE base driver loaded successfully\n");
+ 
+     return 0;
+@@ -227,6 +233,7 @@
+     struct mve_device *mdev = platform_get_drvdata(pdev);
+     dev_t dev = MKDEV(MAJOR(mdev->device), 0);
+ 
++    mve_v4l2_unregister();
+     device_destroy(mdev->mve_class, dev);
+     class_destroy(mdev->mve_class);
+ 
+--- /dev/null
++++ b/drivers/video/arm/v5xx/base/mve_v4l2.h
+@@ -0,0 +1,12 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef MVE_V4L2_H
++#define MVE_V4L2_H
++#include <linux/device.h>
++#if IS_ENABLED(CONFIG_MALI_VPU_V4L2)
++int mve_v4l2_register(struct device *dev);
++void mve_v4l2_unregister(void);
++#else
++static inline int mve_v4l2_register(struct device *dev) { return 0; }
++static inline void mve_v4l2_unregister(void) {}
++#endif
++#endif
+--- a/drivers/video/arm/v5xx/base/mve_session.c
++++ b/drivers/video/arm/v5xx/base/mve_session.c
+@@ -1574,7 +1574,7 @@
+         uint32_t alignment;
+         phys_addr_t *pages = NULL;
+         uint32_t mve_addr = 0;
+-        struct mve_buffer_info info;
++        struct mve_buffer_info info = {0};
+         struct mve_buffer_external *buffer = NULL;
+ 
+         if (fd < 0)
+@@ -1682,7 +1682,7 @@
+         uint32_t ret_addr = 0;
+         bool ret;
+         uint32_t mapped_pages, max_pages, num_new_pages;
+-        struct mve_buffer_info info;
++        struct mve_buffer_info info = {0};
+         struct mve_buffer_external *buffer;
+ 
+         if (fd < 0)

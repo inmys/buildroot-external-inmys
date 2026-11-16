@@ -1,0 +1,65 @@
+Subject: [PATCH] pvr: merge PMRs sharing a DMA-BUF reservation before locking
+
+NV12 plane views may import the same DMA-BUF as separate PMRs. Locking
+the same ww_mutex twice returns EALREADY. Deduplicate by reservation and
+merge access flags for both sync-checkpoint and legacy submission paths.
+
+--- a/kernel/drivers/staging/imgtec/pvr_buffer_sync.c
++++ b/kernel/drivers/staging/imgtec/pvr_buffer_sync.c
+@@ -605,7 +605,7 @@
+ 	PSYNC_CHECKPOINT *fence_checkpoints = NULL;
+ 	struct pvr_buffer_sync_check_data *check_data;
+ 	struct pvr_fence *update_fence;
+-	int i;
++	int i, j;
+ 	int err = 0;
+ 
+ 	//pr_err("%s: ->ENTRY (%d pmrs)\n", __func__, nr_pmrs);
+@@ -622,15 +622,33 @@
+ 		}
+ 	}
+ 
+-	data = kzalloc(sizeof(*data), GFP_KERNEL);
++	data = kzalloc(sizeof(*data) + nr_pmrs * (sizeof(*pmrs) + sizeof(*pmr_flags)), GFP_KERNEL);
+ 	if (!data)
+ 		return -ENOMEM;
+ 
+ 	data->appended = true;
+ 	data->ctx = ctx;
+-	data->nr_pmrs = nr_pmrs;
+-	data->pmrs = pmrs;
+-	data->pmr_flags = pmr_flags;
++	/* Separate PMRs (e.g. NV12 plane imports) can share a dma_resv.
++	 * Lock and fence each reservation once, merging read/write access. */
++	data->pmrs = (struct _PMR_ **)(data + 1);
++	data->pmr_flags = (u32 *)(data->pmrs + nr_pmrs);
++	for (i = 0; i < nr_pmrs; ++i) {
++		for (j = 0; j < data->nr_pmrs; ++j) {
++			if (pmr_reservation_object_get(data->pmrs[j]) ==
++			    pmr_reservation_object_get(pmrs[i])) {
++				data->pmr_flags[j] |= pmr_flags[i];
++				break;
++			}
++		}
++		if (j == data->nr_pmrs) {
++			data->pmrs[j] = pmrs[i];
++			data->pmr_flags[j] = pmr_flags[i];
++			++data->nr_pmrs;
++		}
++	}
++	nr_pmrs = data->nr_pmrs;
++	pmrs = data->pmrs;
++	pmr_flags = data->pmr_flags;
+ 
+ #if defined(NO_HARDWARE)
+ 	/*
+@@ -875,7 +893,8 @@
+ 	 */
+ 	for (i = 0; i < nr_pmrs; i++) {
+ 		for (j = 0; j < data->nr_pmrs; j++) {
+-			if (data->pmrs[j] == pmrs[i]) {
++			if (pmr_reservation_object_get(data->pmrs[j]) ==
++			    pmr_reservation_object_get(pmrs[i])) {
+ 				data->pmr_flags[j] |= pmr_flags[i];
+ 				break;
+ 			}

@@ -2,5 +2,9 @@ Source: https://dist.elvees.com/mcom03r/buildroot/2025.09/linux66/mcom03r-defcon
 Member: mcom03r-defconfig-src/buildroot/dl/mcom03-vpu-modules/mcom03-vpu-modules-master-br1.tar.gz
 SDK commit: 9dccb3ce2b7e9c4193f4b0bc63233ff2c86d9456
 Original repository: ssh://gerrit.elvees.com:29418/mcom03/vpu-modules
-Kernel API compatibility patch only; preserve vendor MCom-03/DVFS build options.
+Kernel API compatibility patch plus an in-kernel DMA-BUF registration helper
+and the local GPL-2.0-only stateful H.264 V4L2 M2M frontend in src/mve_v4l2.c.
+The legacy /dev/mv500 ABI and vendor MCom-03/DVFS build options are preserved.
 Firmware is installed from the same source snapshot as the driver.
+The local frontend uses 18 internal DPB/output buffers and checks the firmware
+minimum; real Rutube H.264 streams require more than the initial eight.
