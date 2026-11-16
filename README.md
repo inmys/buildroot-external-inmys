@@ -16,6 +16,21 @@ make -C output
 Все четыре платы-носителя используют общие образы загрузчиков и rootfs.
 Linux DTB выбирается переменной U-Boot `fdtfile`.
 
+Результаты в `output/images/`:
+
+* `sdcard.img` — образ загрузочной SD с rootfs.
+* `qspi-full-nms-sm-k1892vm21ya.bin` — полный образ QSPI, 16 МиБ.
+* `emmc.img` — rootfs для eMMC; `firmware.swu` — A/B-обновление.
+
+Команды из каталога `output/`:
+
+| Команда | Действие |
+| --- | --- |
+| `make` | Полная сборка образов |
+| `make linux-rebuild && make` | Пересборка Linux и образов |
+| `make uboot-rebuild && make` | Пересборка U-Boot и образов загрузчиков |
+| `make` после правки Linux DTS/DTSI в external tree | Пересборка DTB и образов автоматически |
+
 | Каталог | Содержимое |
 | --- | --- |
 | `configs/` | Buildroot defconfig |
