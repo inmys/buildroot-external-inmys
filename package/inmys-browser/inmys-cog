@@ -4,6 +4,9 @@ export HOME=${NMS_BROWSER_HOME:-/var/lib/browser}
 export XDG_RUNTIME_DIR=/run/inmys-browser/client
 export WAYLAND_DISPLAY=/run/inmys-browser/weston/wayland-0
 export EGL_PLATFORM=wayland
-# The vendor decoder exports ordinary video buffers, not EGLImages.
-export WEBKIT_GST_DISABLE_GL_SINK=1
+export WEBKIT_WEB_RENDER_DEVICE_FILE=/dev/dri/renderD128
+# Mesa 17 cannot enumerate DMA-BUF formats; NV12 plane imports are validated.
+export WEBKIT_GST_DMABUF_FORMATS=NV12
+# Use the stateful V4L2 decoder for H.264, including MSE seek/flush.
+export GST_PLUGIN_FEATURE_RANK=${GST_PLUGIN_FEATURE_RANK:-v4l2h264dec:512,omxh264dec:0}
 exec dbus-run-session -- cog --platform=wl --webprocess-failure=exit "$@"

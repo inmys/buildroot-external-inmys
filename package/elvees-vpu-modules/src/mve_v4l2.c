@@ -308,10 +308,15 @@ static int event_handle(struct mve_context *c, struct mve_response *r)
 		return issue(c, MVE_BASE_ENQUEUE_FLUSH_BUFFERS, &flush, sizeof(flush));
 	}
 	if (ev->code == MVE_BASE_EVENT_OUTPUT_FLUSHED && c->output_state == 1) {
+		struct v4l2_event change = { .type = V4L2_EVENT_SOURCE_CHANGE,
+			.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION };
 		c->output_state = 2;
 		for (i = MVE_INPUTS; i < MVE_TOTAL; ++i) {
 			ret = enqueue(c, i, 0, 0, 0); if (ret) return ret;
 		}
+		/* Input dimensions come from the client's parsed SPS. Notify before
+		 * decoded pictures, so clients can start CAPTURE without a DPB wait. */
+		v4l2_event_queue_fh(&c->fh, &change);
 		return 0;
 	}
 	if (ev->code != MVE_BASE_EVENT_INPUT && ev->code != MVE_BASE_EVENT_OUTPUT) return 0;
@@ -330,17 +335,16 @@ static int event_handle(struct mve_context *c, struct mve_response *r)
 	if (!f->filled_len && !(f->flags & MVE_EOS))
 		return enqueue(c, slot, 0, 0, 0);
 	if (!c->sequence_known && f->filled_len) {
-		struct v4l2_event change = { .type = V4L2_EVENT_SOURCE_CHANGE,
-			.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION };
 		if (!f->decoded_width || !f->decoded_height || f->decoded_width > MVE_W || f->decoded_height > MVE_H)
 			return -EINVAL;
+		if (ALIGN(f->decoded_width, 16) != c->width ||
+		    ALIGN(f->decoded_height, 16) != c->height) return -EOPNOTSUPP;
 		c->width = ALIGN(f->decoded_width, 16);
 		c->height = ALIGN(f->decoded_height, 16);
 		c->visible_w = min(c->visible_w, f->decoded_width);
 		c->visible_h = min(c->visible_h, f->decoded_height);
 		c->pitch = ALIGN(c->width, 64);
 		c->sequence_known = true;
-		v4l2_event_queue_fh(&c->fh, &change);
 		dev_info(c->dev->dev, "V4L2 H264 sequence %ux%u, visible %ux%u\n",
 			c->width, c->height, c->visible_w, c->visible_h);
 	}
@@ -481,7 +485,8 @@ static int enum_fmt(struct file *file, void *fh, struct v4l2_fmtdesc *f)
 {
 	if (f->index) return -EINVAL;
 	f->pixelformat = V4L2_TYPE_IS_OUTPUT(f->type) ? V4L2_PIX_FMT_H264 : V4L2_PIX_FMT_NV12;
-	f->flags = V4L2_TYPE_IS_OUTPUT(f->type) ? V4L2_FMT_FLAG_COMPRESSED : 0;
+	f->flags = V4L2_TYPE_IS_OUTPUT(f->type) ?
+		V4L2_FMT_FLAG_COMPRESSED | V4L2_FMT_FLAG_DYN_RESOLUTION : 0;
 	return 0;
 }
 static void format_fill(struct mve_context *c, struct v4l2_format *f)
@@ -633,7 +638,8 @@ static int video_open(struct file *file)
 	if (ctrl) ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 	ctrl = v4l2_ctrl_new_std(&c->controls, NULL, V4L2_CID_MIN_BUFFERS_FOR_CAPTURE, 4, 4, 1, 4);
 	if (ctrl) ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-	ctrl = v4l2_ctrl_new_std(&c->controls, NULL, V4L2_CID_MIN_BUFFERS_FOR_OUTPUT, 1, 1, 1, 1);
+	ctrl = v4l2_ctrl_new_std(&c->controls, NULL, V4L2_CID_MIN_BUFFERS_FOR_OUTPUT,
+		MVE_INPUTS, MVE_INPUTS, 1, MVE_INPUTS);
 	if (ctrl) ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 	c->fh.ctrl_handler = &c->controls;
 	ret = c->controls.error;

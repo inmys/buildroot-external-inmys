@@ -1639,7 +1639,10 @@ gst_omx_video_dec_clean_older_frames (GstOMXVideoDec * self,
     for (l = frames; l; l = l->next) {
       GstVideoCodecFrame *tmp = l->data;
 
-      if (tmp->pts < timestamp) {
+      /* MSE may start just below zero (represented as a wrapped GstClockTime).
+       * Compare signed deltas so that this frame does not discard the queue. */
+      if (GST_CLOCK_TIME_IS_VALID (tmp->pts) &&
+          GST_CLOCK_DIFF (tmp->pts, timestamp) > 0) {
         GST_LOG_OBJECT (self,
             "discarding ghost frame %p (#%d) PTS:%" GST_TIME_FORMAT " DTS:%"
             GST_TIME_FORMAT, tmp, tmp->system_frame_number,

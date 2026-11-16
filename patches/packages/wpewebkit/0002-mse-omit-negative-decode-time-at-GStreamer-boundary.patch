@@ -1,0 +1,28 @@
+Subject: [PATCH] MSE: omit negative decode time at the GStreamer boundary
+
+Rutube can offset the first H.264 DTS to -1 us while PTS is positive.
+Converting DTS to unsigned GstClockTime wraps it near UINT64_MAX; a parser
+then replaces the valid PTS with it, poisoning GstVideoDecoder timestamps.
+
+Send unknown DTS for this preroll buffer. Preserve PTS, encoded data, and
+the signed MediaSample timeline used by MSE. Copy only buffer metadata.
+
+--- a/Source/WebCore/platform/graphics/gstreamer/mse/SourceBufferPrivateGStreamer.cpp
++++ b/Source/WebCore/platform/graphics/gstreamer/mse/SourceBufferPrivateGStreamer.cpp
+@@ -208,6 +208,16 @@
+         }
+     }
+ #endif
++    // Negative decode time is valid MSE preroll, but GstClockTime is unsigned.
++    // An overflowing DTS makes parsers replace the valid PTS with that value.
++    auto* inputBuffer = gst_sample_get_buffer(gstSample.get());
++    if (track->type() == TrackPrivateBaseGStreamer::Video && GST_BUFFER_DTS_IS_VALID(inputBuffer)
++        && static_cast<int64_t>(GST_BUFFER_DTS(inputBuffer)) < 0) {
++        gstSample = adoptGRef(gst_sample_copy(gstSample.get()));
++        auto buffer = adoptGRef(gst_buffer_copy(inputBuffer));
++        GST_BUFFER_DTS(buffer.get()) = GST_CLOCK_TIME_NONE;
++        gst_sample_set_buffer(gstSample.get(), buffer.get());
++    }
+     track->enqueueObject(adoptGRef(GST_MINI_OBJECT(gstSample.leakRef())));
+ }
+ 

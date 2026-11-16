@@ -1,7 +1,8 @@
 INMYS_BROWSER_VERSION = 1
 INMYS_BROWSER_SOURCE =
 INMYS_BROWSER_LICENSE = MIT
-INMYS_BROWSER_DEPENDENCIES = elvees-powervr-graphics weston cog glib-networking
+INMYS_BROWSER_DEPENDENCIES = elvees-powervr-graphics elvees-vpu-modules \
+	weston cog glib-networking gst1-plugins-good gst1-plugins-bad
 
 # Match the current image and keep /data/browser ownership stable on updates.
 define INMYS_BROWSER_USERS

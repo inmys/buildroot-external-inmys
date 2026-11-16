@@ -42,5 +42,5 @@ Linux DTB выбирается переменной U-Boot `fdtfile`.
 | `configs/` | Buildroot defconfig |
 | `board/nms-sm-k1892vm21ya/` | DTS, настройки загрузчиков, rootfs overlay и разметка образов |
 | `package/` | Пакеты и их патчи |
-| `patches/` | Патчи Linux и U-Boot |
+| `patches/` | Патчи Linux, U-Boot и штатных пакетов |
 | `support/` | Упаковка SD SBIMG и полного QSPI-образа |

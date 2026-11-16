@@ -1,0 +1,63 @@
+Subject: [PATCH] glupload: retain linear plane import on legacy EGL drivers
+
+EGL_EXT_image_dma_buf_import supports linear plane imports without
+EGL_EXT_image_dma_buf_import_modifiers. Mesa 17 / ELVEES PowerVR provides
+this interface, including R8 and GR88 views of the V4L2 NV12 capture buffer.
+
+Reuse ordinary raw-format caps for this legacy path and require actual,
+linear DMA-BUF memory at accept time. Keep direct and non-linear imports
+on the modifier-aware path. Failed EGL imports still use the existing
+fallback uploaders; no new driver capabilities are advertised.
+
+--- a/gst-libs/gst/gl/gstglupload.c
++++ b/gst-libs/gst/gl/gstglupload.c
+@@ -1346,6 +1346,9 @@
+   return ret_caps;
+ }
+ 
++static GstCaps *_raw_data_upload_transform_caps (gpointer impl,
++    GstGLContext * context, GstPadDirection direction, GstCaps * caps);
++
+ static GstCaps *
+ _dma_buf_upload_transform_caps (gpointer impl, GstGLContext * context,
+     GstPadDirection direction, GstCaps * caps)
+@@ -1366,8 +1369,21 @@
+     if (!gst_gl_context_check_feature (context, "EGL_KHR_image_base"))
+       return NULL;
+ 
+-    if (!gst_gl_context_egl_supports_modifier (context))
+-      return NULL;
++    if (!gst_gl_context_egl_supports_modifier (context)) {
++      if (!gst_gl_context_check_feature (context,
++              "EGL_EXT_image_dma_buf_import"))
++        return NULL;
++      /* Linear plane imports need no modifier enumeration. Keep the legacy
++       * SystemMemory caps contract; accept() still requires real DMA-BUFs. */
++      ret = _raw_data_upload_transform_caps (NULL, context, direction, caps);
++      if (ret && direction == GST_PAD_SINK) {
++        tmp = _caps_intersect_texture_target (ret,
++            1 << GST_GL_TEXTURE_TARGET_2D);
++        gst_caps_unref (ret);
++        ret = tmp;
++      }
++      return ret;
++    }
+   }
+ 
+   g_assert (dmabuf->target == GST_GL_TEXTURE_TARGET_2D);
+@@ -1472,8 +1488,13 @@
+     return FALSE;
+   }
+ 
+-  if (!gst_gl_context_egl_supports_modifier (dmabuf->upload->context)) {
+-    GST_DEBUG_OBJECT (dmabuf->upload, "no modifier support");
++  /* Legacy EGL import can map linear planes without modifier enumeration.
++   * Keep direct/non-linear import on the modifier-aware path. */
++  if (!gst_gl_context_egl_supports_modifier (dmabuf->upload->context) &&
++      (dmabuf->direct || in_info_drm->drm_modifier != DRM_FORMAT_MOD_LINEAR ||
++          !gst_gl_context_check_feature (dmabuf->upload->context,
++              "EGL_EXT_image_dma_buf_import"))) {
++    GST_DEBUG_OBJECT (dmabuf->upload, "no usable DMA-BUF import path");
+     return FALSE;
+   }
+ 
