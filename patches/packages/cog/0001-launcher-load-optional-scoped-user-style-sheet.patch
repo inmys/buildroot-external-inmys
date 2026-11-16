@@ -1,0 +1,35 @@
+Subject: [PATCH] launcher: support an optional scoped user style sheet
+
+Load COG_USER_STYLE_SHEET through WebKitUserContentManager. An optional
+semicolon-separated COG_USER_STYLE_SHEET_ALLOWLIST restricts matching pages.
+Absent configuration preserves the default page rendering.
+
+--- a/launcher/cog-launcher.c
++++ b/launcher/cog-launcher.c
+@@ -305,7 +305,25 @@
+ #endif
+                      "zoom-level", s_options.scale_factor, "backend", view_backend, "is-controlled-by-automation",
+                      cog_shell_is_automated(shell), NULL);
++
++    const char *style_path = g_getenv("COG_USER_STYLE_SHEET");
++    if (style_path && *style_path) {
++        g_autofree char *style_data = NULL;
++        g_autoptr(GError) style_error = NULL;
++        if (g_file_get_contents(style_path, &style_data, NULL, &style_error)) {
++            const char *patterns = g_getenv("COG_USER_STYLE_SHEET_ALLOWLIST");
++            g_auto(GStrv) allowlist = patterns && *patterns ? g_strsplit(patterns, ";", -1) : NULL;
++            WebKitUserStyleSheet *style = webkit_user_style_sheet_new(
++                style_data, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES, WEBKIT_USER_STYLE_LEVEL_USER,
++                (const char *const *) allowlist, NULL);
++            webkit_user_content_manager_add_style_sheet(
++                webkit_web_view_get_user_content_manager(web_view), style);
++            webkit_user_style_sheet_unref(style);
++        } else {
++            g_warning("Cannot load user style sheet: %s", style_error->message);
++        }
++    }
+-
++
+     if (s_options.filter) {
+         WebKitUserContentManager *manager = webkit_web_view_get_user_content_manager(web_view);
+         webkit_user_content_manager_add_filter(manager, s_options.filter);

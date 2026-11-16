@@ -27,6 +27,7 @@ config BR2_PACKAGE_INMYS_BROWSER
 	select BR2_PACKAGE_WPEWEBKIT_USE_GSTREAMER_GL
 	select BR2_PACKAGE_CA_CERTIFICATES
 	select BR2_PACKAGE_GLIB_NETWORKING
+	select BR2_PACKAGE_SHARED_MIME_INFO
 	select BR2_PACKAGE_DEJAVU
 	help
 	  inmys-browser URL stops inmys-vision and runs Weston and Cog.
