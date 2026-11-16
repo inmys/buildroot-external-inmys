@@ -273,7 +273,7 @@ i2c_gp: &i2c1 {
 	};
 };
 
-/* Module pad names match the Linux DTSI; see ../HARDWARE.md. */
+/* Module pad names match the Linux DTSI; see sdk2/HARDWARE.md in the SDK. */
 &gpio0a {
 	gpio-line-names = "BC_INT#", "", "SER0_CTS", "I2C_GPIO_INT#",
 		"GPIO11", "GPIO12", "", "SER0_RTS";

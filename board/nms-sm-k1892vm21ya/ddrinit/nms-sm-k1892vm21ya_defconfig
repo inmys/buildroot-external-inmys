@@ -6,7 +6,7 @@
 #   x16 per channel, row 16, col 10, bank 3, page 2 KiB, 2133 MT/s
 #
 # DQ mapping is identity: the PCB routes SoC DDRn_Dx straight to the
-# corresponding device DQx (see HARDWARE.md, "DRAM DQ mapping").
+# corresponding device DQx (see sdk2/HARDWARE.md, "DRAM DQ mapping").
 CONFIG_DRAM_TYPE_LPDDR4=y
 CONFIG_DDRMC_ACTIVE_0_1=y
 CONFIG_BURST_LEN=16

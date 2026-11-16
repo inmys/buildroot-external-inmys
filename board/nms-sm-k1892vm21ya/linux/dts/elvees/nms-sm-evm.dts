@@ -2,7 +2,7 @@
 /*
  * INMYS NMS-SM-EVM V1 carrier for NMS-SM-K1892VM21YA
  *
- * Carrier resources (see HARDWARE.md):
+ * Carrier resources (see sdk2/HARDWARE.md in the SDK):
  *   X6   SMARC 2.1 edge connector (314 pin, AS0B826-S78B-7H)
  *   X12  15-pin camera: SoC CSI1 lanes 0/1, I2C_CAM0, D31 P04 PWDN
  *   X5   microSD socket                       (module SDMMC0)

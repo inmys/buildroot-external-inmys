@@ -3,7 +3,7 @@
  * INMYS NMS-SM-K1892VM21YA V1
  * SMARC 2.1 module on ELVEES MCom-03R (К1892ВМ21Я)
  *
- * Module resources (see ../../../HARDWARE.md for the full map):
+ * Module resources (see sdk2/HARDWARE.md in the SDK for the full map):
  *   SoC            К1892ВМ21Я (MCom-03R), BGA-1936
  *   LPDDR4         D27/D28 Rayson RS512M32LO4D1BDS-46IT, 2 x 2 GiB,
  *                  DDRMC0 (MEMA/MEMB) + DDRMC1 (MEMC/MEMD), 2133 MT/s

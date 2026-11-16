@@ -108,7 +108,7 @@
 
 /*
  * FPGA receivers act as the sink. The odd/even markers select dual link;
- * channel A carries odd pixels and B even pixels. See ../HARDWARE.md.
+ * channel A carries odd pixels and B even pixels. See sdk2/HARDWARE.md in the SDK.
  */
 &lvds_panel {
 	status = "okay";
