@@ -23,17 +23,6 @@ $(LINUX_TARGET_BUILD): $(NMS_LINUX_DTS_SOURCES) $(NMS_LINUX_DTS_DIR) \
 	$(NMS_LINUX_DTS_DIR)/elvees $(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/external.mk
 
 LINUX_PRE_BUILD_HOOKS += NMS_REBUILD_FILE_LISTS
-
-# Remove DTBs of deleted carrier sources before installing the current set.
-define NMS_LINUX_CLEAN_IMAGE_DTBS
-	rm -f $(BINARIES_DIR)/elvees/nms-*.dtb
-endef
-LINUX_PRE_INSTALL_IMAGES_HOOKS += NMS_LINUX_CLEAN_IMAGE_DTBS
-
-define NMS_LINUX_CLEAN_TARGET_DTBS
-	rm -f $(TARGET_DIR)/boot/elvees/nms-*.dtb
-endef
-LINUX_PRE_INSTALL_TARGET_HOOKS += NMS_LINUX_CLEAN_TARGET_DTBS
 endif
 
 # U-Boot copies these files through BR2_TARGET_UBOOT_CUSTOM_DTS_PATH.
