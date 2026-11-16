@@ -3,9 +3,10 @@
 Конфигурация, DTS, пакеты и патчи для SMARC-модуля **NMS-SM-K1892VM21YA V1**
 на ELVEES MCom-03R / К1892ВМ21Я. AArch64, glibc, Linux 6.18.
 
-Из каталога этого репозитория, с Buildroot в соседнем `../buildroot/`:
+Из каталога этого репозитория; Buildroot будет склонирован в соседний `../buildroot/`:
 
 ```sh
+git clone --branch 2026.02.3 --depth 1 https://gitlab.com/buildroot.org/buildroot.git ../buildroot
 make -C ../buildroot O=../output BR2_EXTERNAL="$PWD" nms_sm_k1892vm21ya_defconfig
 make -C ../output
 ```
