@@ -5,6 +5,10 @@ export XDG_RUNTIME_DIR=/run/inmys-browser/client
 export WAYLAND_DISPLAY=/run/inmys-browser/weston/wayland-0
 export EGL_PLATFORM=wayland
 export WEBKIT_WEB_RENDER_DEVICE_FILE=/dev/dri/renderD128
+# Scope analog audio selection to this browser process tree.
+export ALSA_CARD=${ALSA_CARD:-analogaudio}
+export ALSA_PCM_CARD=${ALSA_PCM_CARD:-analogaudio}
+export WEBKIT_GST_ENABLE_AUDIO_MIXER=1
 # Mesa 17 cannot enumerate DMA-BUF formats; NV12 plane imports are validated.
 export WEBKIT_GST_DMABUF_FORMATS=NV12
 # Use the stateful V4L2 decoder for H.264, including MSE seek/flush.

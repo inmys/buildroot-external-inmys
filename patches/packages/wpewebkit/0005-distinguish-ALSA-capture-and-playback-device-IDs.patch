@@ -1,0 +1,20 @@
+Subject: [PATCH] capture: distinguish ALSA input and output device identifiers
+
+GstAlsaDeviceProvider reports the same display name for both directions.
+Without a PipeWire node.name, microphone lookup can return an alsasink
+with the same identifier, leaving the capture pipeline without a source.
+Include the device class in fallback IDs; preserve PipeWire identifiers.
+
+--- a/Source/WebCore/platform/mediastream/gstreamer/GStreamerCaptureDeviceManager.cpp
++++ b/Source/WebCore/platform/mediastream/gstreamer/GStreamerCaptureDeviceManager.cpp
+@@ -224,7 +224,7 @@
+     auto label = makeString(isDefault ? "default: "_s : ""_s, deviceName.span());
+-
++
+     auto nodeName = gstStructureGetString(properties.get(), "node.name"_s);
+-    auto identifier = makeString(nodeName.isEmpty() ? deviceName.span() : nodeName);
++    auto identifier = nodeName.isEmpty() ? makeString(deviceClass, ':', deviceName.span()) : makeString(nodeName);
+-
++
+     bool isMock = false;
+     if (auto persistentId = gstStructureGetString(properties.get(), "persistent-id"_s)) {

@@ -1,0 +1,22 @@
+Subject: [PATCH] launcher: opt in to camera and microphone permissions
+
+COG_MEDIA_CAPTURE=1 permits media devices in an explicitly enabled call
+session. Keep screen capture and unrelated permission requests denied.
+
+--- a/launcher/cog-launcher.c
++++ b/launcher/cog-launcher.c
+@@ -168,7 +168,13 @@
+ static gboolean
+ on_permission_request(G_GNUC_UNUSED WebKitWebView *web_view, WebKitPermissionRequest *request, CogLauncher *launcher)
+ {
+-    if (launcher->allow_all_requests)
++    const char *capture = g_getenv("COG_MEDIA_CAPTURE");
++    gboolean allow_media = capture && g_str_equal(capture, "1") &&
++        (WEBKIT_IS_DEVICE_INFO_PERMISSION_REQUEST(request) ||
++         (WEBKIT_IS_USER_MEDIA_PERMISSION_REQUEST(request) &&
++          !webkit_user_media_permission_is_for_display_device(WEBKIT_USER_MEDIA_PERMISSION_REQUEST(request))));
++
++    if (launcher->allow_all_requests || allow_media)
+         webkit_permission_request_allow(request);
+     else
+         webkit_permission_request_deny(request);

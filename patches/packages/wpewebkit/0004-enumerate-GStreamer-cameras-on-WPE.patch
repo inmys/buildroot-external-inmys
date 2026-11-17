@@ -1,0 +1,16 @@
+Subject: [PATCH] WPE: enumerate GStreamer cameras without a desktop portal
+
+WPE skips the PipeWire portal. Populate the normal GStreamer device monitor
+before completing enumeration, so V4L2 cameras can reach getUserMedia.
+
+--- a/Source/WebCore/platform/mediastream/gstreamer/PipeWireCaptureDeviceManager.cpp
++++ b/Source/WebCore/platform/mediastream/gstreamer/PipeWireCaptureDeviceManager.cpp
+@@ -55,6 +55,7 @@
+     }
+-
++
+ #if PLATFORM(WPE)
++    GStreamerVideoCaptureDeviceManager::singleton().captureDevices();
+     callback();
+     return;
+ #endif

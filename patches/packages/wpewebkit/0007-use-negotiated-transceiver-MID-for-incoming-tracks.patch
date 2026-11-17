@@ -1,0 +1,22 @@
+Subject: [PATCH] WebRTC: use the negotiated MID when incoming caps omit it
+
+GStreamer 1.24 webrtcbin src caps can omit a-mid. An empty MID makes
+connectIncomingTrack create a duplicate receiver instead of activating
+the receiver delivered by ontrack. Its original track stays muted even
+though RTP arrives and video decodes. Fall back to the transceiver MID
+when the caps do not provide one; preserve explicit RTP caps MIDs.
+
+--- a/Source/WebCore/platform/mediastream/gstreamer/GStreamerIncomingTrackProcessor.cpp
++++ b/Source/WebCore/platform/mediastream/gstreamer/GStreamerIncomingTrackProcessor.cpp
+@@ -81,4 +81,9 @@
+-
++
+     g_object_get(m_pad.get(), "transceiver", &m_data.transceiver.outPtr(), nullptr);
++    if (m_data.mid.isEmpty()) {
++        GUniqueOutPtr<char> mid;
++        g_object_get(m_data.transceiver.get(), "mid", &mid.outPtr(), nullptr);
++        m_data.mid = String::fromUTF8(mid.get());
++    }
+-
++
+     if (auto msIdAttribute = gstStructureGetString(structure, "a-msid"_s)) {
