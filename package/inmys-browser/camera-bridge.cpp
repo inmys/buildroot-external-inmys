@@ -5,21 +5,29 @@
 #include <csignal>
 #include <cstdio>
 #include <gst/gst.h>
+#include <gst/allocators/gstdmabuf.h>
+#include <pwd.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <stdexcept>
 static volatile sig_atomic_t stopping;
 static std::atomic<unsigned long> frames;
 static void stop(int) { stopping = 1; }
-static GstPadProbeReturn frame(GstPad *, GstPadProbeInfo *info, gpointer) {
-    // v4l2loopback interprets zero as a request for a monotonic kernel timestamp.
-    // Felix timestamps are relative to this producer, not the capture process.
-    auto *buffer = gst_buffer_make_writable(GST_PAD_PROBE_INFO_BUFFER(info));
-    GST_PAD_PROBE_INFO_DATA(info) = buffer;
-    GST_BUFFER_PTS(buffer) = 0;
+static GstPadProbeReturn frame(GstPad *, GstPadProbeInfo *info, gpointer sink) {
+    GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+    for (unsigned i = 0; i < gst_buffer_n_memory(buffer); ++i) {
+        if (!gst_is_dmabuf_memory(gst_buffer_peek_memory(buffer, i))) {
+            GST_ELEMENT_ERROR(GST_ELEMENT(sink), RESOURCE, FAILED,
+                ("Felix did not provide DMA-BUF storage"), (nullptr));
+            return GST_PAD_PROBE_DROP;
+        }
+    }
     ++frames;
     return GST_PAD_PROBE_OK;
 }
 int main(int argc, char **argv) {
-    const char *device = argc > 1 ? argv[1] : "/dev/video2";
+    if (argc != 3) { fprintf(stderr, "Usage: inmys-browser-camera SOCKET READY\n"); return 2; }
+    const char *device = argv[1];
     const char *ready = argc > 2 ? argv[2] : nullptr;
     GstElement *pipe = nullptr;
     try {
@@ -28,7 +36,7 @@ int main(int argc, char **argv) {
         GError *error = nullptr;
         std::string launch = "felixsrc name=camera ";
         launch += "! video/x-raw,format=NV12,width=1280,height=720 ! videorate drop-only=true "
-                  "! video/x-raw,framerate=15/1 ! v4l2sink name=output io-mode=mmap sync=false";
+                  "! video/x-raw,framerate=15/1 ! unixfdsink name=output sync=false";
         pipe = gst_parse_launch(launch.c_str(), &error);
         if (error || !pipe) {
             std::string reason = error ? error->message : "Cannot create camera pipeline";
@@ -42,9 +50,9 @@ int main(int argc, char **argv) {
                      "awb-enable", TRUE, nullptr);
         gst_object_unref(source);
         GstElement *output = gst_bin_get_by_name(GST_BIN(pipe), "output");
-        g_object_set(output, "device", device, nullptr);
+        g_object_set(output, "socket-path", device, nullptr);
         GstPad *pad = gst_element_get_static_pad(output, "sink");
-        gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, frame, nullptr, nullptr);
+        gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, frame, output, nullptr);
         gst_object_unref(pad);
         gst_object_unref(output);
         std::signal(SIGINT, stop);
@@ -54,7 +62,7 @@ int main(int argc, char **argv) {
         auto start = std::chrono::steady_clock::now(), last = start;
         unsigned long previous = 0;
         bool announced = false;
-        printf("Camera %s -> %s NV12 1280x720@15\n", camera.sensor.c_str(), device);
+        printf("Camera %s -> %s DMA-BUF NV12 1280x720@15\n", camera.sensor.c_str(), device);
         fflush(stdout);
         while (!stopping && !failed) {
             GstMessage *m = gst_bus_timed_pop_filtered(
@@ -75,6 +83,9 @@ int main(int argc, char **argv) {
             }
             auto now = std::chrono::steady_clock::now();
             if (frames && !announced) {
+                auto *browser = getpwnam("browser");
+                if (!browser || chown(device, browser->pw_uid, browser->pw_gid) || chmod(device, 0600))
+                    throw std::runtime_error("Cannot grant browser access to camera socket");
                 if (ready) {
                     FILE *f = fopen(ready, "w");
                     if (!f)

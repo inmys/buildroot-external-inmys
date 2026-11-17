@@ -1,7 +1,8 @@
 Subject: [PATCH] launcher: opt in to camera and microphone permissions
 
 COG_MEDIA_CAPTURE=1 permits media devices in an explicitly enabled call
-session. Keep screen capture and unrelated permission requests denied.
+session. Expose only its camera Unix socket through the public sandbox API.
+Keep screen capture and unrelated permission requests denied.
 
 --- a/launcher/cog-launcher.c
 +++ b/launcher/cog-launcher.c
@@ -20,3 +21,16 @@ session. Keep screen capture and unrelated permission requests denied.
          webkit_permission_request_allow(request);
      else
          webkit_permission_request_deny(request);
+--- a/launcher/cog-launcher.c
++++ b/launcher/cog-launcher.c
+@@ -421,6 +421,10 @@
+                                                         s_options.web_extensions_dir);
+     webkit_web_context_set_sandbox_enabled(cog_shell_get_web_context(self->shell), s_options.enable_sandbox);
+ #endif
++    const char *camera_socket = g_getenv("INMYS_CAMERA_SOCKET");
++    const char *capture = g_getenv("COG_MEDIA_CAPTURE");
++    if (camera_socket && capture && g_str_equal(capture, "1"))
++        webkit_web_context_add_path_to_sandbox(cog_shell_get_web_context(self->shell), camera_socket, TRUE);
+     g_clear_pointer(&s_options.web_extensions_dir, g_free);
+
+     g_object_set(self->shell, "device-scale-factor", s_options.device_scale_factor, NULL);

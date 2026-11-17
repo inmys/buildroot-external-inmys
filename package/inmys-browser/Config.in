@@ -46,11 +46,10 @@ config BR2_PACKAGE_INMYS_BROWSER
 config BR2_PACKAGE_INMYS_BROWSER_CAMERA
 	bool "CSI camera bridge for browser calls"
 	depends on BR2_PACKAGE_INMYS_BROWSER
-	select BR2_PACKAGE_V4L2LOOPBACK
 	select BR2_PACKAGE_LIBGPIOD
 	select BR2_PACKAGE_ELVEES_GST_FELIX
 	select BR2_PACKAGE_GST1_PLUGINS_BASE_PLUGIN_VIDEORATE
 	help
-	  inmys-browser --camera URL exposes Felix CSI/ISP as /dev/video2
+	  inmys-browser --camera URL exposes Felix CSI/ISP via DMA-BUF over a Unix socket
 	  and allows camera/microphone access for that browser session.
 	  Stops the camera bridge before restoring inmys-vision on exit.

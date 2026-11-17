@@ -1,0 +1,170 @@
+Subject: [PATCH] unixfd: retain camera buffer leases across consumer stop
+
+Keep the source and original connection alive until downstream releases its
+last GstMemory. Stop streaming on that connection and drain queued frames
+before acknowledging shutdown, so a retained camera frame cannot be reused
+and a new consumer can run without exhausting the ISP pool.
+
+--- a/gst/unixfd/gstunixfd.h
++++ b/gst/unixfd/gstunixfd.h
+@@ -34,4 +34,6 @@
+   COMMAND_TYPE_CAPS = 2,
+   COMMAND_TYPE_EOS = 3,
++  /* Stop streaming on this connection, retaining outstanding buffer leases. */
++  COMMAND_TYPE_STOP = 4,
+ } CommandType;
+
+--- a/gst/unixfd/gstunixfdsink.c
++++ b/gst/unixfd/gstunixfdsink.c
+@@ -68,4 +68,5 @@
+   GHashTable *buffers;
+   GSource *source;
++  gboolean stopped;
+ } Client;
+
+@@ -222,4 +223,13 @@
+
+   switch (command) {
++    case COMMAND_TYPE_STOP:
++      if (payload_size != 0)
++        goto on_error;
++      client->stopped = TRUE;
++      /* FIFO acknowledgement: all earlier NEW_BUFFER messages precede this. */
++      if (!gst_unix_fd_send_command (socket, COMMAND_TYPE_STOP, NULL, NULL, 0,
++              &error))
++        goto on_error;
++      break;
+     case COMMAND_TYPE_NEW_BUFFER:
+     case COMMAND_TYPE_CAPS:
+@@ -414,4 +424,6 @@
+   while (g_hash_table_iter_next (&iter, (gpointer) & socket,
+           (gpointer) & client)) {
++    if (client->stopped)
++      continue;
+     if (!gst_unix_fd_send_command (socket, type, fds, payload, payload_size,
+             &error)) {
+--- a/gst/unixfd/gstunixfdsrc.c
++++ b/gst/unixfd/gstunixfdsrc.c
+@@ -88,15 +88,16 @@
+   guint64 id;
+   guint n_memory;
++  GSocket *socket;
+ } BufferContext;
+
+ static void
+-release_buffer (GstUnixFdSrc * self, guint64 id)
++release_buffer (GSocket * socket, guint64 id)
+ {
+   /* Notify that we are not using this buffer anymore */
+   ReleaseBufferPayload payload = { id };
+   GError *error = NULL;
+-  if (!gst_unix_fd_send_command (self->socket, COMMAND_TYPE_RELEASE_BUFFER,
++  if (!gst_unix_fd_send_command (socket, COMMAND_TYPE_RELEASE_BUFFER,
+           NULL, (guint8 *) & payload, sizeof (payload), &error)) {
+-    GST_WARNING_OBJECT (self, "Failed to send release-buffer command: %s",
++    GST_WARNING ("Failed to send release-buffer command: %s",
+         error->message);
+     g_clear_error (&error);
+@@ -107,16 +108,19 @@
+ memory_weak_ref_cb (GstUnixFdSrc * self, GstMemory * mem)
+ {
++  gboolean release_self = FALSE;
+   GST_OBJECT_LOCK (self);
+-
+   BufferContext *ctx = g_hash_table_lookup (self->memories, mem);
+   if (ctx != NULL) {
+     if (--ctx->n_memory == 0) {
+-      release_buffer (self, ctx->id);
++      release_buffer (ctx->socket, ctx->id);
++      g_object_unref (ctx->socket);
+       g_free (ctx);
++      release_self = TRUE;
+     }
+     g_hash_table_remove (self->memories, mem);
+   }
+-
+   GST_OBJECT_UNLOCK (self);
++  if (release_self)
++    gst_object_unref (self);
+ }
+
+@@ -243,24 +247,41 @@
+ {
+   GstUnixFdSrc *self = (GstUnixFdSrc *) bsrc;
+-
++  GError *error = NULL;
+   GST_OBJECT_LOCK (self);
+-
+-  /* Remove all weak refs we could still have to not be called back later.
+-   * Service side will cleanup pending buffers when socket gets closed. */
+-  GstMemory *mem;
+-  BufferContext *ctx;
+-  GHashTableIter iter;
+-  g_hash_table_iter_init (&iter, self->memories);
+-  while (g_hash_table_iter_next (&iter, (gpointer *) & mem, (gpointer *) & ctx)) {
+-    gst_mini_object_weak_unref (GST_MINI_OBJECT_CAST (mem),
+-        (GstMiniObjectNotify) memory_weak_ref_cb, self);
+-    if (--ctx->n_memory == 0)
+-      g_free (ctx);
+-  }
+-  g_hash_table_remove_all (self->memories);
+-  g_clear_object (&self->socket);
+-
++  if (self->socket) {
++    /* Stop new frames but keep this connection alive for downstream memories.
++     * Drain and return frames already in the socket, up to the FIFO STOP ack. */
++    g_socket_set_timeout (self->socket, 2);
++    gboolean ok = gst_unix_fd_send_command (self->socket, COMMAND_TYPE_STOP,
++        NULL, NULL, 0, &error);
++    while (ok) {
++      CommandType command;
++      GUnixFDList *fds = NULL;
++      guint8 *payload = NULL;
++      gsize size;
++      ok = gst_unix_fd_receive_command (self->socket, NULL, &command, &fds,
++          &payload, &size, &error);
++      if (ok && command == COMMAND_TYPE_NEW_BUFFER) {
++        NewBufferPayload *buffer;
++        guint32 offset = 0;
++        if (gst_unix_fd_parse_new_buffer (payload, size, &buffer, &offset))
++          release_buffer (self->socket, buffer->id);
++        else
++          ok = FALSE;
++      }
++      g_clear_object (&fds);
++      g_free (payload);
++      if (ok && command == COMMAND_TYPE_STOP)
++        break;
++    }
++    if (!ok)
++      GST_WARNING_OBJECT (self, "Failed to stop buffer subscription: %s",
++          error ? error->message : "Malformed message");
++    g_clear_object (&self->socket);
++  }
++  /* Each outstanding BufferContext owns self and its original connection.
++   * A later start may use a new connection while old frames remain valid. */
+   GST_OBJECT_UNLOCK (self);
+-
++  g_clear_error (&error);
+   return TRUE;
+ }
+@@ -333,4 +354,5 @@
+
+   switch (command) {
++    case COMMAND_TYPE_STOP:
+     case COMMAND_TYPE_RELEASE_BUFFER:
+       GST_ERROR_OBJECT (self, "Received wrong command %d", command);
+@@ -404,4 +426,6 @@
+         BufferContext *ctx = g_new0 (BufferContext, 1);
+         ctx->id = new_buffer->id;
++        ctx->socket = g_object_ref (self->socket);
++        gst_object_ref (self);
+         ctx->n_memory = new_buffer->n_memory;
+         for (int i = 0; i < new_buffer->n_memory; i++) {
+@@ -421,5 +445,5 @@
+         /* This buffer has no memories, we can release it immediately otherwise
+          * it gets leaked. */
+-        release_buffer (self, new_buffer->id);
++        release_buffer (self->socket, new_buffer->id);
+       }
+       GST_OBJECT_UNLOCK (self);

@@ -19,18 +19,28 @@ define INMYS_BROWSER_COPY_CAMERA_LICENSE
 	$(INSTALL) -m 0644 $(INMYS_BROWSER_PKGDIR)/../inmys-vision/src/LICENSE $(@D)/COPYING.camera
 endef
 INMYS_BROWSER_POST_EXTRACT_HOOKS += INMYS_BROWSER_COPY_CAMERA_LICENSE
-INMYS_BROWSER_DEPENDENCIES += libgpiod elvees-gst-felix v4l2loopback
+INMYS_BROWSER_DEPENDENCIES += libgpiod elvees-gst-felix
+
+# Enable the existing FD transport without changing Buildroot's package recipe.
+GST1_PLUGINS_BAD_CONF_OPTS := $(filter-out -Dunixfd=disabled,$(GST1_PLUGINS_BAD_CONF_OPTS)) -Dunixfd=enabled
 
 define INMYS_BROWSER_BUILD_CMDS
+	$(TARGET_CC) $(TARGET_CFLAGS) -Wall -Wextra -Werror -fPIC -shared \
+		-DPACKAGE=\"inmys-browser\" \
+		`$(PKG_CONFIG_HOST_BINARY) --cflags gstreamer-1.0` \
+		$(INMYS_BROWSER_PKGDIR)/camera-provider.c \
+		`$(PKG_CONFIG_HOST_BINARY) --libs gstreamer-1.0` \
+		$(TARGET_LDFLAGS) -o $(@D)/libgstinmyscamera.so
 	$(TARGET_CXX) $(TARGET_CXXFLAGS) -std=c++17 -Wall -Wextra -Werror \
 		-I$(INMYS_BROWSER_PKGDIR)/../inmys-vision/src \
-		`$(PKG_CONFIG_HOST_BINARY) --cflags gstreamer-1.0 libgpiod` \
+		`$(PKG_CONFIG_HOST_BINARY) --cflags gstreamer-allocators-1.0 libgpiod` \
 		$(INMYS_BROWSER_PKGDIR)/camera-bridge.cpp $(INMYS_BROWSER_PKGDIR)/../inmys-vision/src/camera.cpp \
-		`$(PKG_CONFIG_HOST_BINARY) --libs gstreamer-1.0 libgpiod` \
+		`$(PKG_CONFIG_HOST_BINARY) --libs gstreamer-allocators-1.0 libgpiod` \
 		$(TARGET_LDFLAGS) -pthread -o $(@D)/inmys-browser-camera
 endef
 
 define INMYS_BROWSER_INSTALL_CAMERA
+	$(INSTALL) -D -m 0755 $(@D)/libgstinmyscamera.so $(TARGET_DIR)/usr/lib/gstreamer-1.0/libgstinmyscamera.so
 	$(INSTALL) -D -m 0755 $(@D)/inmys-browser-camera $(TARGET_DIR)/usr/libexec/inmys-browser-camera
 endef
 endif

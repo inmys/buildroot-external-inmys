@@ -45,18 +45,19 @@ if [ -s /run/inmys-vision.pid ] && kill -0 "$(cat /run/inmys-vision.pid)" 2>/dev
     restore_vision=true
 fi
 "$vision" stop
+if mountpoint -q /data; then
+    export NMS_BROWSER_HOME=/data/browser
+else
+    export NMS_BROWSER_HOME=/var/lib/browser
+fi
+mkdir -p "$NMS_BROWSER_HOME"
+chmod 0700 "$NMS_BROWSER_HOME"
+chown browser:browser "$NMS_BROWSER_HOME"
 if "$use_camera"; then
-    if [ -e /sys/class/video4linux/video2 ]; then
-        [ "$(cat /sys/class/video4linux/video2/name)" = INMYS-CSI ] || {
-            echo '/dev/video2 is already used by another device' >&2
-            exit 1
-        }
-    else
-        modprobe v4l2loopback video_nr=2 card_label=INMYS-CSI exclusive_caps=1 max_buffers=4
-    fi
+    export INMYS_CAMERA_SOCKET="$session/camera.sock"
     rm -f "$session/camera-ready"
     GST_PLUGIN_PATH=/lib/gstreamer-1.0 /usr/libexec/inmys-browser-camera \
-        /dev/video2 "$session/camera-ready" > /var/log/inmys-browser-camera.log 2>&1 &
+        "$INMYS_CAMERA_SOCKET" "$session/camera-ready" > /var/log/inmys-browser-camera.log 2>&1 &
     camera_pid=$!
     n=0
     while [ ! -f "$session/camera-ready" ]; do
@@ -70,12 +71,6 @@ if "$use_camera"; then
     export COG_MEDIA_CAPTURE=1
     # PowerVR GL readback stalls createImageBitmap(video) in calling sites.
     export WEBKIT_GST_DISABLE_GL_SINK=${WEBKIT_GST_DISABLE_GL_SINK:-1}
-fi
-if mountpoint -q /data; then
-    mkdir -p /data/browser
-    chmod 0700 /data/browser
-    chown browser:browser /data/browser
-    export NMS_BROWSER_HOME=/data/browser
 fi
 mkdir -p "$session/weston" "$session/client"
 chmod 0700 "$session/weston" "$session/client"
