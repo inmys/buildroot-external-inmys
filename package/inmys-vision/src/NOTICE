@@ -7,5 +7,5 @@ YOLOv8n uses ElcoreNN 1.8.0 on ELcore50 DSP (no libcpunn CPU backend).
 Runtime and its matching dependencies come from ELVEES SDK 2025.09.
 YOLOv8n model: Ultralytics, converted/distributed in ELVEES examples data
 20260128; AGPL-3.0. https://github.com/ultralytics/ultralytics
-H.264/MJPEG use the Mali-V61 VPU through ELVEES gst-omx and libmveomx.
+H.264/MJPEG use the Mali-V61 VPU through the stateful V4L2 M2M frontend and standard GStreamer V4L2 encoders.
 Software x264/jpegenc remain available via an explicit command-line option.

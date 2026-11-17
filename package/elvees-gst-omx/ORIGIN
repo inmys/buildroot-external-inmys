@@ -1,8 +1,0 @@
-Source: https://dist.elvees.com/mcom03/altlinux/repo/p11/common/SRPMS.common/gst-omx-1.18.1-60.g6d00dd0.elv.alt1.src.rpm
-Source RPM SHA256: bd631e0570d9e5d56763e96b04dffad9769ac8f88be89c25f4139f1e2fa6a91f
-Imported source tarball; build target mcom03.
-Local changes:
-- Guard the optional OpenMAX UseEGLImage entry point and negotiate EGLImages
-  only when the vendor component implements it.
-- Compare frame-cleanup timestamps using signed deltas. WPE MSE can begin
-  just below zero; unsigned comparison incorrectly discarded pending frames.

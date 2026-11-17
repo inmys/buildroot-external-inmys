@@ -57,7 +57,8 @@ is ready, without a barrier across unrelated transceivers.
 
 --- a/Source/WebCore/Modules/mediastream/gstreamer/GStreamerMediaEndpoint.h
 +++ b/Source/WebCore/Modules/mediastream/gstreamer/GStreamerMediaEndpoint.h
-@@ -222,7 +222,6 @@
+@@ -221,9 +221,8 @@
+     Vector<String> m_pendingIncomingMediaStreamIDs;
 
      bool m_shouldIgnoreNegotiationNeededSignal { false };
 
@@ -65,3 +66,4 @@ is ready, without a barrier across unrelated transceivers.
 
      Vector<RefPtr<RealtimeOutgoingMediaSourceGStreamer>> m_unlinkedOutgoingSources;
 
+     bool m_isGatheringRTCLogs { false };

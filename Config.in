@@ -24,8 +24,6 @@ source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/elvees-elcore50/Config.in"
 source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/elvees-elcorenn/Config.in"
 source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/elvees-yolov8n/Config.in"
 source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/elvees-vpu-modules/Config.in"
-source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/elvees-vpu-libs/Config.in"
-source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/elvees-gst-omx/Config.in"
 source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/inmys-vision/Config.in"
 
 source "$BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH/package/inmys-browser/Config.in"

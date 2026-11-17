@@ -3,7 +3,7 @@ INMYS_VISION_SITE = $(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/package/inmys-vision
 INMYS_VISION_SITE_METHOD = local
 INMYS_VISION_LICENSE = Apache-2.0
 INMYS_VISION_LICENSE_FILES = LICENSE NOTICE
-INMYS_VISION_DEPENDENCIES = libgpiod elvees-gst-felix elvees-gst-omx elvees-elcorenn elvees-yolov8n gst1-rtsp-server gst1-plugins-good gst1-plugins-bad gst1-plugins-ugly
+INMYS_VISION_DEPENDENCIES = libgpiod elvees-gst-felix elvees-vpu-modules elvees-elcorenn elvees-yolov8n gst1-rtsp-server gst1-plugins-good gst1-plugins-bad gst1-plugins-ugly
 
 define INMYS_VISION_BUILD_CMDS
 	$(TARGET_CXX) $(TARGET_CXXFLAGS) -std=c++17 -Wall -Wextra -Werror \

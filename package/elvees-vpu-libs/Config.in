@@ -1,7 +1,0 @@
-config BR2_PACKAGE_ELVEES_VPU_LIBS
-	bool "ELVEES Mali-V61 OpenMAX runtime"
-	depends on BR2_TOOLCHAIN_USES_GLIBC && !BR2_STATIC_LIBS
-	depends on BR2_LINUX_KERNEL
-	select BR2_PACKAGE_ELVEES_VPU_MODULES
-	help
-	  Pinned vendor OpenMAX encoder/decoder library and headers.

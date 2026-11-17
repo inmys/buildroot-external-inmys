@@ -7,7 +7,8 @@ https://github.com/GStreamer/gstreamer/blob/1.26.0/subprojects/gst-plugins-bad/e
 
 --- a/ext/webrtc/gstwebrtcbin.c
 +++ b/ext/webrtc/gstwebrtcbin.c
-@@ -5741,6 +5741,7 @@
+@@ -5740,8 +5740,9 @@
+
      if (g_strcmp0 (attr->key, "mid") == 0) {
        g_free (rtp_trans->mid);
        rtp_trans->mid = g_strdup (attr->value);
@@ -15,3 +16,4 @@ https://github.com/GStreamer/gstreamer/blob/1.26.0/subprojects/gst-plugins-bad/e
      }
    }
 
+   {

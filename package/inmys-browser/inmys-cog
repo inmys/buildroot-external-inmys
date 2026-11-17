@@ -12,7 +12,7 @@ export WEBKIT_GST_ENABLE_AUDIO_MIXER=1
 # Mesa 17 cannot enumerate DMA-BUF formats; NV12 plane imports are validated.
 export WEBKIT_GST_DMABUF_FORMATS=NV12
 # Use the stateful V4L2 decoder for H.264, including MSE seek/flush.
-export GST_PLUGIN_FEATURE_RANK=${GST_PLUGIN_FEATURE_RANK:-v4l2h264dec:512,omxh264dec:0}
+export GST_PLUGIN_FEATURE_RANK=${GST_PLUGIN_FEATURE_RANK:-v4l2h264dec:512,v4l2h264enc:512}
 # Avoid progressive MP4 stalls caused by GstDownloadBuffer buffering pauses.
 export WPE_SHELL_DISABLE_MEDIA_DISK_CACHE=${WPE_SHELL_DISABLE_MEDIA_DISK_CACHE:-1}
 export COG_USER_STYLE_SHEET="${COG_USER_STYLE_SHEET-/etc/inmys-browser/rutube-low-effects.css}"

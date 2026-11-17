@@ -179,9 +179,7 @@ int main(int argc, char **argv) {
         }
         gst_init(nullptr, nullptr);
         if (!o.software_encoding) {
-            if (access("/dev/mv500", F_OK))
-                throw std::runtime_error("VPU /dev/mv500 is missing; load mve_rsrc/mve_base or select --software-encoding");
-            for (const char *name : {"omxh264enc", "omxmjpegenc"}) {
+            for (const char *name : {"v4l2h264enc", "v4l2jpegenc"}) {
                 auto *factory = gst_element_factory_find(name);
                 if (!factory) throw std::runtime_error(std::string("Missing VPU plugin: ") + name);
                 gst_object_unref(factory);
@@ -194,9 +192,10 @@ int main(int argc, char **argv) {
         std::string h264 = o.software_encoding ?
             "x264enc name=encoder tune=zerolatency speed-preset=ultrafast threads=2 bitrate=" +
             std::to_string(o.bitrate) + " key-int-max=" + std::to_string(o.fps) + " byte-stream=true" :
-            "omxh264enc name=encoder control-rate=constant target-bitrate=" +
-            std::to_string(o.bitrate * 1000) + " interval-intraframes=" + std::to_string(o.fps - 1) + " b-frames=0";
-        std::string mjpeg = o.software_encoding ? "jpegenc quality=75" : "omxmjpegenc qfactor=75";
+            "v4l2h264enc name=encoder extra-controls=\"controls,video_bitrate_mode=1,video_bitrate=" +
+            std::to_string(o.bitrate * 1000) + ",video_gop_size=" + std::to_string(o.fps) +
+            ",repeat_sequence_header=1\"";
+        std::string mjpeg = o.software_encoding ? "jpegenc quality=75" : "v4l2jpegenc extra-controls=\"controls,compression_quality=75\"";
         std::string pipeline = o.test ? "videotestsrc name=camera is-live=true " : "felixsrc name=camera ";
         if (!o.image.empty()) pipeline = "filesrc name=camera ! jpegdec ! imagefreeze is-live=true ! videoscale ! videoconvert ";
         pipeline += "! video/x-raw,format=NV12,width=" + std::to_string(o.width) +
