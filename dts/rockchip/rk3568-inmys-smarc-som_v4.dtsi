@@ -465,16 +465,33 @@
 	status = "disabled";
 };
 
-
 &pinctrl {
+	board-id {
+		board_id_pins: board-id-pins {
+			rockchip,pins =
+				<3 RK_PC4 RK_FUNC_GPIO &pcfg_pull_up>,  /* BRD_ID2 */
+				<3 RK_PC7 RK_FUNC_GPIO &pcfg_pull_up>,  /* BRD_ID1 */
+				<3 RK_PA4 RK_FUNC_GPIO &pcfg_pull_up>;  /* BRD_ID0 */
+		};
+	};
+
 	pmic {
 		pmic_int: pmic_int {
 			rockchip,pins =
 				<0 RK_PA3 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 	};
+};
 
-
+/ {
+	board_id: board-id {
+		compatible = "inmys,board-id";
+		pinctrl-names = "default";
+		pinctrl-0 = <&board_id_pins>;
+		board-id-gpios = <&gpio3 RK_PC4 GPIO_ACTIVE_HIGH>,  /* BRD_ID2, MSB */
+				 <&gpio3 RK_PC7 GPIO_ACTIVE_HIGH>,  		/* BRD_ID1 */
+				 <&gpio3 RK_PA4 GPIO_ACTIVE_HIGH>;  		/* BRD_ID0, LSB */
+	};
 };
 
 &pmu_io_domains {
