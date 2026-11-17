@@ -1,0 +1,19 @@
+Subject: [PATCH] unixfdsrc: register reference timestamp meta before receiving
+
+GstReferenceTimestampMeta is serialized by a producer even if no local
+consumer has registered it yet. Register the core meta in the receiver
+before deserializing the first frame, retaining timestamps from startup.
+
+--- a/gst/unixfd/gstunixfdsrc.c
++++ b/gst/unixfd/gstunixfdsrc.c
+@@ -128,6 +128,10 @@
+ gst_unix_fd_src_init (GstUnixFdSrc * self)
+ {
+   g_return_if_fail (GST_IS_UNIX_FD_SRC (self));
++
++  /* Core metadata is registered lazily. Deserialization looks up its name
++   * before downstream RTP elements have had a chance to use the type. */
++  gst_reference_timestamp_meta_get_info ();
+
+   self->cancellable = g_cancellable_new ();
+   self->memories = g_hash_table_new (NULL, NULL);
