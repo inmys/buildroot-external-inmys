@@ -5,6 +5,10 @@
 #include "yolo.hpp"
 #include <gst/app/gstappsink.h>
 #include <gst/video/video-event.h>
+#include <gst/allocators/gstdmabuf.h>
+#include <linux/dma-buf.h>
+#include <sys/ioctl.h>
+#include <cerrno>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -79,25 +83,52 @@ struct Capture {
     std::atomic<uint64_t> encoded{0}, jpeg{0};
     unsigned fps;
 };
+struct Detector { YoloDSP *yolo; bool frozen_image; };
 static GstPadProbeReturn detect_frame(GstPad *pad, GstPadProbeInfo *probe, gpointer data) {
-    auto &yolo = *static_cast<YoloDSP *>(data);
+    auto &detector = *static_cast<Detector *>(data);
+    auto &yolo = *detector.yolo;
     GstCaps *caps = gst_pad_get_current_caps(pad);
     GstVideoInfo info{};
     bool valid = caps && gst_video_info_from_caps(&info,caps) &&
         GST_VIDEO_INFO_FORMAT(&info) == GST_VIDEO_FORMAT_NV12;
     if (caps) gst_caps_unref(caps);
     if (!valid) return GST_PAD_PROBE_DROP;
-    // Isolate writable pixels from Felix's buffer pool and from inference input.
-    GstBuffer *original = GST_PAD_PROBE_INFO_BUFFER(probe);
-    GstBuffer *copy = gst_buffer_copy_deep(original);
-    if (!copy) return GST_PAD_PROBE_DROP;
-    GST_PAD_PROBE_INFO_DATA(probe) = copy;
-    gst_buffer_unref(original);
+    GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(probe);
+    // imagefreeze intentionally shares the same static picture. This optional
+    // test source needs a new image for drawing; live Felix never takes this path.
+    if (detector.frozen_image) {
+        GstBuffer *copy = gst_buffer_copy_deep(buffer);
+        if (!copy) return GST_PAD_PROBE_DROP;
+        GST_PAD_PROBE_INFO_DATA(probe) = copy;
+        gst_buffer_unref(buffer); buffer = copy;
+    }
+    // This probe runs on the source lease, before videorate retains a reference
+    // and before tee shares it with display/encoders. Never trigger a hidden COW.
+    if (!gst_buffer_is_writable(buffer) || !gst_buffer_is_all_memory_writable(buffer)) {
+        GST_ERROR_OBJECT(pad, "Camera frame is shared before overlay");
+        return GST_PAD_PROBE_DROP;
+    }
+    auto sync = [buffer](uint64_t flags) {
+        for (unsigned i = 0; i < gst_buffer_n_memory(buffer); ++i) {
+            GstMemory *memory = gst_buffer_peek_memory(buffer, i);
+            if (!gst_is_dmabuf_memory(memory)) continue;
+            struct dma_buf_sync access{flags};
+            int ret;
+            do { ret = ioctl(gst_dmabuf_memory_get_fd(memory), DMA_BUF_IOCTL_SYNC, &access); }
+            while (ret < 0 && (errno == EINTR || errno == EAGAIN));
+            if (ret < 0) return false;
+        }
+        return true;
+    };
+    if (!sync(DMA_BUF_SYNC_START | DMA_BUF_SYNC_RW)) return GST_PAD_PROBE_DROP;
     GstVideoFrame frame{};
-    if (!gst_video_frame_map(&frame,&info,copy,GST_MAP_READWRITE)) return GST_PAD_PROBE_DROP;
-    yolo.submit(frame);
-    draw_detections(frame,yolo.snapshot());
-    gst_video_frame_unmap(&frame);
+    bool mapped = gst_video_frame_map(&frame,&info,buffer,GST_MAP_READWRITE);
+    if (mapped) {
+        yolo.submit(frame);
+        draw_detections(frame,yolo.snapshot());
+        gst_video_frame_unmap(&frame);
+    }
+    if (!sync(DMA_BUF_SYNC_END | DMA_BUF_SYNC_RW) || !mapped) return GST_PAD_PROBE_DROP;
     return GST_PAD_PROBE_OK;
 }
 static GstFlowReturn encoded_sample(GstAppSink *sink, gpointer data) {
@@ -188,11 +219,13 @@ int main(int argc, char **argv) {
         std::signal(SIGINT, stop); std::signal(SIGTERM, stop);
         std::unique_ptr<YoloDSP> yolo;
         if (o.yolo) yolo = std::make_unique<YoloDSP>(o.model,o.statistics);
+        Detector detector_context{yolo.get(), !o.image.empty()};
         Rtsp rtsp(static_cast<int>(o.rtsp), o.fps); Web web(static_cast<int>(o.http), static_cast<int>(o.rtsp));
         std::string h264 = o.software_encoding ?
             "x264enc name=encoder tune=zerolatency speed-preset=ultrafast threads=2 bitrate=" +
             std::to_string(o.bitrate) + " key-int-max=" + std::to_string(o.fps) + " byte-stream=true" :
-            "v4l2h264enc name=encoder extra-controls=\"controls,video_bitrate_mode=1,video_bitrate=" +
+            "v4l2h264enc name=encoder " +
+            std::string(!o.test && o.image.empty() ? "output-io-mode=dmabuf-import " : "") + "extra-controls=\"controls,video_bitrate_mode=1,video_bitrate=" +
             std::to_string(o.bitrate * 1000) + ",video_gop_size=" + std::to_string(o.fps) +
             ",repeat_sequence_header=1\"";
         std::string mjpeg = o.software_encoding ? "jpegenc quality=75" : "v4l2jpegenc extra-controls=\"controls,compression_quality=75\"";
@@ -200,12 +233,12 @@ int main(int argc, char **argv) {
         if (!o.image.empty()) pipeline = "filesrc name=camera ! jpegdec ! imagefreeze is-live=true ! videoscale ! videoconvert ";
         pipeline += "! video/x-raw,format=NV12,width=" + std::to_string(o.width) +
             ",height=" + std::to_string(o.height) +
-            " ! videorate drop-only=true ! video/x-raw,framerate=" + std::to_string(o.fps) + "/1 ! identity name=detector ! tee name=t "
+            " ! identity name=detector ! videorate drop-only=true ! video/x-raw,framerate=" + std::to_string(o.fps) + "/1 ! tee name=t "
             "t. ! queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream "
             "! " + h264 + " ! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au "
             "! appsink name=encoded emit-signals=true sync=false max-buffers=2 drop=true "
             "t. ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=downstream "
-            "! videoscale ! videorate drop-only=true ! video/x-raw,width=640,height=360,framerate=5/1 "
+            "! videorate drop-only=true ! video/x-raw,framerate=5/1 ! videoscale ! video/x-raw,width=640,height=360 "
             "! videoconvert ! " + mjpeg + " "
             "! appsink name=jpeg emit-signals=true sync=false max-buffers=1 drop=true ";
         if (display.connector >= 0) {
@@ -235,7 +268,7 @@ int main(int argc, char **argv) {
         if (yolo) {
             GstElement *detector = gst_bin_get_by_name(GST_BIN(pipe),"detector");
             GstPad *pad = gst_element_get_static_pad(detector,"src");
-            gst_pad_add_probe(pad,GST_PAD_PROBE_TYPE_BUFFER,detect_frame,yolo.get(),nullptr);
+            gst_pad_add_probe(pad,GST_PAD_PROBE_TYPE_BUFFER,detect_frame,&detector_context,nullptr);
             gst_object_unref(pad); gst_object_unref(detector);
         }
         GstElement *encoder = gst_bin_get_by_name(GST_BIN(pipe), "encoder");

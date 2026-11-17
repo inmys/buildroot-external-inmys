@@ -28,13 +28,14 @@ class YoloDSP {
     mutable std::mutex mutex;
     std::condition_variable ready;
     bool stopping = false, pending = false;
-    std::vector<unsigned char> pixels, queued_pixels;
+    std::vector<float> prepared_input, queued_input;
+    double queued_prepare_ms = 0;
     GstVideoInfo info{}, queued_info{};
     std::chrono::steady_clock::time_point captured, queued_captured;
     YoloResult result;
     std::string statistics;
     void work();
-    void prepare();
+    static void prepare(const GstVideoFrame &frame, std::vector<float> &tensor);
     std::vector<Detection> decode() const;
     void release();
 public:

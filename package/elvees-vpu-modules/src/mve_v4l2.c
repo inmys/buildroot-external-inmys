@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Stateful V4L2 M2M decode and encode frontend for the Arm MVE firmware driver.
  * MVE owns hardware scheduling; v4l2-m2m provides the standard VB2 queues.
- * Firmware buffers remain private. Capture exports standard contiguous CMA NV12 storage.
+ * Raw frames use the VB2 DMA-BUF storage directly; only compressed data is copied.
  */
 #include <linux/dma-buf.h>
 #include <linux/kthread.h>
@@ -25,13 +25,15 @@
 #define MVE_H 1088U
 #define MVE_INPUT_SIZE (2U * 1024 * 1024)
 #define MVE_INPUTS 5
-/* H.264 can require 16 DPB pictures plus display/output slack. */
-#define MVE_OUTPUTS 18
-#define MVE_TOTAL (MVE_INPUTS + MVE_OUTPUTS)
+/* VB2 requires at least 32 available indices; storage is allocated by userspace. */
+#define MVE_OUTPUTS 32
+#define MVE_RAW_INPUTS 32U
+#define MVE_TOTAL (MVE_RAW_INPUTS + MVE_OUTPUTS)
 #define MVE_ENC_OUTPUTS 4U
 #define MVE_ENC_BITSTREAM_SIZE (MVE_W * MVE_H * 3 / 2 + 65536)
 #define MVE_EOS 1U
 #define MVE_END_FRAME 0x10U
+#define MVE_READONLY 0x200U
 
 struct mve_video {
 	struct media_device media;
@@ -47,8 +49,9 @@ struct mve_storage {
 	struct dma_buf *dbuf;
 	void *vaddr;
 	struct vb2_v4l2_buffer *source;
+	struct vb2_buffer *registered_vb;
 	struct mve_base_buffer_userspace frame;
-	bool busy, ready;
+	bool busy, ready, release_requested;
 };
 struct mve_context {
 	struct v4l2_fh fh;
@@ -71,11 +74,16 @@ struct mve_context {
 	unsigned width, height, visible_w, visible_h, pitch;
 	unsigned sequence, src_sequence, output_state;
 	unsigned colorspace, ycbcr_enc, quantization, xfer_func;
-	u64 submitted, completed;
+	u64 submitted, completed, raw_in_direct, raw_out_direct;
 	bool active, failed, sequence_known, draining, eos_sent, drained;
+	bool capture_stopping, capture_flushed, firmware_stopped;
 };
 static struct mve_video *mve_videos[2];
 
+static unsigned input_count(struct mve_context *c)
+{
+	return c->dev->encode ? MVE_RAW_INPUTS : MVE_INPUTS;
+}
 static unsigned output_count(struct mve_context *c)
 {
 	return c->dev->encode ? MVE_ENC_OUTPUTS : MVE_OUTPUTS;
@@ -119,7 +127,7 @@ static int enqueue(struct mve_context *c, unsigned slot, unsigned size,
 		.buffer_id = slot + 1, .handle = slot + 1,
 		.filled_len = size, .timestamp = timestamp, .flags = flags,
 	};
-	return issue(c, slot < MVE_INPUTS ? MVE_BASE_EMPTY_THIS_BUFFER :
+	return issue(c, slot < input_count(c) ? MVE_BASE_EMPTY_THIS_BUFFER :
 		     MVE_BASE_FILL_THIS_BUFFER, &p, sizeof(p));
 }
 static void buffers_return(struct mve_context *c, bool output, enum vb2_buffer_state state)
@@ -134,7 +142,7 @@ static void fail(struct mve_context *c, int error)
 	unsigned i;
 	dev_err(c->dev->dev, "V4L2 codec failed: %d\n", error);
 	c->failed = true;
-	for (i = 0; i < MVE_INPUTS; ++i) {
+	for (i = 0; i < MVE_TOTAL; ++i) {
 		if (c->storage[i].source) {
 			v4l2_m2m_buf_done(c->storage[i].source, VB2_BUF_STATE_ERROR);
 			c->storage[i].source = NULL;
@@ -155,22 +163,8 @@ static int storage_alloc(struct mve_context *c, unsigned i)
 	};
 	struct mve_session *session;
 	int ret;
-	if (c->dev->encode) {
-		p.size = queue_size(c, i < MVE_INPUTS);
-		p.format = i >= MVE_INPUTS ? MVE_BASE_OMX_BUFFER_FORMAT_BITSTREAM :
-			c->raw_format == V4L2_PIX_FMT_NV12 ? MVE_BASE_OMX_BUFFER_FORMAT_YUV420_SEMIPLANAR :
-			MVE_BASE_OMX_BUFFER_FORMAT_YUV420_PLANAR;
-		if (i < MVE_INPUTS) {
-			p.width = c->width; p.height = c->height; p.stride = c->pitch;
-		}
-	} else {
-		p.size = i < MVE_INPUTS ? MVE_INPUT_SIZE : MVE_W * MVE_H * 2;
-		p.format = i < MVE_INPUTS ? MVE_BASE_OMX_BUFFER_FORMAT_BITSTREAM :
-			MVE_BASE_OMX_BUFFER_FORMAT_YUV420_SEMIPLANAR;
-		if (i >= MVE_INPUTS) {
-			p.width = MVE_W; p.height = MVE_H; p.stride = MVE_W;
-		}
-	}
+	p.size = c->dev->encode ? MVE_ENC_BITSTREAM_SIZE : MVE_INPUT_SIZE;
+	p.format = MVE_BASE_OMX_BUFFER_FORMAT_BITSTREAM;
 	s->mem = vb2_vmalloc_memops.alloc(&c->storage_vb, c->dev->dev, p.size);
 	if (IS_ERR(s->mem)) { ret = PTR_ERR(s->mem); s->mem = NULL; return ret; }
 	s->vaddr = vb2_vmalloc_memops.vaddr(&c->storage_vb, s->mem);
@@ -180,7 +174,7 @@ static int storage_alloc(struct mve_context *c, unsigned i)
 	}
 	session = mve_session_acquire_by_file(&c->client);
 	if (!session) return -EIO;
-	ret = mve_session_buffer_register_kernel(session, i < MVE_INPUTS ? 0 : 1, &p, s->dbuf);
+	ret = mve_session_buffer_register_kernel(session, i < input_count(c) ? 0 : 1, &p, s->dbuf);
 	mve_session_release(session);
 	return ret ? -EIO : 0;
 }
@@ -190,8 +184,8 @@ static void session_destroy(struct mve_context *c)
 	if (c->active) {
 		issue(c, MVE_BASE_DESTROY_SESSION, NULL, 0);
 		c->active = false;
-		dev_info(c->dev->dev, "V4L2 session closed: input=%llu output=%llu\n",
-			 c->submitted, c->completed);
+		dev_info(c->dev->dev, "V4L2 session closed: input=%llu output=%llu raw-in-direct=%llu raw-out-direct=%llu\n",
+			 c->submitted, c->completed, c->raw_in_direct, c->raw_out_direct);
 	}
 	for (i = 0; i < MVE_TOTAL; ++i) {
 		struct mve_storage *s = &c->storage[i];
@@ -202,7 +196,8 @@ static void session_destroy(struct mve_context *c)
 	}
 	c->head = c->count = c->output_state = 0;
 	c->sequence_known = c->draining = c->eos_sent = c->drained = false;
-	c->submitted = c->completed = 0;
+	c->capture_stopping = c->capture_flushed = c->firmware_stopped = false;
+	c->submitted = c->completed = c->raw_in_direct = c->raw_out_direct = 0;
 	c->header_size = 0; c->headers_pending = false;
 }
 static int set_option(struct mve_context *c, u32 index, u32 value)
@@ -297,13 +292,14 @@ static int session_create(struct mve_context *c)
 		ret = issue(c, MVE_BASE_SET_PARAMETER, opt, sizeof(opt));
 	}
 	if (ret) goto error;
-	for (i = 0; i < MVE_INPUTS + output_count(c); ++i) {
+	for (i = c->dev->encode ? input_count(c) : 0;
+	     i < (c->dev->encode ? input_count(c) + output_count(c) : input_count(c)); ++i) {
 		ret = storage_alloc(c, i);
 		if (ret) goto error;
 	}
 	ret = issue(c, MVE_BASE_ENQUEUE_STATE_CHANGE, &running, sizeof(running));
 	if (!ret && c->dev->encode)
-		for (i = MVE_INPUTS; i < MVE_INPUTS + output_count(c); ++i) {
+		for (i = input_count(c); i < input_count(c) + output_count(c); ++i) {
 			ret = enqueue(c, i, 0, 0, 0);
 			if (ret) break;
 		}
@@ -315,9 +311,9 @@ error:
 static int frames_deliver(struct mve_context *c)
 {
 	struct vb2_queue *q = v4l2_m2m_get_dst_vq(c->fh.m2m_ctx);
-	while (c->count && vb2_is_streaming(q)) {
+	while (c->dev->encode && c->count && vb2_is_streaming(q)) {
 		struct vb2_v4l2_buffer *b = v4l2_m2m_dst_buf_remove(c->fh.m2m_ctx);
-		unsigned slot = c->fifo[c->head], y, rows;
+		unsigned slot = c->fifo[c->head];
 		struct mve_storage *s = &c->storage[slot];
 		struct mve_base_buffer_userspace *f = &s->frame;
 		u8 *dst, *src = s->vaddr;
@@ -328,7 +324,6 @@ static int frames_deliver(struct mve_context *c)
 			v4l2_m2m_buf_done(b, VB2_BUF_STATE_ERROR);
 			continue;
 		}
-		rows = min_t(unsigned, f->decoded_height, c->height);
 		if (c->dev->encode && f->filled_len) {
 			unsigned prefix = c->codec == V4L2_PIX_FMT_H264 &&
 				((c->repeat_header->val && (f->flags & 0x20)) || !c->sequence) ? c->header_size : 0;
@@ -344,19 +339,6 @@ static int frames_deliver(struct mve_context *c)
 			memcpy(dst + prefix, src + f->offset, f->filled_len);
 			dma_buf_end_cpu_access(s->dbuf, DMA_FROM_DEVICE);
 			vb2_set_plane_payload(&b->vb2_buf, 0, f->filled_len + prefix);
-		} else if (f->filled_len) {
-			if (f->decoded_width > c->pitch || f->decoded_width > MVE_W ||
-			    f->decoded_height > MVE_H) {
-				v4l2_m2m_buf_done(b, VB2_BUF_STATE_ERROR); return -EOVERFLOW;
-			}
-			dma_buf_begin_cpu_access(s->dbuf, DMA_FROM_DEVICE);
-			dst = vb2_plane_vaddr(&b->vb2_buf, 0);
-			for (y = 0; y < rows; ++y)
-				memcpy(dst + y * c->pitch, src + y * MVE_W, f->decoded_width);
-			dst = vb2_plane_vaddr(&b->vb2_buf, 0) + c->pitch * c->height;
-			for (y = 0; y < DIV_ROUND_UP(rows, 2); ++y)
-				memcpy(dst + y * c->pitch, src + (MVE_H + y) * MVE_W, f->decoded_width);
-			dma_buf_end_cpu_access(s->dbuf, DMA_FROM_DEVICE);
 		}
 		/* Publish WC/coherent capture stores before userspace/GPU sees DONE. */
 		dma_wmb();
@@ -381,10 +363,139 @@ static int frames_deliver(struct mve_context *c)
 	}
 	return 0;
 }
+/* Register the V4L2 raw storage itself. The queue owns it until firmware
+ * returns INPUT/OUTPUT; mappings outlive STREAMOFF while DPB references remain.
+ * Imported DMA-BUFs may change on each QBUF, so compare the actual object too. */
+static int register_raw(struct mve_context *c, unsigned slot, struct vb2_buffer *vb)
+{
+	struct mve_storage *storage = &c->storage[slot];
+	struct dma_buf *dbuf = vb->planes[0].dbuf;
+	struct mve_base_buffer_userspace info = {
+		.buffer_id = slot + 1, .handle = slot + 1,
+		.allocator = MVE_BASE_BUFFER_ALLOCATOR_DMABUF,
+		.width = c->width, .height = c->height, .stride = c->pitch,
+		.stride_alignment = 1,
+		.format = c->raw_format == V4L2_PIX_FMT_NV12 ?
+			MVE_BASE_OMX_BUFFER_FORMAT_YUV420_SEMIPLANAR : MVE_BASE_OMX_BUFFER_FORMAT_YUV420_PLANAR,
+	};
+	struct mve_session *session;
+	int ret;
+	if (storage->registered_vb == vb && storage->dbuf &&
+	    (vb->memory != VB2_MEMORY_DMABUF || dbuf == storage->dbuf)) return 0;
+	if (vb->planes[0].data_offset) return -EINVAL;
+	if (!c->dev->encode && storage->dbuf && ((storage->frame.flags & MVE_READONLY) || storage->release_requested)) return -EBUSY;
+	if (vb->memory == VB2_MEMORY_DMABUF) {
+		if (!dbuf) return -EINVAL;
+		get_dma_buf(dbuf);
+	} else if (vb->memory == VB2_MEMORY_MMAP) {
+		dbuf = vb->vb2_queue->mem_ops->get_dmabuf(vb, vb->planes[0].mem_priv, O_RDWR);
+		if (IS_ERR_OR_NULL(dbuf)) return dbuf ? PTR_ERR(dbuf) : -ENOMEM;
+	} else return -EINVAL;
+	if (dbuf->size < queue_size(c, c->dev->encode) || dbuf->size > U32_MAX) {
+		dma_buf_put(dbuf); return -EINVAL;
+	}
+	info.size = dbuf->size;
+	session = mve_session_acquire_by_file(&c->client);
+	if (!session) { dma_buf_put(dbuf); return -EIO; }
+	ret = storage->dbuf ? mve_session_buffer_unregister_internal(session, slot + 1) : 0;
+	if (!ret) {
+		if (storage->dbuf) dma_buf_put(storage->dbuf);
+		storage->dbuf = NULL; storage->registered_vb = NULL;
+		ret = mve_session_buffer_register_kernel(session, c->dev->encode ? 0 : 1, &info, dbuf);
+	}
+	mve_session_release(session);
+	if (ret) { dma_buf_put(dbuf); return -EIO; }
+	storage->dbuf = dbuf; storage->registered_vb = vb;
+	storage->frame.flags = 0; storage->release_requested = false;
+	return 0;
+}
+/* Once userspace returns a displayed CAPTURE buffer, firmware may reuse it.
+ * REF_FRAME pictures are read-only while held by userspace; re-enqueueing the
+ * same storage is the firmware protocol's normal reference-release path. */
+static int decoder_outputs_feed(struct mve_context *c)
+{
+	struct vb2_v4l2_buffer *buffer;
+	if (c->dev->encode || c->output_state != 2 || c->drained || c->capture_stopping ||
+		!vb2_is_streaming(v4l2_m2m_get_dst_vq(c->fh.m2m_ctx))) return 0;
+	while ((buffer = v4l2_m2m_next_dst_buf(c->fh.m2m_ctx))) {
+		struct vb2_buffer *vb = &buffer->vb2_buf;
+		struct mve_storage *storage;
+		unsigned slot, candidate = MVE_TOTAL;
+		int ret;
+		for (slot = MVE_INPUTS; slot < MVE_INPUTS + MVE_OUTPUTS; ++slot) {
+			storage = &c->storage[slot];
+			if (!storage->busy && storage->registered_vb == vb &&
+				(vb->memory != VB2_MEMORY_DMABUF || storage->dbuf == vb->planes[0].dbuf)) {
+				candidate = slot; break;
+			}
+		}
+		if (candidate == MVE_TOTAL)
+			for (slot = MVE_INPUTS; slot < MVE_INPUTS + MVE_OUTPUTS; ++slot) {
+				storage = &c->storage[slot];
+				if (storage->busy) continue;
+				if ((storage->frame.flags & MVE_READONLY) || storage->release_requested) {
+					if (!storage->release_requested) {
+						mve_base_buffer_handle_t id = slot + 1;
+						ret = issue(c, MVE_BASE_NOTIFY_REF_FRAME_RELEASE, &id, sizeof(id));
+						if (ret) return ret;
+						storage->release_requested = true;
+					}
+				} else if (candidate == MVE_TOTAL) candidate = slot;
+			}
+		if (candidate == MVE_TOTAL) break;
+		slot = candidate; storage = &c->storage[slot];
+		buffer = v4l2_m2m_dst_buf_remove(c->fh.m2m_ctx);
+		ret = register_raw(c, slot, vb);
+		if (ret) { v4l2_m2m_buf_done(buffer, VB2_BUF_STATE_ERROR); return ret; }
+		storage->source = buffer; storage->busy = true;
+		ret = enqueue(c, slot, 0, 0, 0);
+		if (ret) return ret;
+	}
+	return 0;
+}
+static int encoder_inputs_feed(struct mve_context *c)
+{
+	while (!c->eos_sent) {
+		struct vb2_v4l2_buffer *buffer = v4l2_m2m_next_src_buf(c->fh.m2m_ctx);
+		struct mve_storage *storage;
+		unsigned slot, size = 0, flags = MVE_END_FRAME;
+		int ret;
+		if (buffer) {
+			slot = buffer->vb2_buf.index;
+			if (slot >= MVE_RAW_INPUTS) return -EINVAL;
+			storage = &c->storage[slot];
+			if (storage->busy) break;
+			buffer = v4l2_m2m_src_buf_remove(c->fh.m2m_ctx);
+			size = vb2_get_plane_payload(&buffer->vb2_buf, 0) ? queue_size(c, true) : 0;
+			ret = register_raw(c, slot, &buffer->vb2_buf);
+			if (ret) { v4l2_m2m_buf_done(buffer, VB2_BUF_STATE_ERROR); return ret; }
+		} else {
+			if (!c->draining) break;
+			for (slot = 0; slot < MVE_RAW_INPUTS; ++slot)
+				if (c->storage[slot].dbuf && !c->storage[slot].busy) break;
+			if (slot == MVE_RAW_INPUTS) break;
+			storage = &c->storage[slot];
+		}
+		if (!size) { flags |= MVE_EOS; c->eos_sent = c->draining = true; }
+		if (size && c->force_keyframe && c->codec == V4L2_PIX_FMT_H264) {
+			u32 reset[] = { MVE_BUFFER_CODE_PARAM, MVE_BUFFER_PARAM_TYPE_GOP_RESET };
+			ret = issue(c, MVE_BASE_SET_CONFIG, reset, sizeof(reset));
+			if (ret) { if (buffer) v4l2_m2m_buf_done(buffer, VB2_BUF_STATE_ERROR); return ret; }
+			c->force_keyframe = false;
+		}
+		storage->source = buffer; storage->busy = true;
+		if (buffer) { buffer->sequence = c->src_sequence++; buffer->field = V4L2_FIELD_NONE; }
+		ret = enqueue(c, slot, size, buffer ? buffer->vb2_buf.timestamp : 0, flags);
+		if (ret) return ret;
+		if (size) { ++c->submitted; ++c->raw_in_direct; }
+	}
+	return 0;
+}
 static int inputs_feed(struct mve_context *c)
 {
 	unsigned i;
-	for (i = 0; i < MVE_INPUTS; ++i) {
+	if (c->dev->encode) return encoder_inputs_feed(c);
+	for (i = 0; i < input_count(c); ++i) {
 		struct mve_storage *s = &c->storage[i];
 		struct vb2_v4l2_buffer *b;
 		unsigned size, offset, flags = MVE_END_FRAME;
@@ -404,12 +515,7 @@ static int inputs_feed(struct mve_context *c)
 		} else {
 			flags |= MVE_EOS; c->eos_sent = true; c->draining = true;
 		}
-		if (size && c->dev->encode && c->force_keyframe && c->codec == V4L2_PIX_FMT_H264) {
-			u32 reset[] = { MVE_BUFFER_CODE_PARAM, MVE_BUFFER_PARAM_TYPE_GOP_RESET };
-			ret = issue(c, MVE_BASE_SET_CONFIG, reset, sizeof(reset));
-			if (ret) { if (b) v4l2_m2m_buf_done(b, VB2_BUF_STATE_ERROR); return ret; }
-			c->force_keyframe = false;
-		}
+
 		s->source = b; s->busy = true;
 		if (b) { b->sequence = c->src_sequence++; b->field = V4L2_FIELD_NONE; }
 		ret = enqueue(c, i, size, b ? b->vb2_buf.timestamp : 0, flags);
@@ -422,10 +528,16 @@ static int event_handle(struct mve_context *c, struct mve_response *r)
 {
 	struct mve_base_event_header *ev = r->data;
 	struct mve_base_buffer_userspace *f;
-	unsigned i, slot;
-	int ret;
+	unsigned slot;
 	if (r->size < sizeof(*ev) || r->size != sizeof(*ev) + ev->size) return -EIO;
 	if (ev->code == MVE_BASE_EVENT_ERROR || ev->code == MVE_BASE_EVENT_SESSION_HUNG) return -EIO;
+	if (ev->code == MVE_BASE_EVENT_STATE_CHANGED) {
+		u32 state;
+		if (ev->size != sizeof(state)) return -EIO;
+		memcpy(&state, ev->data, sizeof(state));
+		c->firmware_stopped = state == MVE_BASE_HW_STATE_STOPPED;
+		return 0;
+	}
 	if (ev->code == MVE_BASE_EVENT_SEQUENCE_PARAMS) {
 		const struct mve_base_response_sequence_parameters *p = (void *)ev->data;
 		if (ev->size != sizeof(*p)) return -EIO;
@@ -436,17 +548,32 @@ static int event_handle(struct mve_context *c, struct mve_response *r)
 	}
 	if (ev->code == MVE_BASE_EVENT_ALLOC_PARAMS && !c->dev->encode) {
 		u32 flush = MVE_BASE_FLUSH_OUTPUT_PORT;
+		const struct mve_base_fw_frame_alloc_parameters *p = (void *)ev->data;
+		if (ev->size != sizeof(*p)) return -EIO;
+		dev_info(c->dev->dev, "V4L2 raw allocation %ux%u, capture %ux%u stride %u\n",
+			p->planar_alloc_frame_width, p->planar_alloc_frame_height, c->width, c->height, c->pitch);
+		if (p->planar_alloc_frame_width > c->pitch || p->planar_alloc_frame_height > c->height) return -ENOSPC;
 		if (c->output_state) return -EOPNOTSUPP;
 		c->output_state = 1;
 		return issue(c, MVE_BASE_ENQUEUE_FLUSH_BUFFERS, &flush, sizeof(flush));
+	}
+	if (ev->code == MVE_BASE_EVENT_REF_FRAME_RELEASED) {
+		mve_base_buffer_handle_t id;
+		if (ev->size != sizeof(id)) return -EIO;
+		memcpy(&id, ev->data, sizeof(id));
+		if (id <= MVE_INPUTS || id > MVE_INPUTS + MVE_OUTPUTS) return -EIO;
+		c->storage[id - 1].frame.flags &= ~MVE_READONLY;
+		c->storage[id - 1].release_requested = false;
+		return 0;
+	}
+	if (ev->code == MVE_BASE_EVENT_OUTPUT_FLUSHED && c->capture_stopping) {
+		c->capture_flushed = true; return 0;
 	}
 	if (ev->code == MVE_BASE_EVENT_OUTPUT_FLUSHED && c->output_state == 1) {
 		struct v4l2_event change = { .type = V4L2_EVENT_SOURCE_CHANGE,
 			.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION };
 		c->output_state = 2;
-		for (i = MVE_INPUTS; i < MVE_TOTAL; ++i) {
-			ret = enqueue(c, i, 0, 0, 0); if (ret) return ret;
-		}
+
 		/* Input dimensions come from the client's parsed SPS. Notify before
 		 * decoded pictures, so clients can start CAPTURE without a DPB wait. */
 		v4l2_event_queue_fh(&c->fh, &change);
@@ -459,12 +586,12 @@ static int event_handle(struct mve_context *c, struct mve_response *r)
 	slot = f->buffer_id - 1;
 	if (ev->code == MVE_BASE_EVENT_INPUT) {
 		struct mve_storage *s = &c->storage[slot];
-		if (slot >= MVE_INPUTS) return -EIO;
+		if (slot >= input_count(c)) return -EIO;
 		if (s->source) v4l2_m2m_buf_done(s->source, VB2_BUF_STATE_DONE);
 		s->source = NULL; s->busy = false;
 		return 0;
 	}
-	if (slot < MVE_INPUTS || slot >= MVE_INPUTS + output_count(c)) return -EIO;
+	if (slot < input_count(c) || slot >= input_count(c) + output_count(c)) return -EIO;
 	if (c->dev->encode && c->codec == V4L2_PIX_FMT_H264 && (f->flags & 0x80)) {
 		struct mve_storage *storage = &c->storage[slot];
 		if (!c->headers_pending) c->header_size = 0;
@@ -476,6 +603,13 @@ static int event_handle(struct mve_context *c, struct mve_response *r)
 		dma_buf_end_cpu_access(storage->dbuf, DMA_FROM_DEVICE);
 		c->header_size += f->filled_len;
 		return enqueue(c, slot, 0, 0, 0);
+	}
+	if (!c->dev->encode && c->capture_stopping) {
+		struct mve_storage *storage = &c->storage[slot];
+		storage->frame = *f; storage->busy = false;
+		if (storage->source) v4l2_m2m_buf_done(storage->source, VB2_BUF_STATE_ERROR);
+		storage->source = NULL;
+		return 0;
 	}
 	if (!f->filled_len && !(f->flags & MVE_EOS))
 		return enqueue(c, slot, 0, 0, 0);
@@ -493,6 +627,24 @@ static int event_handle(struct mve_context *c, struct mve_response *r)
 		dev_info(c->dev->dev, "V4L2 H264 sequence %ux%u, visible %ux%u\n",
 			c->width, c->height, c->visible_w, c->visible_h);
 	}
+	if (!c->dev->encode) {
+		struct mve_storage *storage = &c->storage[slot];
+		struct vb2_v4l2_buffer *buffer = storage->source;
+		if (!buffer || !storage->busy) return -EIO;
+		storage->frame = *f;
+		if (f->filled_len) { ++c->completed; ++c->raw_out_direct; }
+		vb2_set_plane_payload(&buffer->vb2_buf, 0, f->filled_len ? queue_size(c, false) : 0);
+		buffer->vb2_buf.timestamp = f->timestamp;
+		buffer->field = V4L2_FIELD_NONE; buffer->sequence = c->sequence++;
+		if (f->flags & MVE_EOS) {
+			struct v4l2_event event = { .type = V4L2_EVENT_EOS };
+			buffer->flags |= V4L2_BUF_FLAG_LAST; c->drained = true;
+			v4l2_event_queue_fh(&c->fh, &event);
+		}
+		storage->source = NULL; storage->busy = false;
+		v4l2_m2m_buf_done(buffer, VB2_BUF_STATE_DONE);
+		return 0;
+	}
 	if (c->count == output_count(c) || c->storage[slot].ready) return -EIO;
 	c->storage[slot].frame = *f; c->storage[slot].ready = true;
 	c->fifo[(c->head + c->count++) % MVE_OUTPUTS] = slot;
@@ -508,6 +660,7 @@ static int decode_thread(void *opaque)
 		u32 timeout = 10;
 		mutex_lock(&c->dev->lock);
 		ret = frames_deliver(c);
+		if (!ret) ret = decoder_outputs_feed(c);
 		if (!ret) ret = inputs_feed(c);
 		mutex_unlock(&c->dev->lock);
 		if (ret) goto error;
@@ -550,9 +703,14 @@ static int buffer_prepare(struct vb2_buffer *b)
 	unsigned need[] = { queue_size(c, V4L2_TYPE_IS_OUTPUT(b->type)) };
 	for (i = 0; i < planes; ++i) {
 		if (vb2_plane_size(b, i) < need[i]) return -EINVAL;
-		if (!vb2_plane_vaddr(b, i)) return -ENOMEM;
+		if (c->dev->encode != V4L2_TYPE_IS_OUTPUT(b->type) && !vb2_plane_vaddr(b, i)) return -ENOMEM;
 	}
-	if (V4L2_TYPE_IS_OUTPUT(b->type) && (vb2_get_plane_payload(b, 0) > queue_size(c, true) ||
+	if (!c->dev->encode && !V4L2_TYPE_IS_OUTPUT(b->type) &&
+		(b->index >= MVE_OUTPUTS || b->planes[0].data_offset)) return -EINVAL;
+	if (c->dev->encode && V4L2_TYPE_IS_OUTPUT(b->type) &&
+	    (b->index >= MVE_RAW_INPUTS || b->planes[0].data_offset ||
+	     (vb2_get_plane_payload(b, 0) && vb2_get_plane_payload(b, 0) < queue_size(c, true)))) return -EINVAL;
+	if (V4L2_TYPE_IS_OUTPUT(b->type) && (vb2_get_plane_payload(b, 0) > vb2_plane_size(b, 0) ||
 	    b->planes[0].data_offset > vb2_get_plane_payload(b, 0))) return -EINVAL;
 	return 0;
 }
@@ -565,7 +723,21 @@ static int start_streaming(struct vb2_queue *q, unsigned count)
 {
 	struct mve_context *c = vb2_get_drv_priv(q);
 	int ret;
-	if (!V4L2_TYPE_IS_OUTPUT(q->type)) return 0;
+	if (!V4L2_TYPE_IS_OUTPUT(q->type)) {
+		if (!c->dev->encode && c->active && !c->thread) {
+			u32 running = MVE_BASE_HW_STATE_RUNNING;
+			ret = issue(c, MVE_BASE_ENQUEUE_STATE_CHANGE, &running, sizeof(running));
+			if (ret) { buffers_return(c, false, VB2_BUF_STATE_QUEUED); return ret; }
+			c->capture_stopping = false; c->firmware_stopped = false;
+			c->thread = kthread_run(decode_thread, c, "mve-v4l2");
+			if (IS_ERR(c->thread)) {
+				ret = PTR_ERR(c->thread); c->thread = NULL;
+				buffers_return(c, false, VB2_BUF_STATE_QUEUED);
+				return ret;
+			}
+		}
+		return 0;
+	}
 	c->failed = false; c->sequence = c->src_sequence = 0;
 	ret = session_create(c);
 	if (ret) goto error;
@@ -579,19 +751,61 @@ error:
 	buffers_return(c, true, VB2_BUF_STATE_QUEUED);
 	return ret;
 }
+static void worker_stop(struct mve_context *c)
+{
+	if (c->thread) {
+		struct task_struct *thread = c->thread;
+		c->thread = NULL;
+		mutex_unlock(&c->dev->lock);
+		kthread_stop(thread);
+		mutex_lock(&c->dev->lock);
+	}
+}
+/* Called with the worker stopped and the queue mutex held. */
+static int wait_firmware(struct mve_context *c, bool *done)
+{
+	unsigned long deadline = jiffies + 2 * HZ;
+	int ret = 0;
+	while (!ret && !*done && time_before(jiffies, deadline)) {
+		u32 timeout = 10;
+		struct mve_response *response = command(c, MVE_BASE_GET_EVENT, &timeout, sizeof(timeout));
+		ret = !response ? -ENOMEM : response->error == MVE_BASE_ERROR_TIMEOUT ? 0 :
+			response->error ? -EIO : event_handle(c, response);
+		reply_free(response);
+	}
+	return ret ? ret : (*done ? 0 : -ETIMEDOUT);
+}
 static void stop_streaming(struct vb2_queue *q)
 {
 	struct mve_context *c = vb2_get_drv_priv(q);
 	if (V4L2_TYPE_IS_OUTPUT(q->type)) {
-		if (c->thread) {
-			/* The worker uses the same queue mutex. */
-			struct task_struct *thread = c->thread;
-			c->thread = NULL;
-			mutex_unlock(&c->dev->lock);
-			kthread_stop(thread);
-			mutex_lock(&c->dev->lock);
-		}
+		worker_stop(c);
 		session_destroy(c);
+	} else if (!c->dev->encode && c->active) {
+		u32 stopped = MVE_BASE_HW_STATE_STOPPED, flush = MVE_BASE_FLUSH_OUTPUT_PORT;
+		unsigned i;
+		int ret;
+		worker_stop(c);
+		c->capture_stopping = true; c->capture_flushed = false;
+		/* H.264 firmware permits output flush only while stopped (or during
+		 * its initial sequence handshake). Preserve the input/DPB state. */
+		ret = issue(c, MVE_BASE_ENQUEUE_STATE_CHANGE, &stopped, sizeof(stopped));
+		if (!ret) ret = wait_firmware(c, &c->firmware_stopped);
+		if (!ret) ret = issue(c, MVE_BASE_ENQUEUE_FLUSH_BUFFERS, &flush, sizeof(flush));
+		if (!ret) ret = wait_firmware(c, &c->capture_flushed);
+		for (i = MVE_INPUTS; !ret && i < MVE_INPUTS + MVE_OUTPUTS; ++i) {
+			struct mve_storage *storage = &c->storage[i];
+			/* Keep mappings for DPB references after STREAMOFF; a new
+			 * CAPTURE pool uses other slots while firmware releases them. */
+			if (storage->busy || storage->source) { ret = -EIO; break; }
+			storage->registered_vb = NULL;
+			if ((storage->frame.flags & MVE_READONLY) && !storage->release_requested) {
+				mve_base_buffer_handle_t id = i + 1;
+				ret = issue(c, MVE_BASE_NOTIFY_REF_FRAME_RELEASE, &id, sizeof(id));
+				storage->release_requested = !ret;
+			}
+		}
+		if (ret) { fail(c, ret); session_destroy(c); }
 	}
 	buffers_return(c, V4L2_TYPE_IS_OUTPUT(q->type), VB2_BUF_STATE_ERROR);
 }
@@ -610,6 +824,8 @@ static int queues_init(void *priv, struct vb2_queue *src, struct vb2_queue *dst)
 	for (i = 0; i < 2; ++i) {
 		q[i]->type = i ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE : V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
 		q[i]->io_modes = VB2_MMAP | VB2_DMABUF;
+		if (!i && c->dev->encode) q[i]->max_num_buffers = MVE_RAW_INPUTS;
+		if (i && !c->dev->encode) q[i]->max_num_buffers = MVE_OUTPUTS;
 		q[i]->drv_priv = c; q[i]->ops = &queue_ops;
 		q[i]->buf_struct_size = sizeof(struct v4l2_m2m_buffer);
 		q[i]->mem_ops = i && !c->dev->encode ? &vb2_dma_contig_memops : &vb2_vmalloc_memops;

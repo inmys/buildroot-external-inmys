@@ -7,10 +7,10 @@ INMYS_VISION_DEPENDENCIES = libgpiod elvees-gst-felix elvees-vpu-modules elvees-
 
 define INMYS_VISION_BUILD_CMDS
 	$(TARGET_CXX) $(TARGET_CXXFLAGS) -std=c++17 -Wall -Wextra -Werror \
-		`$(PKG_CONFIG_HOST_BINARY) --cflags gstreamer-rtsp-server-1.0 gstreamer-app-1.0 gstreamer-video-1.0 libgpiod` \
+		`$(PKG_CONFIG_HOST_BINARY) --cflags gstreamer-rtsp-server-1.0 gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-allocators-1.0 libgpiod` \
 		$(@D)/vision.cpp $(@D)/camera.cpp $(@D)/yolo.cpp $(@D)/overlay.cpp $(@D)/rtsp.cpp $(@D)/web.cpp -pthread \
 		-L$(STAGING_DIR)/usr/lib/elvees-nn -lelcorenn -Wl,-rpath-link,$(STAGING_DIR)/usr/lib/elvees-nn \
-		`$(PKG_CONFIG_HOST_BINARY) --libs gstreamer-rtsp-server-1.0 gstreamer-app-1.0 gstreamer-video-1.0 libgpiod` \
+		`$(PKG_CONFIG_HOST_BINARY) --libs gstreamer-rtsp-server-1.0 gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-allocators-1.0 libgpiod` \
 		$(TARGET_LDFLAGS) -o $(@D)/inmys-vision
 endef
 
