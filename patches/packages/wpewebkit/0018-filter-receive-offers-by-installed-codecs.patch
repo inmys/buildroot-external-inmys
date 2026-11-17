@@ -1,0 +1,75 @@
+Subject: [PATCH] WebRTC: filter remote-created transceivers by installed codecs
+
+GStreamer creates receive transceivers during create-answer, after
+set-remote-description. Set their codec preferences synchronously in
+on-new-transceiver, intersecting the offer with installed decoder and
+depayloader capabilities. Otherwise an SFU FlexFEC repair SSRC is accepted
+as a second video stream despite having no decoder.
+
+--- a/Source/WebCore/Modules/mediastream/gstreamer/GStreamerMediaEndpoint.cpp
++++ b/Source/WebCore/Modules/mediastream/gstreamer/GStreamerMediaEndpoint.cpp
+@@ -55,6 +55,7 @@
+ #include "RealtimeOutgoingVideoSourceGStreamer.h"
+ #include <algorithm>
+ #include <gst/sdp/sdp.h>
++#include <gst/pbutils/codec-utils.h>
+ #include <wtf/MainThread.h>
+ #include <wtf/ObjectIdentifier.h>
+ #include <wtf/Scope.h>
+@@ -295,11 +296,21 @@
+         endPoint->onDataChannel(channel);
+     }), this);
+
+-#ifndef GST_DISABLE_GST_DEBUG
+     g_signal_connect_swapped(m_webrtcBin.get(), "on-new-transceiver", G_CALLBACK(+[](GStreamerMediaEndpoint* endPoint, GstWebRTCRTPTransceiver* transceiver) {
+         GST_DEBUG_OBJECT(endPoint->m_webrtcBin.get(), "New transceiver: %" GST_PTR_FORMAT, transceiver);
++        unsigned index;
++        g_object_get(transceiver, "mlineindex", &index, nullptr);
++        if (index == G_MAXUINT)
++            return;
++        GUniqueOutPtr<GstWebRTCSessionDescription> offer;
++        g_object_get(endPoint->m_webrtcBin.get(), "pending-remote-description", &offer.outPtr(), nullptr);
++        if (!offer || offer->type != GST_WEBRTC_SDP_TYPE_OFFER)
++            return;
++        if (const auto* media = gst_sdp_message_get_media(offer->sdp, index))
++            endPoint->setTransceiverCodecPreferences(*media, index);
+     }), this);
+
++#ifndef GST_DISABLE_GST_DEBUG
+     g_signal_connect(m_webrtcBin.get(), "notify::connection-state", G_CALLBACK(+[](GstElement* webrtcBin, GParamSpec*, GStreamerMediaEndpoint* endPoint) {
+         GstWebRTCPeerConnectionState state;
+         g_object_get(webrtcBin, "connection-state", &state, nullptr);
+@@ -863,7 +874,32 @@
+     if (!rtcTransceiver)
+         return;
+
+-    auto caps = capsFromSDPMedia(&media);
++    GRefPtr<GstCaps> currentPreferences;
++    g_object_get(rtcTransceiver.get(), "codec-preferences", &currentPreferences.outPtr(), nullptr);
++    auto& scanner = GStreamerRegistryScanner::singleton();
++    auto capabilities = g_str_equal(gst_sdp_media_get_media(&media), "video")
++        ? scanner.videoRtpCapabilities(GStreamerRegistryScanner::Configuration::Decoding)
++        : scanner.audioRtpCapabilities(GStreamerRegistryScanner::Configuration::Decoding);
++    // Keep the offer's payload numbers and attributes, but never accept codecs
++    // without a decoder/depayloader (in particular unimplemented FEC streams).
++    capabilities.headerExtensions.clear();
++    auto supported = capsFromRtpCapabilities(capabilities, [](GstStructure* structure) {
++        gst_structure_remove_field(structure, "payload");
++        // SDP parsing expresses asymmetric H264 negotiation as "profile".
++        // Match that field too, so one offered PT cannot intersect four
++        // different local profiles and be serialized four times.
++        auto level = gstStructureGetString(structure, "profile-level-id"_s);
++        if (!level.isEmpty()) {
++            auto value = parseInteger<uint32_t>(level, 16).value_or(0);
++            const uint8_t sps[] { static_cast<uint8_t>(value >> 16), static_cast<uint8_t>(value >> 8) };
++            if (auto profile = gst_codec_utils_h264_get_profile(sps, sizeof(sps)))
++                gst_structure_set(structure, "profile", G_TYPE_STRING, profile, nullptr);
++        }
++    });
++    auto offered = capsFromSDPMedia(&media);
++    auto caps = adoptGRef(gst_caps_intersect_full(offered.get(), supported.get(), GST_CAPS_INTERSECT_FIRST));
++    if (currentPreferences && !gst_caps_is_any(currentPreferences.get()))
++        caps = adoptGRef(gst_caps_intersect_full(currentPreferences.get(), caps.get(), GST_CAPS_INTERSECT_FIRST));
+     GST_TRACE_OBJECT(m_webrtcBin.get(), "Setting codec-preferences to %" GST_PTR_FORMAT, caps.get());
+     g_object_set(rtcTransceiver.get(), "codec-preferences", caps.get(), nullptr);
+ }

@@ -1,0 +1,51 @@
+Subject: [PATCH] WebRTC: describe simulcast sendEncodings in the first offer
+
+Packetizers are linked after createOffer(), too late to advertise their
+RID list to an SFU. Put the validated sendEncodings in transceiver caps
+and retain those media-level attributes when setCodecPreferences reorders
+codecs. RTP already carries the corresponding stream identifiers.
+
+--- a/Source/WebCore/Modules/mediastream/gstreamer/GStreamerMediaEndpoint.cpp
++++ b/Source/WebCore/Modules/mediastream/gstreamer/GStreamerMediaEndpoint.cpp
+@@ -1777,6 +1777,21 @@
+
+     gst_structure_set_value(initData.get(), "encodings", &encodingsValue);
+
++    // The first offer is generated before outgoing packetizers are linked.
++    // Advertise sendEncodings now so an SFU can associate their RTP RIDs.
++    if (kind == "video"_s && !init.sendEncodings.isEmpty()) {
++        auto structure = gst_caps_get_structure(caps.get(), 0);
++        StringBuilder simulcast;
++        for (const auto& encoding : init.sendEncodings) {
++            if (encoding.rid.isEmpty())
++                continue;
++            simulcast.append(simulcast.isEmpty() ? "send "_s : ";"_s, encoding.rid);
++            gst_structure_set(structure, makeString("rid-"_s, encoding.rid).ascii().data(), G_TYPE_STRING, "send", nullptr);
++        }
++        if (!simulcast.isEmpty())
++            gst_structure_set(structure, "a-simulcast", G_TYPE_STRING, simulcast.toString().ascii().data(), nullptr);
++    }
++
+     auto transactionId = createVersion4UUIDString();
+     gst_structure_set(initData.get(), "transaction-id", G_TYPE_STRING, transactionId.ascii().data(), nullptr);
+
+--- a/Source/WebCore/Modules/mediastream/gstreamer/GStreamerRtpTransceiverBackend.cpp
++++ b/Source/WebCore/Modules/mediastream/gstreamer/GStreamerRtpTransceiverBackend.cpp
+@@ -164,7 +164,7 @@
+
+         gstStructureForeach(structure, [&](auto id, const auto& value) -> bool {
+             auto key = gstIdToString(id);
+-            if (!key.startsWith("extmap-"_s))
++            if (!key.startsWith("extmap-"_s) && !key.startsWith("rid-"_s) && key != "a-simulcast"_s)
+                 return true;
+
+             extensions.add(key.toString(), String::fromLatin1(g_value_get_string(value)));
+@@ -203,7 +203,7 @@
+             break;
+         }
+
+-        // Restore extensions data on the first codec. It might be useful to do in the others too.
++        // Restore media-level extensions and simulcast attributes on the first codec.
+         if (!extensions.isEmpty()) {
+             for (auto& [extensionId, url] : extensions)
+                 gst_caps_set_simple(codecCaps.get(), extensionId.ascii().data(), G_TYPE_STRING, url.ascii().data(), nullptr);

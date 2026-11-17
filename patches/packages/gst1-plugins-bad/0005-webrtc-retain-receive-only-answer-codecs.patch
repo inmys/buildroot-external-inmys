@@ -1,0 +1,46 @@
+Subject: [PATCH] webrtcbin: retain compatible codecs in receive-only answers
+
+The SDP helper serializes one caps structure. An SFU may forward VP8 even
+when H264 is listed first in its offer; dropping the other compatible
+receive codecs makes rtpbin discard these packets without a clock rate.
+Serialize all matching formats for receive-only transceivers, retaining
+media-level attributes only once. Sending transceivers keep selecting one
+encoder as before.
+
+--- a/ext/webrtc/gstwebrtcbin.c
++++ b/ext/webrtc/gstwebrtcbin.c
+@@ -4729,6 +4729,34 @@
+         gst_clear_caps (&answer_caps);
+         gst_clear_caps (&offer_caps);
+         goto rejected;
++      }
++
++      /* A receive-only transceiver can decode every compatible codec.  The
++       * SDP helper above serializes only the first caps structure; retaining
++       * just that codec breaks SFUs forwarding another offered payload type.
++       * Keep sending transceivers restricted to their selected encoder. */
++      if (answer_dir == GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_RECVONLY) {
++        for (k = 1; k < gst_caps_get_size (answer_caps); k++) {
++          GstCaps *format = gst_caps_copy_nth (answer_caps, k);
++          GstStructure *s = gst_caps_get_structure (format, 0);
++          gint field;
++          GstSDPResult result;
++
++          /* Session/media attributes were emitted with the first format. */
++          for (field = gst_structure_n_fields (s) - 1; field >= 0; field--) {
++            const gchar *name = gst_structure_nth_field_name (s, field);
++            if (g_str_has_prefix (name, "extmap-") ||
++                g_str_has_prefix (name, "a-"))
++              gst_structure_remove_field (s, name);
++          }
++          result = gst_sdp_media_set_media_from_caps (format, media);
++          gst_caps_unref (format);
++          if (result != GST_SDP_OK) {
++            gst_clear_caps (&answer_caps);
++            gst_clear_caps (&offer_caps);
++            goto rejected;
++          }
++        }
+       }
+
+       _get_rtx_target_pt_and_ssrc_from_caps (answer_caps, &target_pt,
