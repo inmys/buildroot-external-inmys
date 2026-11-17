@@ -3,6 +3,8 @@ Subject: [PATCH] video encoder: support the standard V4L2 H264 encoder
 Register v4l2h264enc and map bitrate/GOP settings to its standard extra-controls.
 The parser provides AVC access units for WebRTC and WebCodecs. This replaces
 the board-specific OMX profile workaround when using the V4L2 frontend.
+Allow camera NV12 input and retain negotiated H.264 profile/level, including
+preferences where GStreamer has split profile-level-id into separate fields.
 
 --- a/Source/WebCore/platform/gstreamer/VideoEncoderPrivateGStreamer.cpp
 +++ b/Source/WebCore/platform/gstreamer/VideoEncoderPrivateGStreamer.cpp
@@ -50,7 +52,31 @@ the board-specific OMX profile workaround when using the V4L2 frontend.
          }
          break;
      case PROP_BITRATE_MODE:
-@@ -502,7 +523,11 @@
+@@ -310,6 +331,11 @@
+     priv->encoder = gst_element_factory_create(encoderDefinition->factory.get(), nullptr);
+     priv->encoderId = encoderId;
+     auto inputCapsFilter = gst_element_factory_make("capsfilter", nullptr);
++    if (encoderId == V4L2H264) {
++        // Let camera NV12 pass through instead of converting it to I420.
++        auto formats = adoptGRef(gst_caps_from_string("video/x-raw,format=(string){ NV12, I420 }"));
++        gst_structure_set_value(gst_caps_get_structure(inputCaps.get(), 0), "format", gst_structure_get_value(gst_caps_get_structure(formats.get(), 0), "format"));
++    }
+     g_object_set(inputCapsFilter, "caps", inputCaps.get(), nullptr);
+     gst_bin_add_many(bin, priv->encoder.get(), inputCapsFilter, nullptr);
+
+@@ -389,7 +415,10 @@
+     }
+
+     auto capsFilter = gst_element_factory_make("capsfilter", nullptr);
+-    if (encoderDefinition->encodedFormat)
++    if (encoderId == V4L2H264) {
++        auto caps = adoptGRef(gst_caps_intersect(encoderDefinition->encodedFormat.get(), priv->encodedCaps.get()));
++        g_object_set(capsFilter, "caps", caps.get(), nullptr);
++    } else if (encoderDefinition->encodedFormat)
+         g_object_set(capsFilter, "caps", encoderDefinition->encodedFormat.get(), nullptr);
+     else
+         g_object_set(capsFilter, "caps", priv->encodedCaps.get(), nullptr);
+@@ -502,7 +531,11 @@
      case PROP_KEYFRAME_INTERVAL:
          if (priv->encoder) {
              auto encoder = Encoders::definition(priv->encoderId);
@@ -63,7 +89,7 @@ the board-specific OMX profile workaround when using the V4L2 frontend.
          }
          break;
      case PROP_BITRATE_MODE:
-@@ -649,6 +674,16 @@
+@@ -649,6 +682,16 @@
      gst_element_class_set_static_metadata(elementClass, "WebKit video encoder", "Codec/Encoder/Video", "Encodes video for streaming", "Igalia");
      gst_element_class_add_pad_template(elementClass, gst_static_pad_template_get(&encoderSinkTemplate));
 
@@ -80,3 +106,23 @@ the board-specific OMX profile workaround when using the V4L2 frontend.
      Encoders::registerEncoder(OmxH264, "omxh264enc"_s, "h264parse"_s, "video/x-h264"_s, "video/x-h264,alignment=au,stream-format=avc,profile=baseline"_s,
          [](WebKitVideoEncoder* self) {
              g_object_set(self->priv->parser.get(), "config-interval", 1, nullptr);
+--- a/Source/WebCore/platform/mediastream/gstreamer/GStreamerVideoRTPPacketizer.cpp
++++ b/Source/WebCore/platform/mediastream/gstreamer/GStreamerVideoRTPPacketizer.cpp
+@@ -30,6 +30,7 @@
+ #include "VP9Utilities.h"
+ #include "VideoEncoderPrivateGStreamer.h"
+ #include <gst/rtp/rtp.h>
++#include <gst/pbutils/codec-utils.h>
+ #include <wtf/text/MakeString.h>
+ #include <wtf/text/StringToIntegerConversion.h>
+
+@@ -99,6 +100,9 @@
+             const guint8 CSF5 = 0x04;
+
+             AVCParameters parameters;
++            auto level = gstStructureGetString(codecParameters.get(), "level"_s);
++            // GStreamer codec preferences may split profile-level-id into fields.
++            parameters.levelIDC = level ? gst_codec_utils_h264_get_level_idc(level.toString().utf8().data()) : 31;
+             if (profile == "baseline"_s) {
+                 parameters.profileIDC = 66;
+                 parameters.constraintsFlags = CSF0;

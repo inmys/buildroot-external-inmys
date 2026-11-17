@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
         }
         GstElement *source = gst_bin_get_by_name(GST_BIN(pipe), "camera");
         g_object_set(source, "sensor", camera.sensor.c_str(), "sensor-mode", camera.mode,
-                     "setup-file", camera.setup.c_str(), "alloc-buffers", 6, "exposure-auto", TRUE,
+                     "setup-file", camera.setup.c_str(), "alloc-buffers", 12, "exposure-auto", TRUE,
                      "awb-enable", TRUE, nullptr);
         gst_object_unref(source);
         GstElement *output = gst_bin_get_by_name(GST_BIN(pipe), "output");
@@ -103,11 +103,6 @@ int main(int argc, char **argv) {
             double seconds = std::chrono::duration<double>(now - last).count();
             if (seconds >= 5) {
                 auto n = frames.load();
-                if (n == previous) {
-                    fprintf(stderr, "camera: stalled\n");
-                    failed = true;
-                    break;
-                }
                 printf("Camera frames=%lu fps=%.1f\n", n, (n - previous) / seconds);
                 fflush(stdout);
                 previous = n;

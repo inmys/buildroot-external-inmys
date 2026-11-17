@@ -128,3 +128,13 @@ payloaders as well, so the SFU can identify both outgoing media sections.
 
      m_audioconvert = makeGStreamerElement("audioconvert"_s);
      m_audioresample = makeGStreamerElement("audioresample"_s);
+--- a/Source/WebCore/platform/mediastream/gstreamer/RealtimeOutgoingMediaSourceGStreamer.cpp
++++ b/Source/WebCore/platform/mediastream/gstreamer/RealtimeOutgoingMediaSourceGStreamer.cpp
+@@ -477,4 +477,7 @@
+         return false;
+     }
++    // Codec negotiation may replace packetizers after notify::mid has fired.
++    if (!m_mid.isEmpty())
++        packetizer->ensureMidExtension(m_mid);
+     m_packetizers.append(WTFMove(packetizer));
+     return true;

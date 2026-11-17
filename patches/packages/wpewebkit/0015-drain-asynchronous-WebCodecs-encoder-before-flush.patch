@@ -1,0 +1,92 @@
+Subject: [PATCH] WebCodecs: drain async output and retain per-frame metadata
+
+Drain and reset the codec for flush instead of discarding pending buffers.
+Clear harness sticky-event flags before restarting. Associate output with
+its input timestamp/duration via codec PTS; the latest encode invocation
+can belong to a different frame when using asynchronous V4L2 hardware.
+Only GstBuffer headers are copied; raw GstMemory remains shared.
+
+--- a/Source/WebCore/platform/graphics/gstreamer/VideoEncoderGStreamer.cpp
++++ b/Source/WebCore/platform/graphics/gstreamer/VideoEncoderGStreamer.cpp
+@@ -28,6 +28,8 @@
+ #include "GUniquePtrGStreamer.h"
+ #include "VideoEncoderPrivateGStreamer.h"
+ #include "VideoFrameGStreamer.h"
++#include <algorithm>
++#include <map>
+ #include <wtf/NeverDestroyed.h>
+ #include <wtf/TZoneMallocInlines.h>
+ #include <wtf/ThreadSafeRefCounted.h>
+@@ -81,6 +83,9 @@
+     VideoEncoder::OutputCallback m_outputCallback;
+     int64_t m_timestamp { 0 };
+     std::optional<uint64_t> m_duration;
++    struct FrameMetadata { int64_t timestamp; std::optional<uint64_t> duration; };
++    std::map<GstClockTime, FrameMetadata> m_frameMetadata;
++    GstClockTime m_nextPTS { 0 };
+     bool m_isClosed { false };
+     bool m_isInitialized { false };
+     RefPtr<GStreamerElementHarness> m_harness;
+@@ -261,7 +266,16 @@
+         GST_TRACE_OBJECT(m_harness->element(), "Notifying encoded%s frame", isKeyFrame ? " key" : "");
+         GstMappedBuffer encodedImage(outputBuffer, GST_MAP_READ);
+
+-        VideoEncoder::EncodedFrame encodedFrame { encodedImage.createVector(), isKeyFrame, m_timestamp, m_duration, temporalIndex };
++        auto timestamp = m_timestamp;
++        auto duration = m_duration;
++        auto metadata = m_frameMetadata.find(GST_BUFFER_PTS(outputBuffer));
++        if (metadata != m_frameMetadata.end()) {
++            timestamp = metadata->second.timestamp;
++            duration = metadata->second.duration;
++            m_frameMetadata.erase(metadata);
++        } else
++            GST_WARNING_OBJECT(m_harness->element(), "Encoder did not preserve the input PTS");
++        VideoEncoder::EncodedFrame encodedFrame { encodedImage.createVector(), isKeyFrame, timestamp, duration, temporalIndex };
+         m_outputCallback({ WTFMove(encodedFrame) });
+     });
+ }
+@@ -304,7 +318,19 @@
+     }
+
+     auto& gstVideoFrame = downcast<VideoFrameGStreamer>(rawFrame.frame.get());
+-    return m_harness->pushSample(gstVideoFrame.sample());
++    // Copy only the buffer header; all raw GstMemory/DMA-BUF storage is shared.
++    // Codec PTS identifies an input independently of asynchronous completion.
++    GRefPtr<GstSample> sample = gstVideoFrame.sample();
++    auto buffer = adoptGRef(gst_buffer_copy(gst_sample_get_buffer(sample.get())));
++    auto pts = m_nextPTS;
++    auto frameRate = m_config.frameRate > 0 ? m_config.frameRate : 30;
++    m_nextPTS += std::max<GstClockTime>(1, GST_SECOND / GST_USECOND / frameRate) * GST_USECOND;
++    GST_BUFFER_PTS(buffer.get()) = pts;
++    GST_BUFFER_DTS(buffer.get()) = GST_CLOCK_TIME_NONE;
++    m_frameMetadata.emplace(pts, FrameMetadata { rawFrame.timestamp, rawFrame.duration });
++    GstSegment segment;
++    gst_segment_init(&segment, GST_FORMAT_TIME);
++    return m_harness->pushSample(adoptGRef(gst_sample_new(buffer.get(), gst_sample_get_caps(sample.get()), &segment, nullptr)));
+ }
+
+ void GStreamerInternalVideoEncoder::setRates(uint64_t bitRate, double frameRate)
+@@ -343,7 +369,10 @@
+
+ void GStreamerInternalVideoEncoder::flush()
+ {
+-    m_harness->flush();
++    // reset drains EOS, dispatches output, and restarts the codec on next input.
++    m_harness->reset();
++    m_frameMetadata.clear();
++    m_nextPTS = 0;
+ }
+
+ #undef GST_CAT_DEFAULT
+--- a/Source/WebCore/platform/gstreamer/GStreamerElementHarness.cpp
++++ b/Source/WebCore/platform/gstreamer/GStreamerElementHarness.cpp
+@@ -215,6 +215,9 @@
+     processOutputSamples();
+
+     m_playing.store(false);
++    m_inputCaps.clear();
++    m_capsEventSent.store(false);
++    m_segmentEventSent.store(false);
+ }
+
+ void GStreamerElementHarness::pushStickyEvents(GRefPtr<GstCaps>&& inputCaps, std::optional<const GstSegment*>&& segment)

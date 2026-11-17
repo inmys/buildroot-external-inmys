@@ -9,6 +9,8 @@ export WEBKIT_WEB_RENDER_DEVICE_FILE=/dev/dri/renderD128
 export ALSA_CARD=${ALSA_CARD:-analogaudio}
 export ALSA_PCM_CARD=${ALSA_PCM_CARD:-analogaudio}
 export WEBKIT_GST_ENABLE_AUDIO_MIXER=1
+# Decode incoming RTP before handing raw video frames to MediaStream clients.
+export WEBKIT_GST_WEBRTC_FORCE_EARLY_VIDEO_DECODING=${WEBKIT_GST_WEBRTC_FORCE_EARLY_VIDEO_DECODING:-1}
 # Mesa 17 cannot enumerate DMA-BUF formats; NV12 plane imports are validated.
 export WEBKIT_GST_DMABUF_FORMATS=NV12
 # Use the stateful V4L2 decoder for H.264, including MSE seek/flush.

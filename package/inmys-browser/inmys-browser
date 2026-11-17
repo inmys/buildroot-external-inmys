@@ -33,7 +33,7 @@ cleanup() {
     [ -z "$weston_pid" ] || wait "$weston_pid" 2>/dev/null || true
     [ -z "$camera_pid" ] || kill -TERM "$camera_pid" 2>/dev/null || true
     [ -z "$camera_pid" ] || wait "$camera_pid" 2>/dev/null || true
-    rm -f "$session/camera-ready"
+    rm -f "$session/camera-ready" "$session/camera.sock"
     rm -f "$session/pid"
     if "$restore_vision"; then "$vision" start; fi
 }
@@ -55,7 +55,7 @@ chmod 0700 "$NMS_BROWSER_HOME"
 chown browser:browser "$NMS_BROWSER_HOME"
 if "$use_camera"; then
     export INMYS_CAMERA_SOCKET="$session/camera.sock"
-    rm -f "$session/camera-ready"
+    rm -f "$session/camera-ready" "$session/camera.sock"
     GST_PLUGIN_PATH=/lib/gstreamer-1.0 /usr/libexec/inmys-browser-camera \
         "$INMYS_CAMERA_SOCKET" "$session/camera-ready" > /var/log/inmys-browser-camera.log 2>&1 &
     camera_pid=$!

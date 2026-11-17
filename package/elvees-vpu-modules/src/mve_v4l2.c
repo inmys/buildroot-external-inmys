@@ -905,11 +905,22 @@ static int try_fmt(struct file *file, void *fh, struct v4l2_format *f)
 		f->fmt.pix_mp.width = ALIGN(clamp_t(unsigned, w ? w : c->width, 16, MVE_W), 16);
 		f->fmt.pix_mp.height = ALIGN(clamp_t(unsigned, h ? h : c->height, 16, MVE_H), 16);
 		p->colorspace = requested.colorspace ?: V4L2_COLORSPACE_REC709;
-		p->xfer_func = requested.xfer_func ?: V4L2_MAP_XFER_FUNC_DEFAULT(p->colorspace);
-		p->ycbcr_enc = requested.ycbcr_enc ?: V4L2_MAP_YCBCR_ENC_DEFAULT(p->colorspace);
-		p->quantization = requested.quantization ?:
-			V4L2_MAP_QUANTIZATION_DEFAULT(false, p->colorspace, p->ycbcr_enc);
-	} else format_fill(c, f);
+		p->xfer_func = requested.xfer_func;
+		p->ycbcr_enc = requested.ycbcr_enc;
+		p->quantization = requested.quantization;
+	} else {
+		/* The bitstream determines YUV colorimetry. During probing, accept
+		 * the requested tags rather than advertising only the current stream. */
+		struct v4l2_pix_format_mplane requested = f->fmt.pix_mp;
+		struct v4l2_pix_format_mplane *p = &f->fmt.pix_mp;
+		format_fill(c, f);
+		if (requested.colorspace) {
+			p->colorspace = requested.colorspace;
+			p->xfer_func = requested.xfer_func;
+			p->ycbcr_enc = requested.ycbcr_enc;
+			p->quantization = requested.quantization;
+		}
+	}
 	return 0;
 }
 static int set_fmt(struct file *file, void *fh, struct v4l2_format *f)
