@@ -62,6 +62,8 @@ struct mve_context {
 	bool force_keyframe;
 	u8 headers[4096];
 	unsigned header_size;
+	struct vb2_v4l2_buffer *encoded_capture;
+	unsigned encoded_size;
 	bool headers_pending;
 	struct mve_video *dev;
 	/* Private in-kernel MVE client, independent of the V4L2 file's fh. */
@@ -130,9 +132,18 @@ static int enqueue(struct mve_context *c, unsigned slot, unsigned size,
 	return issue(c, slot < input_count(c) ? MVE_BASE_EMPTY_THIS_BUFFER :
 		     MVE_BASE_FILL_THIS_BUFFER, &p, sizeof(p));
 }
+static void partial_capture_return(struct mve_context *c, enum vb2_buffer_state state)
+{
+	if (c->encoded_capture) {
+		v4l2_m2m_buf_done(c->encoded_capture, state);
+		c->encoded_capture = NULL;
+	}
+	c->encoded_size = 0;
+}
 static void buffers_return(struct mve_context *c, bool output, enum vb2_buffer_state state)
 {
 	struct vb2_v4l2_buffer *b;
+	if (!output) partial_capture_return(c, state);
 	while ((b = output ? v4l2_m2m_src_buf_remove(c->fh.m2m_ctx) :
 			    v4l2_m2m_dst_buf_remove(c->fh.m2m_ctx)))
 		v4l2_m2m_buf_done(b, state);
@@ -181,6 +192,7 @@ static int storage_alloc(struct mve_context *c, unsigned i)
 static void session_destroy(struct mve_context *c)
 {
 	unsigned i;
+	partial_capture_return(c, VB2_BUF_STATE_ERROR);
 	if (c->active) {
 		issue(c, MVE_BASE_DESTROY_SESSION, NULL, 0);
 		c->active = false;
@@ -213,10 +225,10 @@ static int set_buffer_parameter(struct mve_context *c, u32 type, u32 a, u32 b, b
 static int encoder_rate(struct mve_context *c)
 {
 	int ret;
-	if (c->codec != V4L2_PIX_FMT_H264) return 0;
+	if (c->codec == V4L2_PIX_FMT_JPEG) return 0;
 	ret = set_buffer_parameter(c, MVE_BUFFER_PARAM_TYPE_FRAME_RATE,
 		(u32)div_u64((u64)c->fps_num << 16, c->fps_den), 0, false);
-	if (!ret && c->codec == V4L2_PIX_FMT_H264)
+	if (!ret)
 		ret = set_buffer_parameter(c, MVE_BUFFER_PARAM_TYPE_RATE_CONTROL,
 			c->bitrate_mode->val == V4L2_MPEG_VIDEO_BITRATE_MODE_CBR ?
 			MVE_OPT_RATE_CONTROL_MODE_CONSTANT : MVE_OPT_RATE_CONTROL_MODE_VARIABLE,
@@ -253,8 +265,10 @@ static int jpeg_options(struct mve_context *c)
 static int encoder_options(struct mve_context *c)
 {
 	int ret;
-	if (c->codec != V4L2_PIX_FMT_H264)
+	if (c->codec == V4L2_PIX_FMT_JPEG)
 		return jpeg_options(c);
+	if (c->codec == V4L2_PIX_FMT_VP8)
+		return set_option(c, MVE_SET_OPT_INDEX_ENC_P_FRAMES, c->gop->val - 1);
 	ret = set_option(c, MVE_SET_OPT_INDEX_NALU_FORMAT, MVE_OPT_NALU_FORMAT_START_CODES);
 	if (!ret) ret = set_option(c, MVE_SET_OPT_INDEX_PROFILE_LEVEL,
 		(c->profile->val == V4L2_MPEG_VIDEO_H264_PROFILE_HIGH ? MVE_OPT_PROFILE_H264_HIGH :
@@ -271,8 +285,9 @@ static int encoder_options(struct mve_context *c)
 static int session_create(struct mve_context *c)
 {
 	const char *role = c->dev->encode ?
-		(c->codec == V4L2_PIX_FMT_H264 ? "video_encoder.avc" : "video_encoder.jpeg") :
-		"video_decoder.avc";
+		(c->codec == V4L2_PIX_FMT_H264 ? "video_encoder.avc" :
+		 c->codec == V4L2_PIX_FMT_VP8 ? "video_encoder.vp8" : "video_encoder.jpeg") :
+		(c->codec == V4L2_PIX_FMT_VP8 ? "video_decoder.vp8" : "video_decoder.avc");
 	u32 opt[] = { 1010, 6, 0x80 }, running = MVE_BASE_HW_STATE_RUNNING;
 	unsigned i;
 	int ret;
@@ -286,7 +301,7 @@ static int session_create(struct mve_context *c)
 	if (c->dev->encode) {
 		ret = encoder_options(c);
 		if (!ret) ret = encoder_rate(c);
-	} else {
+	} else if (c->codec == V4L2_PIX_FMT_H264) {
 		/* Default presentation order; clients may explicitly request decode order. */
 		opt[1] = 8; opt[2] = !v4l2_ctrl_g_ctrl(c->display_delay_enable);
 		ret = issue(c, MVE_BASE_SET_PARAMETER, opt, sizeof(opt));
@@ -312,16 +327,18 @@ static int frames_deliver(struct mve_context *c)
 {
 	struct vb2_queue *q = v4l2_m2m_get_dst_vq(c->fh.m2m_ctx);
 	while (c->dev->encode && c->count && vb2_is_streaming(q)) {
-		struct vb2_v4l2_buffer *b = v4l2_m2m_dst_buf_remove(c->fh.m2m_ctx);
+		struct vb2_v4l2_buffer *b = c->encoded_capture ?: v4l2_m2m_dst_buf_remove(c->fh.m2m_ctx);
 		unsigned slot = c->fifo[c->head];
 		struct mve_storage *s = &c->storage[slot];
 		struct mve_base_buffer_userspace *f = &s->frame;
 		u8 *dst, *src = s->vaddr;
 		int ret;
 		if (!b) break;
+		c->encoded_capture = NULL;
 		if (vb2_plane_size(&b->vb2_buf, 0) < queue_size(c, false)) {
 			/* A source-change event lets the client replace old capture storage. */
 			v4l2_m2m_buf_done(b, VB2_BUF_STATE_ERROR);
+			c->encoded_size = 0;
 			continue;
 		}
 		if (c->dev->encode && f->filled_len) {
@@ -330,15 +347,17 @@ static int frames_deliver(struct mve_context *c)
 			c->headers_pending = false;
 			if (f->offset > MVE_ENC_BITSTREAM_SIZE ||
 			    f->filled_len > MVE_ENC_BITSTREAM_SIZE - f->offset ||
-			    f->filled_len + prefix > vb2_plane_size(&b->vb2_buf, 0)) {
+			    c->encoded_size > vb2_plane_size(&b->vb2_buf, 0) ||
+			    f->filled_len + prefix > vb2_plane_size(&b->vb2_buf, 0) - c->encoded_size) {
 				v4l2_m2m_buf_done(b, VB2_BUF_STATE_ERROR); return -EOVERFLOW;
 			}
 			dma_buf_begin_cpu_access(s->dbuf, DMA_FROM_DEVICE);
 			dst = vb2_plane_vaddr(&b->vb2_buf, 0);
-			memcpy(dst, c->headers, prefix);
-			memcpy(dst + prefix, src + f->offset, f->filled_len);
+			memcpy(dst + c->encoded_size, c->headers, prefix);
+			memcpy(dst + c->encoded_size + prefix, src + f->offset, f->filled_len);
+			c->encoded_size += prefix + f->filled_len;
 			dma_buf_end_cpu_access(s->dbuf, DMA_FROM_DEVICE);
-			vb2_set_plane_payload(&b->vb2_buf, 0, f->filled_len + prefix);
+			vb2_set_plane_payload(&b->vb2_buf, 0, c->encoded_size);
 		}
 		/* Publish WC/coherent capture stores before userspace/GPU sees DONE. */
 		dma_wmb();
@@ -346,7 +365,7 @@ static int frames_deliver(struct mve_context *c)
 			vb2_set_plane_payload(&b->vb2_buf, 0, f->filled_len ? c->pitch * c->height * 3 / 2 : 0);
 		b->vb2_buf.timestamp = f->timestamp;
 		b->field = V4L2_FIELD_NONE;
-		b->sequence = c->sequence++;
+		b->sequence = c->sequence;
 		if (f->flags & 0x20) b->flags |= V4L2_BUF_FLAG_KEYFRAME;
 		if (f->flags & MVE_EOS) {
 			struct v4l2_event ev = { .type = V4L2_EVENT_EOS };
@@ -354,7 +373,16 @@ static int frames_deliver(struct mve_context *c)
 			c->drained = true;
 			v4l2_event_queue_fh(&c->fh, &ev);
 		}
-		v4l2_m2m_buf_done(b, VB2_BUF_STATE_DONE);
+		/* VP8 firmware emits the mode and coefficient partitions separately.
+		 * Assemble compressed bytes in the client's CAPTURE buffer; publish
+		 * only a complete frame. Raw input DMA-BUF storage is unchanged. */
+		if (c->codec == V4L2_PIX_FMT_VP8 && f->filled_len && !(f->flags & (MVE_END_FRAME | MVE_EOS)))
+			c->encoded_capture = b;
+		else {
+			c->encoded_size = 0;
+			++c->sequence;
+			v4l2_m2m_buf_done(b, VB2_BUF_STATE_DONE);
+		}
 		s->ready = false; c->head = (c->head + 1) % MVE_OUTPUTS; --c->count;
 		if (!c->drained) {
 			ret = enqueue(c, slot, 0, 0, 0);
@@ -477,7 +505,7 @@ static int encoder_inputs_feed(struct mve_context *c)
 			storage = &c->storage[slot];
 		}
 		if (!size) { flags |= MVE_EOS; c->eos_sent = c->draining = true; }
-		if (size && c->force_keyframe && c->codec == V4L2_PIX_FMT_H264) {
+		if (size && c->force_keyframe && c->codec != V4L2_PIX_FMT_JPEG) {
 			u32 reset[] = { MVE_BUFFER_CODE_PARAM, MVE_BUFFER_PARAM_TYPE_GOP_RESET };
 			ret = issue(c, MVE_BASE_SET_CONFIG, reset, sizeof(reset));
 			if (ret) { if (buffer) v4l2_m2m_buf_done(buffer, VB2_BUF_STATE_ERROR); return ret; }
@@ -624,7 +652,7 @@ static int event_handle(struct mve_context *c, struct mve_response *r)
 		c->visible_h = min(c->visible_h, f->decoded_height);
 		c->pitch = ALIGN(c->width, 64);
 		c->sequence_known = true;
-		dev_info(c->dev->dev, "V4L2 H264 sequence %ux%u, visible %ux%u\n",
+		dev_info(c->dev->dev, "V4L2 decoded sequence %ux%u, visible %ux%u\n",
 			c->width, c->height, c->visible_w, c->visible_h);
 	}
 	if (!c->dev->encode) {
@@ -648,7 +676,7 @@ static int event_handle(struct mve_context *c, struct mve_response *r)
 	if (c->count == output_count(c) || c->storage[slot].ready) return -EIO;
 	c->storage[slot].frame = *f; c->storage[slot].ready = true;
 	c->fifo[(c->head + c->count++) % MVE_OUTPUTS] = slot;
-	if (f->filled_len) ++c->completed;
+	if (f->filled_len && (c->codec != V4L2_PIX_FMT_VP8 || (f->flags & MVE_END_FRAME))) ++c->completed;
 	return 0;
 }
 static int decode_thread(void *opaque)
@@ -839,7 +867,7 @@ static int querycap(struct file *file, void *fh, struct v4l2_capability *cap)
 {
 	strscpy(cap->driver, "mve-v4l2", sizeof(cap->driver));
 	struct mve_video *d = video_drvdata(file);
-	strscpy(cap->card, d->encode ? "MVE H264/JPEG encoder" : "MVE H264 decoder", sizeof(cap->card));
+	strscpy(cap->card, d->encode ? "MVE H264/VP8/JPEG encoder" : "MVE H264/VP8 decoder", sizeof(cap->card));
 	strscpy(cap->bus_info, "platform:mcom03-vpu", sizeof(cap->bus_info));
 	return 0;
 }
@@ -847,16 +875,19 @@ static int enum_fmt(struct file *file, void *fh, struct v4l2_fmtdesc *f)
 {
 	struct mve_video *d = video_drvdata(file);
 	if (d->encode) {
-		if (f->index > 1) return -EINVAL;
+		if (f->index > (V4L2_TYPE_IS_OUTPUT(f->type) ? 1 : 2)) return -EINVAL;
 		f->pixelformat = V4L2_TYPE_IS_OUTPUT(f->type) ?
 			(f->index ? V4L2_PIX_FMT_YUV420 : V4L2_PIX_FMT_NV12) :
-			(f->index ? V4L2_PIX_FMT_JPEG : V4L2_PIX_FMT_H264);
+			(f->index == 2 ? V4L2_PIX_FMT_VP8 : f->index ? V4L2_PIX_FMT_JPEG : V4L2_PIX_FMT_H264);
 		f->flags = V4L2_TYPE_IS_OUTPUT(f->type) ? 0 : V4L2_FMT_FLAG_COMPRESSED;
 	} else {
-		if (f->index) return -EINVAL;
-		f->pixelformat = V4L2_TYPE_IS_OUTPUT(f->type) ? V4L2_PIX_FMT_H264 : V4L2_PIX_FMT_NV12;
-		f->flags = V4L2_TYPE_IS_OUTPUT(f->type) ?
-			V4L2_FMT_FLAG_COMPRESSED | V4L2_FMT_FLAG_DYN_RESOLUTION : 0;
+		if (f->index > (V4L2_TYPE_IS_OUTPUT(f->type) ? 1 : 0)) return -EINVAL;
+		f->pixelformat = V4L2_TYPE_IS_OUTPUT(f->type) ?
+			(f->index ? V4L2_PIX_FMT_VP8 : V4L2_PIX_FMT_H264) : V4L2_PIX_FMT_NV12;
+		/* A changed coded size requires a new session/CAPTURE pool.  Do not
+		 * advertise in-session resolution changes: V4L2 clients must drain
+		 * and restart when their parser/depayloader announces new caps. */
+		f->flags = V4L2_TYPE_IS_OUTPUT(f->type) ? V4L2_FMT_FLAG_COMPRESSED : 0;
 	}
 	return 0;
 }
@@ -867,7 +898,7 @@ static void format_fill(struct mve_context *c, struct v4l2_format *f)
 	memset(p, 0, sizeof(*p));
 	p->width = c->width; p->height = c->height; p->field = V4L2_FIELD_NONE;
 	p->pixelformat = c->dev->encode ? (out ? c->raw_format : c->codec) :
-		(out ? V4L2_PIX_FMT_H264 : V4L2_PIX_FMT_NV12);
+		(out ? c->codec : V4L2_PIX_FMT_NV12);
 	p->num_planes = 1;
 	p->colorspace = c->colorspace;
 	p->ycbcr_enc = c->ycbcr_enc; p->quantization = c->quantization;
@@ -894,7 +925,8 @@ static int try_fmt(struct file *file, void *fh, struct v4l2_format *f)
 			f->fmt.pix_mp.pixelformat = requested.pixelformat == V4L2_PIX_FMT_YUV420 ? V4L2_PIX_FMT_YUV420 : V4L2_PIX_FMT_NV12;
 			f->fmt.pix_mp.plane_fmt[0].bytesperline = ALIGN(f->fmt.pix_mp.width, 64);
 			f->fmt.pix_mp.plane_fmt[0].sizeimage = f->fmt.pix_mp.plane_fmt[0].bytesperline * f->fmt.pix_mp.height * 3 / 2;
-		} else f->fmt.pix_mp.pixelformat = requested.pixelformat == V4L2_PIX_FMT_JPEG ? V4L2_PIX_FMT_JPEG : V4L2_PIX_FMT_H264;
+		} else f->fmt.pix_mp.pixelformat = requested.pixelformat == V4L2_PIX_FMT_VP8 ? V4L2_PIX_FMT_VP8 :
+			requested.pixelformat == V4L2_PIX_FMT_JPEG ? V4L2_PIX_FMT_JPEG : V4L2_PIX_FMT_H264;
 		return 0;
 	}
 	if (V4L2_TYPE_IS_OUTPUT(f->type)) {
@@ -904,6 +936,7 @@ static int try_fmt(struct file *file, void *fh, struct v4l2_format *f)
 		format_fill(c, f);
 		f->fmt.pix_mp.width = ALIGN(clamp_t(unsigned, w ? w : c->width, 16, MVE_W), 16);
 		f->fmt.pix_mp.height = ALIGN(clamp_t(unsigned, h ? h : c->height, 16, MVE_H), 16);
+		p->pixelformat = requested.pixelformat == V4L2_PIX_FMT_VP8 ? V4L2_PIX_FMT_VP8 : V4L2_PIX_FMT_H264;
 		p->colorspace = requested.colorspace ?: V4L2_COLORSPACE_REC709;
 		p->xfer_func = requested.xfer_func;
 		p->ycbcr_enc = requested.ycbcr_enc;
@@ -934,6 +967,7 @@ static int set_fmt(struct file *file, void *fh, struct v4l2_format *f)
 	if (V4L2_TYPE_IS_OUTPUT(f->type)) {
 		c->width = f->fmt.pix_mp.width; c->height = f->fmt.pix_mp.height;
 		if (c->dev->encode) c->raw_format = f->fmt.pix_mp.pixelformat;
+		else c->codec = f->fmt.pix_mp.pixelformat;
 		c->visible_w = w ? min(w, c->width) : c->width;
 		c->visible_h = h ? min(h, c->height) : c->height;
 		c->pitch = ALIGN(c->width, 64);
@@ -1078,6 +1112,7 @@ static int video_open(struct file *file)
 			V4L2_MPEG_VIDEO_H264_PROFILE_HIGH, BIT(V4L2_MPEG_VIDEO_H264_PROFILE_EXTENDED), V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE);
 		c->level = v4l2_ctrl_new_std_menu(&c->controls, &control_ops, V4L2_CID_MPEG_VIDEO_H264_LEVEL,
 			V4L2_MPEG_VIDEO_H264_LEVEL_4_2, 0, V4L2_MPEG_VIDEO_H264_LEVEL_4_0);
+		v4l2_ctrl_new_std_menu(&c->controls, &control_ops, V4L2_CID_MPEG_VIDEO_VP8_PROFILE, 0, 0, 0);
 		c->jpeg_quality = v4l2_ctrl_new_std(&c->controls, &control_ops, V4L2_CID_JPEG_COMPRESSION_QUALITY, 1, 100, 1, 75);
 		c->repeat_header = v4l2_ctrl_new_std(&c->controls, &control_ops, V4L2_CID_MPEG_VIDEO_REPEAT_SEQ_HEADER, 0, 1, 1, 1);
 		v4l2_ctrl_new_std(&c->controls, &control_ops, V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME, 0, 0, 0, 0);
@@ -1134,7 +1169,7 @@ static int register_video(struct device *dev, bool encode)
 	d->dev = &mve_rsrc_data.pdev->dev; d->encode = encode; mutex_init(&d->lock);
 	media_device_init(&d->media);
 	d->media.dev = dev;
-	strscpy(d->media.model, encode ? "MVE H264/JPEG encoder" : "MVE H264 decoder", sizeof(d->media.model));
+	strscpy(d->media.model, encode ? "MVE H264/VP8/JPEG encoder" : "MVE H264/VP8 decoder", sizeof(d->media.model));
 	strscpy(d->media.bus_info, "platform:mcom03-vpu", sizeof(d->media.bus_info));
 	d->v4l2.mdev = &d->media;
 	ret = v4l2_device_register(dev, &d->v4l2); if (ret) goto free;

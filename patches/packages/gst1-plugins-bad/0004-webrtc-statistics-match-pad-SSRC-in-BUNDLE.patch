@@ -1,0 +1,45 @@
+Subject: [PATCH] webrtcbin: keep BUNDLE statistics associated with their SSRC
+
+Port the pad-SSRC filtering from GStreamer 1.26. Otherwise every pad
+rewrites statistics for every SSRC on a bundled transport with its own
+codec-id/kind; audio may be reported as H264 video or vice versa.
+Reference: https://github.com/GStreamer/gstreamer/blob/1.26.0/subprojects/gst-plugins-bad/ext/webrtc/gstwebrtcstats.c
+
+--- a/ext/webrtc/gstwebrtcstats.c
++++ b/ext/webrtc/gstwebrtcstats.c
+@@ -874,6 +874,7 @@
+   TransportStream *stream;
+   char *transport_id;
+   char *codec_id;
++  guint ssrc;
+   const char *kind;
+   guint clock_rate;
+   GValueArray *source_stats;
+@@ -886,6 +887,11 @@
+ {
+   double ts;
+   int i;
++
++  /* A BUNDLE transport contains several audio/video SSRCs. Only this
++   * pad's SSRC can use its codec-id and media kind (GStreamer 1.26). */
++  if (ts_stats->ssrc != entry->ssrc)
++    return FALSE;
+
+   gst_structure_get_double (ts_stats->s, "timestamp", &ts);
+
+@@ -920,13 +926,13 @@
+ {
+   GstWebRTCBinPad *wpad = GST_WEBRTC_BIN_PAD (pad);
+   struct transport_stream_stats ts_stats = { NULL, };
+-  guint ssrc, clock_rate;
++  guint clock_rate;
+   GObject *rtp_session;
+   GObject *gst_rtp_session;
+   GstStructure *rtp_stats, *twcc_stats;
+   GstWebRTCKind kind;
+
+-  _get_codec_stats_from_pad (webrtc, pad, s, &ts_stats.codec_id, &ssrc,
++  _get_codec_stats_from_pad (webrtc, pad, s, &ts_stats.codec_id, &ts_stats.ssrc,
+       &clock_rate);
+
+   if (!wpad->trans)
