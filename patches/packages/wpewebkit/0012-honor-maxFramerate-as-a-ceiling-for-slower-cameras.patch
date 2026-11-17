@@ -1,0 +1,18 @@
+Subject: [PATCH] WebRTC: treat maxFramerate as an upper bound
+
+A 15 fps camera must remain usable when the application requests a maximum
+of 20 fps. A fixed framerate forces drop-only videorate to increase the rate
+and causes not-negotiated when replacing the placeholder with the camera.
+
+--- a/Source/WebCore/platform/mediastream/gstreamer/GStreamerVideoRTPPacketizer.cpp
++++ b/Source/WebCore/platform/mediastream/gstreamer/GStreamerVideoRTPPacketizer.cpp
+@@ -203,7 +203,8 @@
+             int numerator, denominator;
+             gst_util_double_to_fraction(static_cast<double>(maxFrameRate), &numerator, &denominator);
+
+-            auto caps = adoptGRef(gst_caps_new_simple("video/x-raw", "framerate", GST_TYPE_FRACTION, numerator, denominator, nullptr));
++            // maxFramerate is a ceiling; drop-only videorate cannot increase a slower capture rate.
++            auto caps = adoptGRef(gst_caps_new_simple("video/x-raw", "framerate", GST_TYPE_FRACTION_RANGE, 0, 1, numerator, denominator, nullptr));
+             g_object_set(m_frameRateCapsFilter.get(), "caps", caps.get(), nullptr);
+         }
+     }

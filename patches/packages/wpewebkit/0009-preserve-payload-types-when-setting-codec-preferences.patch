@@ -1,0 +1,38 @@
+Subject: [PATCH] WebRTC: retain payload assignments when reordering codecs
+
+setCodecPreferences otherwise starts every transceiver at dynamic PT 96.
+Telemost then offers Opus and VP8 with the same PT on bundled media.
+Reuse matching current caps payloads, ignoring case in encoding names,
+while keeping the existing fallback for previously unlisted codecs.
+
+--- a/Source/WebCore/Modules/mediastream/gstreamer/GStreamerRtpTransceiverBackend.cpp
++++ b/Source/WebCore/Modules/mediastream/gstreamer/GStreamerRtpTransceiverBackend.cpp
+@@ -181,6 +181,28 @@
+
+         auto codecCaps = result.releaseReturnValue();
+
++        // Preserve the endpoint's payload assignment when reordering codecs.
++        // Starting each transceiver at 96 can collide with bundled audio.
++        auto wanted = adoptGRef(gst_caps_copy(codecCaps.get()));
++        auto wantedStructure = gst_caps_get_structure(wanted.get(), 0);
++        gst_structure_remove_field(wantedStructure, "payload");
++        auto encoding = gstStructureGetString(wantedStructure, "encoding-name"_s).convertToASCIILowercase();
++        gst_structure_set(wantedStructure, "encoding-name", G_TYPE_STRING, encoding.ascii().data(), nullptr);
++        for (unsigned i = 0; currentCaps && i < gst_caps_get_size(currentCaps.get()); ++i) {
++            auto original = gst_caps_get_structure(currentCaps.get(), i);
++            auto existing = adoptGRef(gst_caps_new_empty());
++            gst_caps_append_structure(existing.get(), gst_structure_copy(original));
++            auto existingStructure = gst_caps_get_structure(existing.get(), 0);
++            gst_structure_remove_field(existingStructure, "payload");
++            auto existingEncoding = gstStructureGetString(existingStructure, "encoding-name"_s).convertToASCIILowercase();
++            gst_structure_set(existingStructure, "encoding-name", G_TYPE_STRING, existingEncoding.ascii().data(), nullptr);
++            if (!gst_caps_can_intersect(wanted.get(), existing.get()))
++                continue;
++            if (auto payload = gstStructureGet<int>(original, "payload"_s))
++                gst_caps_set_simple(codecCaps.get(), "payload", G_TYPE_INT, *payload, nullptr);
++            break;
++        }
++
+         // Restore extensions data on the first codec. It might be useful to do in the others too.
+         if (!extensions.isEmpty()) {
+             for (auto& [extensionId, url] : extensions)

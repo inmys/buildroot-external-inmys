@@ -1,0 +1,67 @@
+Subject: [PATCH] WebRTC: activate ready incoming tracks independently
+
+SFUs preallocate recvonly slots whose peers may mute audio or video.
+Waiting for data on every negotiated slot keeps already received audio
+muted indefinitely. Activate each incoming track as soon as its processor
+is ready, without a barrier across unrelated transceivers.
+
+--- a/Source/WebCore/Modules/mediastream/gstreamer/GStreamerMediaEndpoint.cpp
++++ b/Source/WebCore/Modules/mediastream/gstreamer/GStreamerMediaEndpoint.cpp
+@@ -1492,40 +1492,13 @@
+             return;
+     }
+
+-    m_pendingIncomingTracks.append(&track.privateTrack());
+-
+-    unsigned totalExpectedMediaTracks = 0;
+-    forEachTransceiver(m_webrtcBin, [&](auto&& transceiver) -> bool {
+-        GstWebRTCRTPTransceiverDirection direction;
+-        g_object_get(transceiver.get(), "current-direction", &direction, nullptr);
+-        switch (direction) {
+-        case GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_NONE:
+-        case GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_INACTIVE:
+-        case GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_SENDONLY:
+-            break;
+-        case GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_RECVONLY:
+-        case GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV:
+-            totalExpectedMediaTracks++;
+-            break;
+-        }
+-        return false;
+-    });
+-
+-    GST_DEBUG_OBJECT(m_pipeline.get(), "Expecting %u media tracks", totalExpectedMediaTracks);
+-    if (m_pendingIncomingTracks.size() < totalExpectedMediaTracks) {
+-        GST_DEBUG_OBJECT(m_pipeline.get(), "Only %zu track(s) received so far", m_pendingIncomingTracks.size());
+-        return;
+-    }
+-
+-    GST_DEBUG_OBJECT(m_pipeline.get(), "Incoming stream %s ready, notifying observers", data.mediaStreamId.ascii().data());
+-    for (auto& track : m_pendingIncomingTracks) {
+-        GST_DEBUG_OBJECT(m_pipeline.get(), "Incoming stream has track %s", track->id().utf8().data());
+-        ALWAYS_LOG(LOGIDENTIFIER, "Data flow started on track "_s, track->id());
+-        track->dataFlowStarted();
+-        track->source().setMuted(false);
+-    }
+-
+-    m_pendingIncomingTracks.clear();
++    // SFUs preallocate receive slots that may stay idle. Activate this track
++    // when its data arrives instead of waiting for every negotiated slot.
++    GST_DEBUG_OBJECT(m_pipeline.get(), "Incoming track %s ready", track.id().utf8().data());
++    ALWAYS_LOG(LOGIDENTIFIER, "Data flow started on track "_s, track.id());
++    track.privateTrack().dataFlowStarted();
++    source.setMuted(false);
++
+     gst_element_set_state(m_pipeline.get(), GST_STATE_PLAYING);
+ }
+
+--- a/Source/WebCore/Modules/mediastream/gstreamer/GStreamerMediaEndpoint.h
++++ b/Source/WebCore/Modules/mediastream/gstreamer/GStreamerMediaEndpoint.h
+@@ -222,7 +222,6 @@
+
+     bool m_shouldIgnoreNegotiationNeededSignal { false };
+
+-    Vector<RefPtr<MediaStreamTrackPrivate>> m_pendingIncomingTracks;
+
+     Vector<RefPtr<RealtimeOutgoingMediaSourceGStreamer>> m_unlinkedOutgoingSources;
+

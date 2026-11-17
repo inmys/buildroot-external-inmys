@@ -68,6 +68,8 @@ if "$use_camera"; then
         sleep 0.1
     done
     export COG_MEDIA_CAPTURE=1
+    # PowerVR GL readback stalls createImageBitmap(video) in calling sites.
+    export WEBKIT_GST_DISABLE_GL_SINK=${WEBKIT_GST_DISABLE_GL_SINK:-1}
 fi
 if mountpoint -q /data; then
     mkdir -p /data/browser
