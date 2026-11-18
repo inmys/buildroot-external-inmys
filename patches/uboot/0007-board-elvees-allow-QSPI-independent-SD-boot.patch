@@ -46,18 +46,19 @@ Upstream-Status: Inappropriate [NMS module boot media]
  
  enum subsystem_reset_lines {
  	/* Do not swap elements */
-@@ -529,6 +556,10 @@
+@@ -529,6 +556,11 @@
  
  int board_late_init(void)
  {
-+	if (!strcmp(nms_boot_medium(), "sd"))
++	if (!strcmp(nms_boot_medium(), "sd") &&
++	    (gd->flags & GD_FLG_ENV_DEFAULT))
 +		env_set("boot_targets", "mmc0 mmc1 usb0");
 +	printf("NMS: environment on %s, slot %s, DTB %s\n",
 +	       nms_boot_medium(), env_get("active_slot"), env_get("fdtfile"));
  	return 0;
  }
  
-@@ -566,6 +597,15 @@
+@@ -566,6 +598,15 @@
  		}
  	}
  
