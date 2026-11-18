@@ -69,8 +69,8 @@ if "$use_camera"; then
         sleep 0.1
     done
     export COG_MEDIA_CAPTURE=1
-    # PowerVR GL readback stalls createImageBitmap(video) in calling sites.
-    export WEBKIT_GST_DISABLE_GL_SINK=${WEBKIT_GST_DISABLE_GL_SINK:-1}
+    # Keep GPU rendering through GL textures; direct DMA-BUF display import fails on this DDK.
+    export WEBKIT_GST_DMABUF_SINK_DISABLED=${WEBKIT_GST_DMABUF_SINK_DISABLED:-1}
 fi
 mkdir -p "$session/weston" "$session/client"
 chmod 0700 "$session/weston" "$session/client"

@@ -4,11 +4,11 @@ INMYS_BROWSER_LICENSE = MIT
 INMYS_BROWSER_DEPENDENCIES = elvees-powervr-graphics elvees-vpu-modules \
 	weston cog glib-networking shared-mime-info gst1-plugins-good gst1-plugins-bad
 
-# Buildroot disables WebRTC in WPE unconditionally. Use its GStreamer backend
-# with the selected media-stream/WebRTC plugins for this browser profile.
+# Use libwebrtc for transport and GStreamer/V4L2 for media capture and codecs.
 ifeq ($(BR2_PACKAGE_INMYS_BROWSER),y)
 WPEWEBKIT_CONF_OPTS := $(filter-out -DENABLE_WEB_RTC=OFF,$(WPEWEBKIT_CONF_OPTS)) \
-	-DENABLE_WEB_RTC=ON -DUSE_GSTREAMER_WEBRTC=ON
+	-DENABLE_WEB_RTC=ON -DUSE_GSTREAMER_WEBRTC=OFF
+WPEWEBKIT_DEPENDENCIES += libevent libvpx opus alsa-lib
 endif
 
 ifeq ($(BR2_PACKAGE_INMYS_BROWSER_CAMERA),y)

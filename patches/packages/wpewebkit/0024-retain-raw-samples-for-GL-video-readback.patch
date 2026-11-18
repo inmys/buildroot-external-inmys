@@ -1,0 +1,94 @@
+Subject: [PATCH] video: retain raw samples for readback with GL rendering
+
+--- a/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamer.cpp
++++ b/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamer.cpp
+@@ -114,6 +114,7 @@
+
+ #if USE(GSTREAMER_GL)
+ #include "GLVideoSinkGStreamer.h"
++#include <gst/gl/gstglmemory.h>
+ #endif // USE(GSTREAMER_GL)
+
+ #if USE(COORDINATED_GRAPHICS)
+@@ -4072,7 +4073,7 @@
+         if (!GST_IS_SAMPLE(m_sample.get()))
+             return;
+
+-        sample = m_sample;
++        sample = m_readbackSample ? m_readbackSample : m_sample;
+     }
+
+     auto caps = gst_sample_get_caps(sample.get());
+@@ -4080,7 +4081,7 @@
+     if (!presentationSize)
+         return;
+
+-    auto frame = VideoFrameGStreamer::create(WTFMove(sample), { IntSize(*presentationSize), { *m_videoInfo } });
++    auto frame = VideoFrameGStreamer::createWrappedSample(sample);
+     frame->draw(context, rect, m_videoSourceOrientation, false);
+ }
+
+@@ -4091,12 +4092,16 @@
+
+ RefPtr<VideoFrame> MediaPlayerPrivateGStreamer::videoFrameForCurrentTime()
+ {
+-    Locker sampleLocker { m_sampleMutex };
+-
+-    if (!GST_IS_SAMPLE(m_sample.get()))
++    GRefPtr<GstSample> sample;
++    {
++        Locker sampleLocker { m_sampleMutex };
++        sample = m_readbackSample ? m_readbackSample : m_sample;
++    }
++
++    if (!GST_IS_SAMPLE(sample.get()))
+         return nullptr;
+
+-    auto frame = VideoFrameGStreamer::createWrappedSample(m_sample);
++    auto frame = VideoFrameGStreamer::createWrappedSample(sample);
+     if (frame->contentHint() != VideoFrameContentHint::Canvas)
+         return frame;
+
+@@ -4104,7 +4109,7 @@
+     if (!convertedSample)
+         return nullptr;
+
+-    auto size = getVideoResolutionFromCaps(gst_sample_get_caps(m_sample.get())).value_or(FloatSize { 0, 0 });
++    auto size = getVideoResolutionFromCaps(gst_sample_get_caps(sample.get())).value_or(FloatSize { 0, 0 });
+     return VideoFrameGStreamer::create(WTFMove(convertedSample), { IntSize(size) });
+ }
+
+@@ -4185,6 +4190,23 @@
+     ASSERT(sink);
+     webKitGLVideoSinkSetMediaPlayerPrivate(WEBKIT_GL_VIDEO_SINK(sink), this);
+
++    // Keep CPU-readable storage for canvas/readback without downloading GL textures.
++    // The sample retains GstMemory/DMA-BUF references; no pixels are copied here.
++    auto pad = adoptGRef(gst_element_get_static_pad(sink, "sink"));
++    gst_pad_add_probe(pad.get(), GST_PAD_PROBE_TYPE_BUFFER, +[](GstPad* pad, GstPadProbeInfo* info, gpointer data) -> GstPadProbeReturn {
++        auto* buffer = GST_PAD_PROBE_INFO_BUFFER(info);
++        if (!gst_buffer_n_memory(buffer) || gst_is_gl_memory(gst_buffer_peek_memory(buffer, 0)))
++            return GST_PAD_PROBE_OK;
++        auto caps = adoptGRef(gst_pad_get_current_caps(pad));
++        if (!caps || !gst_structure_has_name(gst_caps_get_structure(caps.get(), 0), "video/x-raw"))
++            return GST_PAD_PROBE_OK;
++        auto sample = adoptGRef(gst_sample_new(buffer, caps.get(), nullptr, nullptr));
++        auto* player = static_cast<MediaPlayerPrivateGStreamer*>(data);
++        Locker locker { player->m_sampleMutex };
++        player->m_readbackSample = WTFMove(sample);
++        return GST_PAD_PROBE_OK;
++    }, this, nullptr);
++
+     return sink;
+ }
+ #endif // USE(GSTREAMER_GL)
+--- a/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamer.h
++++ b/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamer.h
+@@ -418,6 +418,7 @@
+
+     mutable Lock m_sampleMutex;
+     GRefPtr<GstSample> m_sample WTF_GUARDED_BY_LOCK(m_sampleMutex);
++    GRefPtr<GstSample> m_readbackSample WTF_GUARDED_BY_LOCK(m_sampleMutex);
+
+     mutable IntSize m_videoSizeFromCaps;
+     mutable FloatSize m_videoSize;

@@ -1,0 +1,15 @@
+Subject: [PATCH] capture: bound the camera queue to release DMA-BUF leases
+
+--- a/Source/WebCore/platform/mediastream/gstreamer/GStreamerCapturer.cpp
++++ b/Source/WebCore/platform/mediastream/gstreamer/GStreamerCapturer.cpp
+@@ -254,4 +254,10 @@
+     m_capsfilter = makeElement("capsfilter"_s);
+     auto queue = gst_element_factory_make("queue", nullptr);
++    if (m_deviceType == CaptureDevice::DeviceType::Camera) {
++        // A slow consumer must not retain the camera's entire DMA-BUF pool.
++        g_object_set(queue, "max-size-buffers", 1, "max-size-bytes", 0,
++            "max-size-time", static_cast<guint64>(0), nullptr);
++        gst_util_set_object_arg(G_OBJECT(queue), "leaky", "downstream");
++    }
+     if (!m_sink)
+         m_sink = makeElement("appsink"_s);
