@@ -2,6 +2,15 @@ include $(sort $(wildcard $(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/package/*/*.mk
 
 NMS_BOARD_DIR := $(BR2_EXTERNAL_INMYS_NMS_SM_K1892_PATH)/board/nms-sm-k1892vm21ya
 
+# Install local CAs before Buildroot generates its bundle and hash symlinks.
+ifeq ($(BR2_PACKAGE_CA_CERTIFICATES),y)
+define NMS_INSTALL_CA_CERTIFICATES
+	$(INSTALL) -d -m 0755 $(TARGET_DIR)/usr/share/ca-certificates/inmys
+	$(INSTALL) -m 0644 $(NMS_BOARD_DIR)/certificates/*.crt $(TARGET_DIR)/usr/share/ca-certificates/inmys/
+endef
+TARGET_FINALIZE_HOOKS := NMS_INSTALL_CA_CERTIFICATES $(TARGET_FINALIZE_HOOKS)
+endif
+
 # The normal configure step records these snapshots, and the final install
 # consumes them. Refresh missing snapshots when rebuilding without configure.
 define NMS_REBUILD_FILE_LISTS
