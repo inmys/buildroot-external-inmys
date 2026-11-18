@@ -891,6 +891,29 @@ static int enum_fmt(struct file *file, void *fh, struct v4l2_fmtdesc *f)
 	}
 	return 0;
 }
+static int enum_framesizes(struct file *file, void *fh,
+			  struct v4l2_frmsizeenum *f)
+{
+	struct mve_video *d = video_drvdata(file);
+
+	if (!d->encode || f->index)
+		return -EINVAL;
+	switch (f->pixel_format) {
+	case V4L2_PIX_FMT_H264: case V4L2_PIX_FMT_VP8: case V4L2_PIX_FMT_JPEG:
+	case V4L2_PIX_FMT_NV12: case V4L2_PIX_FMT_YUV420:
+		break;
+	default:
+		return -EINVAL;
+	}
+	/* CAPTURE TRY_FMT follows the current OUTPUT size. Advertise the
+	 * supported range separately so clients can negotiate a different size. */
+	f->type = V4L2_FRMSIZE_TYPE_STEPWISE;
+	f->stepwise = (struct v4l2_frmsize_stepwise) {
+		.min_width = 16, .max_width = MVE_W, .step_width = 2,
+		.min_height = 16, .max_height = MVE_H, .step_height = 2,
+	};
+	return 0;
+}
 static void format_fill(struct mve_context *c, struct v4l2_format *f)
 {
 	struct v4l2_pix_format_mplane *p = &f->fmt.pix_mp;
@@ -1059,6 +1082,7 @@ static int subscribe(struct v4l2_fh *fh, const struct v4l2_event_subscription *s
 static const struct v4l2_ioctl_ops ioctl_ops = {
 	.vidioc_querycap = querycap,
 	.vidioc_enum_fmt_vid_cap = enum_fmt, .vidioc_enum_fmt_vid_out = enum_fmt,
+	.vidioc_enum_framesizes = enum_framesizes,
 	.vidioc_g_fmt_vid_cap_mplane = get_fmt, .vidioc_g_fmt_vid_out_mplane = get_fmt,
 	.vidioc_try_fmt_vid_cap_mplane = try_fmt, .vidioc_try_fmt_vid_out_mplane = try_fmt,
 	.vidioc_s_fmt_vid_cap_mplane = set_fmt, .vidioc_s_fmt_vid_out_mplane = set_fmt,
