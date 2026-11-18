@@ -1,0 +1,20 @@
+From 485566202ae6552cb5f1b0e755e03ac9fb8d0a03 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Albert=20Sj=C3=B6lund?= <alberts@axis.com>
+Date: Thu, 30 Apr 2026 11:57:58 +0200
+Subject: [PATCH] agent: harder check for turn list length
+
+There is another code path that adds turn servers to the list when it is resolved. This does not perform any checks, and so increments the list size. This means any new turn servers can exceed the allowed size.
+Upstream: https://github.com/libnice/libnice/commit/485566202ae6552cb5f1b0e755e03ac9fb8d0a03
+
+---
+ agent/agent.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/agent/agent.c b/agent/agent.c
+--- a/agent/agent.c
++++ b/agent/agent.c
+@@ -3214,3 +3214,3 @@
+   length = g_list_length (component->turn_servers);
+-  if (length == NICE_CANDIDATE_MAX_TURN_SERVERS) {
++  if (length >= NICE_CANDIDATE_MAX_TURN_SERVERS) {
+     g_warning ("Agent %p : cannot have more than %d turn servers per component.",
