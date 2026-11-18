@@ -56,7 +56,7 @@ struct mve_storage {
 struct mve_context {
 	struct v4l2_fh fh;
 	struct v4l2_ctrl_handler controls;
-	struct v4l2_ctrl *display_delay_enable;
+	struct v4l2_ctrl *display_delay_enable, *min_capture;
 	struct v4l2_ctrl *bitrate, *bitrate_mode, *gop, *profile, *level, *jpeg_quality, *repeat_header;
 	u32 codec, raw_format, fps_num, fps_den;
 	bool force_keyframe;
@@ -572,6 +572,10 @@ static int event_handle(struct mve_context *c, struct mve_response *r)
 		dev_info(c->dev->dev, "V4L2 firmware requests %u output buffers (pool %u)\n",
 			 p->num_buffers_planar, MVE_OUTPUTS);
 		if (p->num_buffers_planar > MVE_OUTPUTS) return -ENOSPC;
+		/* Advertise the firmware's working set before userspace allocates its
+		 * capture pool (including any additional downstream buffers). */
+		if (!c->dev->encode)
+			return v4l2_ctrl_s_ctrl(c->min_capture, max(4U, p->num_buffers_planar));
 		return 0;
 	}
 	if (ev->code == MVE_BASE_EVENT_ALLOC_PARAMS && !c->dev->encode) {
@@ -1148,8 +1152,9 @@ static int video_open(struct file *file)
 	ctrl = v4l2_ctrl_new_std(&c->controls, NULL,
 		V4L2_CID_MPEG_VIDEO_DEC_DISPLAY_DELAY, 0, 0, 1, 0);
 	if (ctrl) ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-	ctrl = v4l2_ctrl_new_std(&c->controls, NULL, V4L2_CID_MIN_BUFFERS_FOR_CAPTURE, 4, 4, 1, 4);
-	if (ctrl) ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	c->min_capture = v4l2_ctrl_new_std(&c->controls, NULL,
+		V4L2_CID_MIN_BUFFERS_FOR_CAPTURE, 4, MVE_OUTPUTS, 1, 4);
+	if (c->min_capture) c->min_capture->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 	}
 	ctrl = v4l2_ctrl_new_std(&c->controls, NULL, V4L2_CID_MIN_BUFFERS_FOR_OUTPUT,
 		MVE_INPUTS, MVE_INPUTS, 1, MVE_INPUTS);

@@ -1,0 +1,28 @@
+Subject: [PATCH] audio: unblock mixer input before stopping its source
+
+A paused mixer can leave interaudiosrc waiting on a serialized aggregator query.
+Release its request pad before joining the source task during teardown, or a
+playsink reconfiguration can deadlock the WebProcess main thread on volume reads.
+
+--- a/Source/WebCore/platform/graphics/gstreamer/GStreamerAudioMixer.cpp
++++ b/Source/WebCore/platform/graphics/gstreamer/GStreamerAudioMixer.cpp
+@@ -143,13 +143,16 @@
+     auto interaudioSrc = adoptGRef(gst_pad_get_parent_element(srcPad.get()));
+     GST_LOG_OBJECT(m_pipeline.get(), "interaudiosrc: %" GST_PTR_FORMAT, interaudioSrc.get());
+
++    // Release the aggregator pad first: a producer can be waiting for a
++    // serialized query while the mixer is paused. Stopping its source before
++    // releasing that wait would join a streaming task that cannot finish.
++    gst_pad_unlink(peer.get(), mixerPad.get());
++    gst_element_release_request_pad(m_mixer.get(), mixerPad.get());
++
+     gstElementLockAndSetState(interaudioSrc.get(), GST_STATE_NULL);
+     gstElementLockAndSetState(bin.get(), GST_STATE_NULL);
+-    gst_pad_unlink(peer.get(), mixerPad.get());
+     gst_element_unlink(interaudioSrc.get(), bin.get());
+-
+-    gst_element_release_request_pad(m_mixer.get(), mixerPad.get());
+
+     gst_bin_remove_many(GST_BIN_CAST(m_pipeline.get()), interaudioSrc.get(), bin.get(), nullptr);
+
+     if (!m_mixer->numsinkpads)

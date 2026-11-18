@@ -1,0 +1,65 @@
+Subject: [PATCH] coordinated: avoid video layer/proxy lock inversion
+
+Main-thread commits acquire the layer lock before consuming the proxy's pending
+buffer. Streaming threads must acquire these locks in the same order. Retain and
+recheck the target layer across the unlocked interval. Likewise, do not hold the
+proxy lock while copying the compositor's current buffer under its layer lock.
+
+--- a/Source/WebCore/platform/graphics/texmap/coordinated/CoordinatedPlatformLayerBufferProxy.cpp
++++ b/Source/WebCore/platform/graphics/texmap/coordinated/CoordinatedPlatformLayerBufferProxy.cpp
+@@ -83,19 +83,28 @@
+
+ void CoordinatedPlatformLayerBufferProxy::setDisplayBuffer(std::unique_ptr<CoordinatedPlatformLayerBuffer>&& buffer)
+ {
++    RefPtr<CoordinatedPlatformLayer> layer;
++    {
++        Locker locker { m_lock };
++        if (!m_layer) {
++            m_pendingBuffer = WTFMove(buffer);
++            return;
++        }
++        layer = m_layer;
++    }
++
++    // Main-thread commits hold the layer lock before taking the proxy lock.
++    // Use the same order here, retaining the layer while the proxy is unlocked.
++    Locker layerLocker { layer->lock() };
+     Locker locker { m_lock };
+-    if (!m_layer) {
++    if (m_layer != layer) {
+         m_pendingBuffer = WTFMove(buffer);
+         return;
+     }
+
+     m_pendingBuffer = nullptr;
+-
+-    {
+-        Locker layerLocker { m_layer->lock() };
+-        m_layer->setContentsBuffer(WTFMove(buffer), CoordinatedPlatformLayer::RequireComposition::No);
+-    }
+-    m_layer->requestComposition();
++    layer->setContentsBuffer(WTFMove(buffer), CoordinatedPlatformLayer::RequireComposition::No);
++    layer->requestComposition();
+ }
+
+ #if ENABLE(VIDEO) && USE(GSTREAMER)
+@@ -111,11 +120,14 @@
+     }
+
+     auto dropCurrentBuffer = [this, protectedThis = Ref { *this }] {
+-        Locker locker { m_lock };
+-        if (!m_layer)
+-            return;
+-
+-        m_layer->replaceCurrentContentsBufferWithCopy();
++        RefPtr<CoordinatedPlatformLayer> layer;
++        {
++            Locker locker { m_lock };
++            layer = m_layer;
++        }
++        // replaceCurrentContentsBufferWithCopy() acquires the layer lock.
++        if (layer)
++            layer->replaceCurrentContentsBufferWithCopy();
+     };
+
+     if (shouldWait == ShouldWait::No) {

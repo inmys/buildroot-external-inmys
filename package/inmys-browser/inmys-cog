@@ -11,6 +11,8 @@ export ALSA_PCM_CARD=${ALSA_PCM_CARD:-analogaudio}
 export WEBKIT_GST_ENABLE_AUDIO_MIXER=1
 # Decode incoming RTP before handing raw video frames to MediaStream clients.
 export WEBKIT_GST_WEBRTC_FORCE_EARLY_VIDEO_DECODING=${WEBKIT_GST_WEBRTC_FORCE_EARLY_VIDEO_DECODING:-1}
+# Import NV12 planes through GStreamer GL; direct WebKit DMA-BUF rendering stalls on this DDK.
+export WEBKIT_GST_DMABUF_SINK_DISABLED=${WEBKIT_GST_DMABUF_SINK_DISABLED:-1}
 # Mesa 17 cannot enumerate DMA-BUF formats; NV12 plane imports are validated.
 export WEBKIT_GST_DMABUF_FORMATS=NV12
 # Use the stateful V4L2 decoder for H.264, including MSE seek/flush.
