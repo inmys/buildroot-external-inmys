@@ -155,7 +155,7 @@ Subject: [PATCH] libwebrtc: use asynchronous V4L2 codecs and native GStreamer fr
          }
 
          if (!m_src) {
-@@ -228,17 +271,45 @@
+@@ -228,67 +271,126 @@
              return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
          }
 
@@ -170,6 +170,9 @@ Subject: [PATCH] libwebrtc: use asynchronous V4L2 codecs and native GStreamer fr
 -
 -        for (auto frame_type : *frameTypes) {
 -            if (frame_type == webrtc::VideoFrameType::kVideoFrameKey) {
+-                auto pad = adoptGRef(gst_element_get_static_pad(m_src.get(), "src"));
+-                auto forceKeyUnit = gst_video_event_new_downstream_force_key_unit(GST_CLOCK_TIME_NONE,
+-                    GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, FALSE, 1);
 +        auto originalSample = convertLibWebRTCVideoFrameToGStreamerSample(frame);
 +        auto* originalBuffer = gst_sample_get_buffer(originalSample.get());
 +        GRefPtr<GstElement> encoder;
@@ -209,10 +212,16 @@ Subject: [PATCH] libwebrtc: use asynchronous V4L2 codecs and native GStreamer fr
 +            for (auto frame_type : *frameTypes) {
 +                if (frame_type != webrtc::VideoFrameType::kVideoFrameKey)
 +                    continue;
-                 auto pad = adoptGRef(gst_element_get_static_pad(m_src.get(), "src"));
-                 auto forceKeyUnit = gst_video_event_new_downstream_force_key_unit(GST_CLOCK_TIME_NONE,
-                     GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, FALSE, 1);
-@@ -251,44 +322,75 @@
++                // The encoder queue must not wait for a serialized streaming event.
++                auto pad = adoptGRef(gst_element_get_static_pad(encoder.get(), "src"));
++                auto forceKeyUnit = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, FALSE, 1);
+                 GST_INFO_OBJECT(m_pipeline.get(), "Requesting KEYFRAME!");
+
+-                if (!gst_pad_push_event(pad.get(), forceKeyUnit))
++                if (!gst_pad_send_event(pad.get(), forceKeyUnit))
+                     GST_WARNING_OBJECT(pipeline(), "Could not send ForceKeyUnit event");
+
+                 break;
              }
          }
 
